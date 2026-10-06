@@ -212,7 +212,6 @@ fun PlayerScreen(
     var urlTestResult by remember { mutableStateOf<String?>(null) }
     var fileLoaded by remember { mutableStateOf(false) }
     val danmakuOn = remember { mutableStateOf(true) }
-    var canvasRef by remember { mutableStateOf<java.awt.Canvas?>(null) }
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
     var videoUrl by remember { mutableStateOf<String?>(null) }
     var urlError by remember { mutableStateOf<String?>(null) }
@@ -235,35 +234,6 @@ fun PlayerScreen(
 
     // canvas 有实际尺寸 + 拿到播放地址后才 init mpv（0x0 时无法渲染）
     var initializing by remember { mutableStateOf(false) }
-    // 弹幕：主窗口 GlassPane AWT 直接绘制（盖住 heavyweight Canvas）
-    LaunchedEffect(owner, canvasRef) {
-        try {
-            val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
-                ?: owner as? javax.swing.JFrame
-            if (root != null) {
-                val videoRect = {
-                    val c = canvasRef
-                    if (c != null && c.isShowing) {
-                        try {
-                            val p = c.locationOnScreen
-                            val rp = root.locationOnScreen
-                            java.awt.Rectangle(p.x - rp.x, p.y - rp.y, c.width, c.height)
-                        } catch (_: Throwable) { null }
-                    } else null
-                }
-                val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
-                    javax.swing.SwingUtilities.invokeLater {
-                        if (!controlsVisible) {
-                            controlsVisible = true
-                        }
-                    }
-                }
-                root.glassPane = glass
-                glass.isVisible = true
-            }
-        } catch (_: Throwable) { }
-    }
-
     DisposableEffect(Unit) {
         player.listener = object : MpvPlayer.Listener {
             override fun onFileLoaded() {
@@ -308,7 +278,32 @@ fun PlayerScreen(
         VideoCanvasArea(
             controlsVisibleState = controlsVisibleState,
             onCanvasReadyOnce = { canvas ->
-                canvasRef = canvas
+                // 弹幕 GlassPane 设置（直接用 canvas 引用，不经过状态）
+                try {
+                    val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
+                        ?: owner as? javax.swing.JFrame
+                    if (root != null) {
+                        val videoRect = {
+                            if (canvas.isShowing) {
+                                try {
+                                    val p = canvas.locationOnScreen
+                                    val rp = root.locationOnScreen
+                                    java.awt.Rectangle(p.x - rp.x, p.y - rp.y, canvas.width, canvas.height)
+                                } catch (_: Throwable) { null }
+                            } else null
+                        }
+                        val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
+                            javax.swing.SwingUtilities.invokeLater {
+                                if (!controlsVisible) {
+                                    controlsVisible = true
+                                }
+                            }
+                        }
+                        root.glassPane = glass
+                        glass.isVisible = true
+                        com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
+                    }
+                } catch (_: Throwable) { }
                 // 单次安全的异步初始化，不触发重构死循环
                 Thread {
                     val wid = try {
@@ -455,7 +450,7 @@ fun PlayerScreen(
                         modifier = Modifier.padding(vertical = 2.dp)
                     )
                     Text(
-                        "fileLoaded: $fileLoaded, inited: $inited, canvas: ${canvasRef != null}",
+                        "fileLoaded: $fileLoaded, inited: $inited",
                         color = Color(0xFF88CCFF),
                         fontSize = 11.sp,
                         modifier = Modifier.padding(vertical = 2.dp)
