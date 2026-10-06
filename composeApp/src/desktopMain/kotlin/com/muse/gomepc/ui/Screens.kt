@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import com.muse.gomepc.emby.Prefs
 import com.muse.gomepc.emby.YambyClient
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import androidx.compose.runtime.rememberCoroutineScope
 import com.muse.gomepc.emby.ServerEntry
 
@@ -345,17 +347,26 @@ fun HomeScreen(
         try {
             error = null
             libs = null; resume = null; libItems = emptyMap(); latest = null
-            val l = Repo.libraries()
+            // 第一批并行：libraries + resume + latest
+            val libsDef = async { Repo.libraries() }
+            val resumeDef = async { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } }
+            val latestDef = async { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } }
+            val l = libsDef.await()
             libs = l
-            resume = Repo.resumeItems()
-            latest = try { Repo.latestItems(8) } catch (_: Exception) { emptyList() }
-            val map = mutableMapOf<String, List<UiMediaItem>>()
-            for (lib in l) {
-                try {
-                    map[lib.id] = Repo.items(lib.id, 12)
-                } catch (_: Exception) { }
+            resume = resumeDef.await()
+            latest = latestDef.await()
+            // 第二批并行：每个媒体库的 items
+            val itemsDefs = l.map { lib ->
+                lib.id to async {
+                    try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() }
+                }
             }
-            libItems = map
+            val map = mutableMapOf<String, List<UiMediaItem>>()
+            for ((id, def) in itemsDefs) {
+                map[id] = def.await()
+                // 增量更新：每回来一个库就刷新 UI，不用等全部
+                libItems = map.toMap()
+            }
         } catch (e: Exception) {
             error = e.message ?: "未知错误"
         }
