@@ -935,6 +935,25 @@ private fun ServerCardsGrid(
     }
 }
 
+/**
+ * 服务器卡片背景色：对齐安卓 CardTintHelper。
+ * 按名称哈希取一个鲜艳色，再与白色混合成柔和浅色（82.5%白）。
+ */
+private fun serverTint(name: String): Color {
+    val hash = name.hashCode()
+    // 用哈希取色相（0-360），饱和度 0.7，明度 0.55，保证鲜艳
+    val hue = ((hash % 360) + 360) % 360 / 360f
+    val c = java.awt.Color.getHSBColor(hue, 0.7f, 0.65f)
+    val r = c.red; val g = c.green; val b = c.blue
+    // 与白色混合（82.5%白），对齐安卓的柔和浅色
+    val m = 0.825f
+    return Color(
+        red = (r * (1 - m) + 255 * m).toInt().coerceIn(0, 255),
+        green = (g * (1 - m) + 255 * m).toInt().coerceIn(0, 255),
+        blue = (b * (1 - m) + 255 * m).toInt().coerceIn(0, 255)
+    )
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ServerCard(
@@ -946,6 +965,9 @@ private fun ServerCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    // 卡片背景：对齐安卓 CardTintHelper——图标色（柔和浅色）为中心向四周的径向渐变→白色
+    // PC 图标为字母，按服务器名哈希取色，再与白色混合（82.5%白）
+    val tint = remember(server.name) { serverTint(server.name.ifEmpty { server.host }) }
     // 对齐 Android item_server_card.xml：24dp圆角，1dp阴影，7dp边距，10dp内边距
     Column(
         modifier = Modifier
@@ -953,7 +975,13 @@ private fun ServerCard(
             .padding(7.dp)
             .shadow(1.dp, RoundedCornerShape(24.dp))
             .clip(RoundedCornerShape(24.dp))
-            .background(Color.White)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(tint, Color.White),
+                    center = androidx.compose.ui.geometry.Offset(0.85f, 0.15f),
+                    radius = 1200f
+                )
+            )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(10.dp)
     ) {

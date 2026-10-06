@@ -72,13 +72,14 @@ class MpvPlayer {
         opt("msg-level", "all=warn")?.let { /* 非致命，忽略 */ }
         opt("terminal", "no")?.let { /* 非致命，忽略 */ }
 
+        // 请求日志消息必须在 initialize 之前（mpv 要求）
+        try { lib.mpv_request_log_messages(ctx, "info") } catch (_: Throwable) { }
+
         val r = lib.mpv_initialize(ctx)
         if (r < 0) {
             destroy()
             return "mpv_initialize failed: ${lib.mpv_error_string(r)}"
         }
-        // 请求日志消息（诊断用，UI 可展示）
-        try { lib.mpv_request_log_messages(ctx, "info") } catch (_: Throwable) { }
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
         lib.mpv_set_property_string(ctx, "osd-level", "0")

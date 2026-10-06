@@ -184,7 +184,10 @@ fun PlayerScreen(
                         if (System.getProperty("ui.loop", "false") == "true") {
                             player.setLoop(true)
                         }
-                        player.play(url)
+                        val playErr = player.play(url)
+                        if (playErr != null) {
+                            SwingUtilities.invokeLater { initError = "play: $playErr" }
+                        }
                     }
                 }
             }.start()
