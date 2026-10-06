@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
@@ -38,7 +39,7 @@ fun main() = application {
     val state = rememberWindowState(
         width = 1280.dp,
         height = 800.dp,
-        position = WindowPosition(0.dp, 0.dp)
+        position = WindowPosition(Alignment.Center)
     )
     Window(
         onCloseRequest = ::exitApplication,
