@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +54,7 @@ fun DockBar(
     current: Screen,
     onSelect: (Screen) -> Unit,
     blurredBackdrop: ImageBitmap? = null,
+    onDockBounds: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val tabs = dockTabs()
@@ -66,7 +68,22 @@ fun DockBar(
         contentAlignment = Alignment.BottomCenter
     ) {
         MGlassBox(
-            modifier = Modifier.padding(bottom = 12.dp),
+            modifier = Modifier
+                .padding(bottom = 12.dp)
+                .then(
+                    if (onDockBounds != null) {
+                        Modifier.onGloballyPositioned { coords ->
+                            val pos = coords.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
+                            val size = coords.size
+                            onDockBounds(
+                                androidx.compose.ui.geometry.Rect(
+                                    pos.x, pos.y,
+                                    pos.x + size.width, pos.y + size.height
+                                )
+                            )
+                        }
+                    } else Modifier
+                ),
             corner = 30.dp,
             blurredBackdrop = blurredBackdrop
         ) {

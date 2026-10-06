@@ -70,15 +70,15 @@ fun MGlassBox(
                 .matchParentSize()
                 .background(MGlass.Tint)
         )
-        // 顶部高光渐变
+        // 顶部高光渐变（28dp 高，用 color stops 截断）
         Box(
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(28.dp)
+                .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(MGlass.HighlightTop, MGlass.HighlightBottom)
+                        0.0f to MGlass.HighlightTop,
+                        0.4f to MGlass.HighlightBottom,
+                        1.0f to MGlass.HighlightBottom
                     )
                 )
         )

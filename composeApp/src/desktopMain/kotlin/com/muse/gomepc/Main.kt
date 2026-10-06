@@ -11,7 +11,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
@@ -162,15 +161,8 @@ fun GomeApp(
                 current = screen,
                 onSelect = { screen = it },
                 blurredBackdrop = dockBlur.blurred,
+                onDockBounds = { dockBoundsInWindow = it },
                 modifier = Modifier.fillMaxSize()
-                    .onGloballyPositioned { coords ->
-                        // 记录 dock 在窗口内的位置（像素）
-                        val pos = coords.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
-                        val size = coords.size
-                        dockBoundsInWindow = androidx.compose.ui.geometry.Rect(
-                            pos.x, pos.y, pos.x + size.width, pos.y + size.height
-                        )
-                    }
             )
         }
 
