@@ -101,9 +101,9 @@ private fun PlayPauseButton(paused: Boolean, onClick: () -> Unit, modifier: Modi
 private fun isWindows(): Boolean =
     System.getProperty("os.name", "").lowercase().contains("win")
 
-/** 平台自适应默认 vo：Windows→gpu（兼容性），Linux→x11（Xvfb 测试）/真机可传参覆盖 */
+/** 平台自适应默认 vo：Windows→gpu-next（HDR 直通），Linux→x11（Xvfb 测试）/真机可传参覆盖 */
 private fun defaultVo(): String =
-    System.getProperty("ui.vo") ?: if (isWindows()) "gpu" else "x11"
+    System.getProperty("ui.vo") ?: if (isWindows()) "gpu-next" else "x11"
 
 /** 平台自适应默认 hwdec：Windows→d3d11va，Linux→no（Xvfb 无 GPU） */
 private fun defaultHwdec(): String =
