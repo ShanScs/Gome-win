@@ -242,26 +242,23 @@ fun PlayerScreen(
         } catch (_: Throwable) { }
     }
 
-    // 全局鼠标监听：mpv 原生渲染可能拦截 Canvas 的鼠标事件，
-    // 用 Toolkit 级别的监听确保点击/移动能呼出控制条
-    // 点击只负责显示（3秒自动隐藏负责消失），避免点工具栏按钮时误触切换
-    DisposableEffect(Unit) {
-        val listener = java.awt.event.AWTEventListener { event ->
-            if (event is java.awt.event.MouseEvent) {
-                when (event.id) {
-                    java.awt.event.MouseEvent.MOUSE_CLICKED,
-                    java.awt.event.MouseEvent.MOUSE_MOVED -> {
-                        SwingUtilities.invokeLater { controlsVisible = true }
+    // 鼠标移动检测：用轮询代替事件监听（mpv 原生窗口可能绕过 AWT 事件队列）
+    // 每 200ms 检查一次鼠标位置，移动了就显示控制条
+    LaunchedEffect(Unit) {
+        var lastX = -1
+        var lastY = -1
+        while (true) {
+            kotlinx.coroutines.delay(200)
+            try {
+                val loc = java.awt.MouseInfo.getPointerInfo()?.location
+                if (loc != null) {
+                    if (lastX != -1 && (loc.x != lastX || loc.y != lastY)) {
+                        controlsVisible = true
                     }
+                    lastX = loc.x
+                    lastY = loc.y
                 }
-            }
-        }
-        java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(
-            listener,
-            java.awt.AWTEvent.MOUSE_EVENT_MASK or java.awt.AWTEvent.MOUSE_MOTION_EVENT_MASK
-        )
-        onDispose {
-            java.awt.Toolkit.getDefaultToolkit().removeAWTEventListener(listener)
+            } catch (_: Exception) { }
         }
     }
 
