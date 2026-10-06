@@ -1518,7 +1518,7 @@ fun SettingsScreen(
         item {
             SettingCard {
                 SettingRowIcon(
-                    label = "Gome PC 1.0.0（杜比视界兼容版）",
+                    label = AppVersion.DISPLAY,
                     iconBg = Color(0xFF8E8E93),
                     iconText = "ⓘ",
                     showDivider = true,
