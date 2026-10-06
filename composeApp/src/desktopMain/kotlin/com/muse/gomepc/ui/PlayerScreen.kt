@@ -1,0 +1,339 @@
+package com.muse.gomepc.ui
+
+import androidx.compose.ui.awt.SwingPanel
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.awt.ComposePanel
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.muse.gomepc.danmaku.DanmakuEngine
+import com.muse.gomepc.danmaku.DanmakuOverlay
+import com.muse.gomepc.player.MpvPlayer
+import com.muse.gomepc.player.Win32Util
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import javax.swing.JWindow
+import javax.swing.SwingUtilities
+import kotlin.math.roundToInt
+
+private val demoDanmakus = listOf(
+    "声声，准时来报到！", "檀健次我来了！！", "莫青成x18 ♡165",
+    "好喜欢檀健次莫青成x3 ♡210", "小炭火在此♡28", "多多，我来啦",
+    "啊啊啊，太甜了", "声声慢，我在", "前排打卡", "二刷来了",
+    "配音也太好听了吧", "顾声冲鸭", "名场面！！", "泪目了"
+)
+
+fun formatTime(sec: Double): String {
+    val s = sec.coerceAtLeast(0.0).roundToInt()
+    return "%02d:%02d".format(s / 60, s % 60)
+}
+
+/** 播放/暂停小按钮（Canvas 绘制，避免字体缺字形） */
+@Composable
+private fun PlayPauseButton(paused: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Canvas(
+        modifier = modifier.size(40.dp).clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.15f))
+            .clickable(onClick = onClick)
+    ) {
+        val c = size.minDimension
+        if (paused) {
+            // 三角形播放
+            val p = Path().apply {
+                moveTo(c * 0.38f, c * 0.28f)
+                lineTo(c * 0.38f, c * 0.72f)
+                lineTo(c * 0.68f, c * 0.5f)
+                close()
+            }
+            drawPath(p, Color.White)
+        } else {
+            // 双竖条暂停
+            val bw = c * 0.12f
+            drawRect(Color.White, topLeft = Offset(c * 0.36f, c * 0.3f),
+                size = androidx.compose.ui.geometry.Size(bw, c * 0.4f))
+            drawRect(Color.White, topLeft = Offset(c * 0.54f, c * 0.3f),
+                size = androidx.compose.ui.geometry.Size(bw, c * 0.4f))
+        }
+    }
+}
+
+/**
+ * 播放器页。
+ *
+ * 结构：顶栏 / 视频区(SwingPanel+AWT Canvas, mpv wid 嵌入) / 底控制条(M玻璃)。
+ * 注意：AWT Canvas 是 heavyweight，Compose 的覆盖层会被压在视频下面，
+ * 所以顶栏/控制条采用上下布局（不悬浮压在视频上）；弹幕用独立透明 JWindow
+ * 悬浮在视频区上方（owner=主窗口，随主窗口移动）。
+ *
+ * @param vo/hwdec 演示默认 x11/no（Xvfb 无 GPU）；真机用 gpu-next/auto。
+ *   Windows 默认 gpu-next/d3d11va（平台自适应，见 defaultVo/defaultHwdec）。
+ */
+private fun isWindows(): Boolean =
+    System.getProperty("os.name", "").lowercase().contains("win")
+
+/** 平台自适应默认 vo：Windows→gpu-next（HDR 直通），Linux→x11（Xvfb 测试）/真机可传参覆盖 */
+private fun defaultVo(): String =
+    System.getProperty("ui.vo") ?: if (isWindows()) "gpu-next" else "x11"
+
+/** 平台自适应默认 hwdec：Windows→d3d11va，Linux→no（Xvfb 无 GPU） */
+private fun defaultHwdec(): String =
+    System.getProperty("ui.hwdec") ?: if (isWindows()) "d3d11va" else "no"
+
+@Composable
+fun PlayerScreen(
+    itemId: String,
+    itemName: String,
+    episodeId: String,
+    episodeIndex: Int,
+    owner: java.awt.Window,
+    vo: String = defaultVo(),
+    hwdec: String = defaultHwdec(),
+    onBack: () -> Unit,
+    onFullscreen: () -> Unit
+) {
+    val player = remember { MpvPlayer() }
+    val engine = remember {
+        DanmakuEngine().apply { setDanmakuList(demoDanmakus) }
+    }
+    var inited by remember { mutableStateOf(false) }
+    var initError by remember { mutableStateOf<String?>(null) }
+    var paused by remember { mutableStateOf(false) }
+    var timePos by remember { mutableStateOf(0.0) }
+    var duration by remember { mutableStateOf(0.0) }
+    var volume by remember { mutableStateOf(80f) }
+    var dragging by remember { mutableStateOf(false) }
+    var dragPos by remember { mutableStateOf(0f) }
+    val danmakuOn = remember { mutableStateOf(true) }
+    var overlayWin by remember { mutableStateOf<JWindow?>(null) }
+    var overlayRetry by remember { mutableStateOf(0) }
+    var canvasRef by remember { mutableStateOf<java.awt.Canvas?>(null) }
+    var canvasReady by remember { mutableStateOf(false) }
+    // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
+    var videoUrl by remember { mutableStateOf<String?>(null) }
+    var urlError by remember { mutableStateOf<String?>(null) }
+
+    // 取播放地址
+    LaunchedEffect(episodeId) {
+        try {
+            // 上报正在播放（Emby 播放记录）
+            Repo.reportPlaying(episodeId)
+            val urls = Repo.playbackUrls(episodeId)
+            if (urls.isEmpty()) {
+                urlError = "没有可用播放地址"
+            } else {
+                videoUrl = urls.first()
+            }
+        } catch (e: Exception) {
+            urlError = "获取播放地址失败：${e.message?.take(120)}"
+        }
+    }
+
+    // canvas 有实际尺寸 + 拿到播放地址后才 init mpv（0x0 时无法渲染）
+    LaunchedEffect(canvasReady, videoUrl) {
+        val canvas = canvasRef
+        val url = videoUrl
+        if (!inited && canvasReady && canvas != null && canvas.isDisplayable && url != null) {
+            inited = true
+            Thread {
+                val wid = try {
+                    Win32Util.nativeWindowId(canvas)
+                } catch (e: Throwable) {
+                    SwingUtilities.invokeLater { initError = "wid: ${e.message}" }
+                    return@Thread
+                }
+                val err = player.init(wid, vo = vo, hwdec = hwdec)
+                SwingUtilities.invokeLater {
+                    if (err != null) {
+                        initError = err
+                    } else {
+                        player.setVolume(volume.toDouble())
+                        // 截图演示时循环，避免 5 秒测试片播完黑屏
+                        if (System.getProperty("ui.loop", "false") == "true") {
+                            player.setLoop(true)
+                        }
+                        player.play(url)
+                    }
+                }
+            }.start()
+        }
+    }
+
+    // 弹幕：主窗口 GlassPane AWT 直接绘制（盖住 heavyweight Canvas）
+    LaunchedEffect(owner, canvasReady) {
+        try {
+            val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
+                ?: owner as? javax.swing.JFrame
+            if (root != null) {
+                val videoRect = {
+                    val c = canvasRef
+                    if (c != null && c.isShowing) {
+                        try {
+                            val p = c.locationOnScreen
+                            val rp = root.locationOnScreen
+                            java.awt.Rectangle(p.x - rp.x, p.y - rp.y, c.width, c.height)
+                        } catch (_: Throwable) { null }
+                    } else null
+                }
+                val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect)
+                glass.isOpaque = false
+                root.glassPane = glass
+                glass.isVisible = true
+            }
+        } catch (_: Throwable) { }
+    }
+
+    DisposableEffect(Unit) {
+        player.listener = object : MpvPlayer.Listener {
+            override fun onFileLoaded() {}
+            override fun onEndFile() {}
+            override fun onError(msg: String) {
+                SwingUtilities.invokeLater { initError = msg }
+            }
+            override fun onTimePos(sec: Double, dur: Double) {
+                SwingUtilities.invokeLater {
+                    if (!dragging) timePos = sec
+                    if (dur > 0) duration = dur
+                }
+            }
+            override fun onPause(p: Boolean) {
+                SwingUtilities.invokeLater { paused = p }
+            }
+        }
+        onDispose {
+            try { overlayWin?.dispose() } catch (_: Throwable) { }
+            overlayWin = null
+            player.destroy()
+        }
+    }
+
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
+        // 顶栏
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "‹ 返回",
+                color = Color.White,
+                fontSize = 15.sp,
+                modifier = Modifier.clickable(onClick = onBack).padding(8.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "$itemName 第${episodeIndex}集",
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.weight(1f))
+            if (urlError != null) {
+                Text(urlError!!, color = Color(0xFFFF5252), fontSize = 12.sp)
+            } else if (initError != null) {
+                Text("mpv: $initError", color = Color(0xFFFF5252), fontSize = 12.sp)
+            } else if (videoUrl == null) {
+                Text("获取播放地址中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
+            }
+        }
+
+        // 视频区
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            SwingPanel(
+                background = Color.Black,
+                factory = {
+                    java.awt.Canvas().apply {
+                        background = java.awt.Color.BLACK
+                        addComponentListener(object : ComponentAdapter() {
+                            override fun componentResized(e: ComponentEvent) {
+                                if (width > 0 && height > 0) canvasReady = true
+                            }
+                            override fun componentShown(e: ComponentEvent) {
+                                if (width > 0 && height > 0) canvasReady = true
+                            }
+                        })
+                        canvasRef = this
+                    }
+                },
+                update = { /* init 由 LaunchedEffect(canvasReady) 触发 */ },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 底控制条（M玻璃）
+        Box(Modifier.fillMaxWidth().padding(12.dp)) {
+            MGlassBox(Modifier.fillMaxWidth(), corner = 18.dp) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PlayPauseButton(paused = paused, onClick = { player.togglePause() })
+                    Spacer(Modifier.width(12.dp))
+                    Text(formatTime(if (dragging) dragPos.toDouble() else timePos),
+                        color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Slider(
+                        value = if (dragging) dragPos else timePos.toFloat().coerceIn(0f, duration.toFloat().coerceAtLeast(1f)),
+                        onValueChange = { dragging = true; dragPos = it },
+                        onValueChangeFinished = { dragging = false; player.seek(dragPos.toDouble()) },
+                        valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    Text(formatTime(duration), color = Color(0xFF555555), fontSize = 13.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Text("音量", color = Color(0xFF555555), fontSize = 12.sp)
+                    Slider(
+                        value = volume,
+                        onValueChange = { volume = it; player.setVolume(it.toDouble()) },
+                        valueRange = 0f..100f,
+                        modifier = Modifier.width(100.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (danmakuOn.value) "弹幕开" else "弹幕关",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            danmakuOn.value = !danmakuOn.value
+                            engine.setEnabled(danmakuOn.value)
+                        }.padding(8.dp)
+                    )
+                    Text(
+                        "全屏",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable(onClick = onFullscreen).padding(8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
