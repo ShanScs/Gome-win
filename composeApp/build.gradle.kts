@@ -148,6 +148,12 @@ tasks.register<JavaExec>("runEmbyFlowTest") {
 compose.desktop {
     application {
         mainClass = "com.muse.gomepc.MainKt"
+        // Windows HWND 反射需要（Win32Util 取 Canvas 的 peer.getHWnd()）；
+        // Linux 下无害（对应包不存在时忽略）。
+        jvmArgs(
+            "--add-opens", "java.desktop/java.awt=ALL-UNNAMED",
+            "--add-opens", "java.desktop/sun.awt.windows=ALL-UNNAMED",
+        )
         nativeDistributions {
             // targetFormats 按平台启用：Linux 本地构建用 app-image+zip（deb bundler 在此环境损坏）；
             // GitHub Actions Windows 构建时通过 -PtargetFormat=Exe 传入。
