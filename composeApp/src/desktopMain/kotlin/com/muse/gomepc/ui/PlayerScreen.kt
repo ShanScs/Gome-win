@@ -345,41 +345,17 @@ fun PlayerScreen(
                             } catch (_: Throwable) { null }
                         } else null
                     }
-                    // GlassPane：弹幕面板为主，工具栏作为子组件叠加
+                    // GlassPane：只放弹幕（工具栏临时拿掉，验证视频渲染）
                     val danmakuPanel = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
                         javax.swing.SwingUtilities.invokeLater {
                             if (!controlsVisibleState.value) {
                                 controlsVisibleState.value = true
                             }
                         }
-                    }.apply {
-                        layout = null  // 绝对定位，工具栏子组件手动设 bounds
-                        isOpaque = false
                     }
-                    val toolbarPanel = AwtToolbarPanel(
-                        player = player,
-                        itemName = itemName,
-                        onBack = { onBack() },
-                        onFullscreen = { onFullscreen() },
-                        isVisibleState = { controlsVisibleState.value },
-                        getPaused = { paused },
-                        getTimePos = { if (dragging) dragPos.toDouble() else timePos },
-                        getDuration = { duration },
-                        onSeek = { player.seek(it) }
-                    ).apply {
-                        // 工具栏填满整个面板，内部自己画顶栏/底栏
-                        bounds = java.awt.Rectangle(0, 0, root.width, root.height)
-                    }
-                    danmakuPanel.add(toolbarPanel)
-                    // 窗口 resize 时同步工具栏大小
-                    root.addComponentListener(object : java.awt.event.ComponentAdapter() {
-                        override fun componentResized(e: java.awt.event.ComponentEvent) {
-                            toolbarPanel.bounds = java.awt.Rectangle(0, 0, root.width, root.height)
-                        }
-                    })
                     root.glassPane = danmakuPanel
                     danmakuPanel.isVisible = true
-                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕+工具栏 GlassPane 已设置")
+                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置（无工具栏）")
                 }
             } catch (_: Throwable) { }
             pendingCanvas = canvas
