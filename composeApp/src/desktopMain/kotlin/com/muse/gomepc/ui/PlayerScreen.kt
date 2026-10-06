@@ -220,6 +220,7 @@ fun PlayerScreen(
 
     // 弹幕：主窗口 GlassPane AWT 直接绘制（盖住 heavyweight Canvas）
     // 兼做鼠标哨兵：mpv 初始化顺序修正后事件会冒泡到这里，鼠标活动即唤醒工具栏
+    var danmakuGlass by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
     LaunchedEffect(owner, canvasReady) {
         try {
             val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
@@ -241,10 +242,16 @@ fun PlayerScreen(
                     }
                 }
                 glass.isOpaque = false
+                glass.controlsVisibleMirror = controlsVisible
                 root.glassPane = glass
                 glass.isVisible = true
+                danmakuGlass = glass
             }
         } catch (_: Throwable) { }
+    }
+    // 同步工具栏状态到玻璃面板：可见时穿透（按钮可点），隐藏时拦截（哨兵唤醒）
+    LaunchedEffect(controlsVisible) {
+        danmakuGlass?.controlsVisibleMirror = controlsVisible
     }
 
     DisposableEffect(Unit) {
