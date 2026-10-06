@@ -9,14 +9,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
  * 侧边栏图标：简单几何线条图标（扁平风，与 Gome 播放器图标风格一致）。
  */
 @Composable
-fun NavIcon(kind: NavKind, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(24.dp)) {
+fun NavIcon(kind: NavKind, tint: Color, modifier: Modifier = Modifier, iconSize: Dp = 24.dp) {
+    Canvas(modifier = modifier.size(iconSize)) {
         val s = size
         val stroke = Stroke(width = s.width * 0.09f)
         when (kind) {
