@@ -1012,9 +1012,11 @@ private fun ServerCard(
     // PC 图标为字母，按服务器名哈希取色，再与白色混合（82.5%白）
     val tint = remember(server.name) { serverTint(server.name.ifEmpty { server.host }) }
     // 对齐 Android item_server_card.xml：24dp圆角，1dp阴影，7dp边距，10dp内边距
+    // 宽高比 1.84:1（对齐安卓 ASPECT_W_H）
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .aspectRatio(1.84f)
             .padding(7.dp)
             .shadow(1.dp, RoundedCornerShape(24.dp))
             .clip(RoundedCornerShape(24.dp))
@@ -1134,9 +1136,11 @@ private fun ShortDramaCard(
     onLongClick: () -> Unit
 ) {
     // 对齐 Android item_local_card.xml：24dp圆角，1dp阴影，7dp边距，#FFF6E5底
+    // 宽高比与服务器卡片统一 1.84:1
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .aspectRatio(1.84f)
             .padding(7.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(Color(0xFFFFF6E5))
@@ -1191,23 +1195,71 @@ private fun AddServerDialog(
     onDismiss: () -> Unit,
     onAdded: () -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf("8096") }
+    var port by remember { mutableStateOf("443") }
+    var path by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var useHttps by remember { mutableStateOf(false) }
+    var useHttps by remember { mutableStateOf(true) }
+    var protocolExpanded by remember { mutableStateOf(false) }
+
+    // 协议切换时自动跟随默认端口（对齐安卓）
+    fun onProtocolChange(https: Boolean) {
+        useHttps = https
+        port = if (https) "443" else "80"
+    }
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加服务器") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ServerField("名称", name) { name = it }
-                ServerField("地址", host) { host = it }
-                ServerField("端口", port) { port = it }
+                // 服务器地址（对齐安卓）
+                ServerField("服务器地址", host) { host = it }
+                // 协议 + 端口同行（对齐安卓）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // 协议下拉
+                    Box(modifier = Modifier.weight(1f)) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = if (useHttps) "HTTPS" else "HTTP",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("协议") },
+                            singleLine = true,
+                            trailingIcon = {
+                                Text(
+                                    "▼",
+                                    modifier = Modifier.clickable { protocolExpanded = !protocolExpanded }.padding(8.dp)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().clickable { protocolExpanded = true }
+                        )
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = protocolExpanded,
+                            onDismissRequest = { protocolExpanded = false }
+                        ) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("HTTPS") },
+                                onClick = { onProtocolChange(true); protocolExpanded = false }
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("HTTP") },
+                                onClick = { onProtocolChange(false); protocolExpanded = false }
+                            )
+                        }
+                    }
+                    // 端口
+                    Box(modifier = Modifier.weight(1f)) {
+                        ServerField("端口", port) { port = it }
+                    }
+                }
+                // 路径（对齐安卓）
+                ServerField("路径(可选,无则留空)", path) { path = it }
                 ServerField("用户名", username) { username = it }
-                ServerField("密码", password) { password = it }
+                ServerField("密码", password, isPassword = true) { password = it }
             }
         },
         confirmButton = {
@@ -1215,9 +1267,9 @@ private fun AddServerDialog(
                 if (host.isNotBlank() && username.isNotBlank()) {
                     Prefs.upsertServer(
                         ServerEntry(
-                            name = name.ifBlank { host },
+                            name = host, // 安卓用地址做名，连接后更新为服务器名
                             protocol = if (useHttps) "https" else "http",
-                            host = host, port = port, path = "",
+                            host = host, port = port, path = path,
                             username = username, password = password
                         )
                     )
@@ -1232,12 +1284,13 @@ private fun AddServerDialog(
 }
 
 @Composable
-private fun ServerField(label: String, value: String, onChange: (String) -> Unit) {
+private fun ServerField(label: String, value: String, isPassword: Boolean = false, onChange: (String) -> Unit) {
     androidx.compose.material3.OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
+        visualTransformation = if (isPassword) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth()
     )
 }

@@ -54,6 +54,8 @@ fun MGlassBox(
         modifier = modifier
             .clip(shape)
             .border(1.dp, MGlass.Stroke, shape)
+            // 兜底：无 blur 图时用浅灰实底，避免黑色
+            .background(if (blurredBackdrop == null) Color(0xFFE8E8E8) else Color.Transparent)
     ) {
         // 最底层：真实模糊的 backdrop（内容抓图已做高斯模糊）
         if (blurredBackdrop != null) {
