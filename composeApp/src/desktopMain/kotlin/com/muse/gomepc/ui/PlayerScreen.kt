@@ -324,6 +324,18 @@ fun PlayerScreen(
                                 if (width > 0 && height > 0) canvasReady = true
                             }
                         })
+                        // AWT Canvas 会吞掉鼠标事件，Compose 的 clickable 收不到
+                        // 直接在 Canvas 上监听：点击切换控制条，移动鼠标显示控制条
+                        addMouseListener(object : java.awt.event.MouseAdapter() {
+                            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                                SwingUtilities.invokeLater { controlsVisible = !controlsVisible }
+                            }
+                        })
+                        addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
+                            override fun mouseMoved(e: java.awt.event.MouseEvent) {
+                                SwingUtilities.invokeLater { controlsVisible = true }
+                            }
+                        })
                         canvasRef = this
                     }
                 },
