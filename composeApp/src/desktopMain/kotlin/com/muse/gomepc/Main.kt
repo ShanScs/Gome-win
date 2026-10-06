@@ -2,7 +2,6 @@ package com.muse.gomepc
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
@@ -18,6 +17,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.muse.gomepc.emby.Prefs
 import com.muse.gomepc.ui.DetailScreen
+import com.muse.gomepc.ui.DockBar
 import com.muse.gomepc.ui.GomeTheme
 import com.muse.gomepc.ui.GridScreen
 import com.muse.gomepc.ui.HomeScreen
@@ -27,7 +27,6 @@ import com.muse.gomepc.ui.Repo
 import com.muse.gomepc.ui.Screen
 import com.muse.gomepc.ui.SearchScreen
 import com.muse.gomepc.ui.SettingsScreen
-import com.muse.gomepc.ui.Sidebar
 
 fun main() = application {
     val state = rememberWindowState(
@@ -52,7 +51,7 @@ fun main() = application {
     }
 }
 
-/** 主界面：登录 → 左侧 M玻璃边栏 + 内容区 */
+/** 主界面：内容区全屏 + 底部悬浮 Dock（对齐 Android HostActivity） */
 @androidx.compose.runtime.Composable
 fun GomeApp(
     onFullscreen: () -> Unit = {},
@@ -103,9 +102,9 @@ fun GomeApp(
         return
     }
 
-    Row(Modifier.fillMaxSize().background(GomeTheme.SidebarBg)) {
-        Sidebar(current = screen, onSelect = { screen = it })
-        Box(Modifier.weight(1f).fillMaxSize()) {
+    // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
+    Box(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
+        Box(Modifier.fillMaxSize()) {
             when (val s = screen) {
                 is Screen.Home -> HomeScreen(onItemClick = { screen = Screen.Detail(it.id) })
                 is Screen.Grid -> GridScreen(onItemClick = { screen = Screen.Detail(it.id) })
@@ -137,6 +136,14 @@ fun GomeApp(
                 )
                 else -> {}
             }
+        }
+        // 详情页也保留 Dock（对齐 Android：Dock 只在播放器页隐藏）
+        if (screen !is Screen.Player) {
+            DockBar(
+                current = screen,
+                onSelect = { screen = it },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
