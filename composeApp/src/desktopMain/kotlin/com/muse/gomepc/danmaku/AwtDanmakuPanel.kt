@@ -40,10 +40,11 @@ class AwtDanmakuPanel(
                 val ownerWindow = javax.swing.SwingUtilities.getWindowAncestor(this@AwtDanmakuPanel)
                 if (ownerWindow != null && ownerWindow.owner != null) {
                     val mainWin = ownerWindow.owner
-                    val screenPoint = e.locationOnScreen
-                    val targetPoint = screenPoint.apply {
-                        translate(-mainWin.x, -mainWin.y)
-                    }
+
+                    // 💥 【核心修复】：使用官方安全平移，扣除 Windows 顶部标题栏的绝对像素差
+                    val targetPoint = java.awt.Point(e.xOnScreen, e.yOnScreen)
+                    javax.swing.SwingUtilities.convertPointFromScreen(targetPoint, mainWin)
+
                     val convertedEvent = java.awt.event.MouseEvent(
                         mainWin,
                         e.id,
