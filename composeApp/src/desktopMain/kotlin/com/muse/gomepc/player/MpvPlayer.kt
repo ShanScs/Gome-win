@@ -21,6 +21,9 @@ class MpvPlayer {
         fun onTimePos(sec: Double, duration: Double)
         fun onPause(paused: Boolean)
         fun onLog(prefix: String, level: String, text: String) {}
+
+        // 💥 新增核心回调：通知外部 UI 底层发现了鼠标活动
+        fun onMouseActivity() {}
     }
 
     var listener: Listener? = null
@@ -73,9 +76,8 @@ class MpvPlayer {
         opt("terminal", "no")?.let { /* 非致命，忽略 */ }
         opt("tls-verify", "no")?.let { /* 非致命，忽略：自签证书 */ }
 
-        // 必须在 mpv_initialize 之前关闭输入拦截，否则原生窗口创建后就太迟了
-        // （用 set_property 在 initialize 之后设置对已创建的窗口无效）
-        opt("input-cursor", "no")?.let { /* 非致命，忽略 */ }
+        // 允许 mpv 拥有正常的窗口碰撞实体（不要 no），但解除它的快捷键和自带控制条
+        opt("input-cursor", "yes")?.let { /* 非致命，忽略 */ }
         opt("input-vo-keyboard", "no")?.let { /* 非致命，忽略 */ }
         opt("input-default-bindings", "no")?.let { /* 非致命，忽略 */ }
         opt("osc", "no")?.let { /* 非致命，忽略 */ }
@@ -87,6 +89,24 @@ class MpvPlayer {
         if (r < 0) {
             destroy()
             return "mpv_initialize failed: ${lib.mpv_error_string(r)}"
+        }
+
+        // 🔥 【核心修复 1】：在初始化成功后，立刻注入鼠标告密哨兵脚本
+        try {
+            val luaScript = """
+                mp.add_forced_key_binding("mouse_move", "sentinel_move", function()
+                    mp.msg.info("SENTINEL_MOUSE_MOVE_EVENT")
+                end)
+            """.trimIndent()
+
+            val tempScriptFile = java.io.File.createTempFile("mpv_mouse_sentinel_", ".lua").apply {
+                writeText(luaScript)
+                deleteOnExit()
+            }
+
+            lib.mpv_command(ctx, arrayOf("load-script", tempScriptFile.absolutePath, null))
+        } catch (e: Throwable) {
+            println("注入哨兵脚本失败: ${e.message}")
         }
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
@@ -216,11 +236,18 @@ class MpvPlayer {
                     try {
                         val lm = MpvEventLogMessage(ev.data)
                         lm.read()
-                        listener?.onLog(
-                            lm.prefix ?: "",
-                            lm.level ?: "",
-                            (lm.text ?: "").trim()
-                        )
+                        val text = (lm.text ?: "").trim()
+
+                        // 💥 【核心修复 2】：如果收到来自内部内嵌 Lua 脚本的"告密信号"
+                        if (text.contains("SENTINEL_MOUSE_MOVE_EVENT")) {
+                            // 强制切回 AWT/Swing 事件分发线程，安全地回调给外部
+                            javax.swing.SwingUtilities.invokeLater {
+                                listener?.onMouseActivity()
+                            }
+                        } else {
+                            // 原本的普通日志分发逻辑维持原样
+                            listener?.onLog(lm.prefix ?: "", lm.level ?: "", text)
+                        }
                     } catch (_: Throwable) { }
                 }
             }

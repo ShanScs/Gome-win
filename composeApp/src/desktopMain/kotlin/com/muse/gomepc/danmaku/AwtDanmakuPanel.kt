@@ -65,13 +65,17 @@ class AwtDanmakuPanel(
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
+        // 💥 【全场唯一核心修复】：给 Windows 操作系统垫一块肉眼看不见的空气垫（Alpha=1）
+        val g2 = g as Graphics2D
+        g2.color = java.awt.Color(0, 0, 0, 1)
+        g2.fillRect(0, 0, width, height)
+
         if (!engine.enabled) return
         // glasspane 模式：只在视频区画
         val vr = videoRectInParent?.invoke()
         if (vr != null) {
             g.clipRect(vr.x, vr.y, vr.width, vr.height)
         }
-        val g2 = g as Graphics2D
         // 字号：与 Compose 版一致（fontSp sp → px，桌面 density≈1）
         val fontSize = (engine.fontSp * 1.5f).toInt().coerceAtLeast(12)
         // 明确指定中文字体

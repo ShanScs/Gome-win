@@ -42,7 +42,6 @@ import com.muse.gomepc.player.MpvPlayer
 import com.muse.gomepc.player.Win32Util
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
-import javax.swing.JWindow
 import javax.swing.SwingUtilities
 import kotlin.math.roundToInt
 
@@ -109,6 +108,56 @@ private fun defaultVo(): String =
 private fun defaultHwdec(): String =
     System.getProperty("ui.hwdec") ?: if (isWindows()) "d3d11va" else "no"
 
+/**
+ * 视频渲染区独立组件：与工具栏显隐状态隔离，避免 controlsVisible 变化时触发重构
+ * 导致 SwingPanel 重建、HWND 被 Windows DWM 拉到顶层压死 Compose 轻量级 UI。
+ */
+@Composable
+private fun VideoCanvasArea(
+    controlsVisibleState: androidx.compose.runtime.MutableState<Boolean>,
+    onCanvasReady: (java.awt.Canvas) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    SwingPanel(
+        background = Color.Black,
+        factory = {
+            java.awt.Canvas().apply {
+                background = java.awt.Color.BLACK
+                val canvas = this
+                addComponentListener(object : ComponentAdapter() {
+                    override fun componentResized(e: ComponentEvent) {
+                        if (width > 0 && height > 0) onCanvasReady(canvas)
+                    }
+                    override fun componentShown(e: ComponentEvent) {
+                        if (width > 0 && height > 0) onCanvasReady(canvas)
+                    }
+                })
+                val playerMouseListener = object : java.awt.event.MouseAdapter() {
+                    private fun wakeUpControls() {
+                        SwingUtilities.invokeLater {
+                            if (!controlsVisibleState.value) {
+                                controlsVisibleState.value = true
+                            }
+                        }
+                    }
+
+                    override fun mouseMoved(e: java.awt.event.MouseEvent?) {
+                        wakeUpControls()
+                    }
+
+                    override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                        wakeUpControls()
+                    }
+                }
+                addMouseListener(playerMouseListener)
+                addMouseMotionListener(playerMouseListener)
+            }
+        },
+        update = { /* init 由外部 LaunchedEffect(canvasReady) 触发 */ },
+        modifier = modifier.fillMaxSize()
+    )
+}
+
 @Composable
 fun PlayerScreen(
     itemId: String,
@@ -133,8 +182,9 @@ fun PlayerScreen(
     var volume by remember { mutableStateOf(80f) }
     var dragging by remember { mutableStateOf(false) }
     var dragPos by remember { mutableStateOf(0f) }
-    // 控制条自动隐藏
-    var controlsVisible by remember { mutableStateOf(true) }
+    // 控制条自动隐藏 - 状态对象单独持有，供视频区独立组件使用（避免重构连带）
+    val controlsVisibleState = remember { mutableStateOf(true) }
+    var controlsVisible by controlsVisibleState
     // 显示后3秒自动隐藏
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) {
@@ -147,8 +197,6 @@ fun PlayerScreen(
     var urlTestResult by remember { mutableStateOf<String?>(null) }
     var fileLoaded by remember { mutableStateOf(false) }
     val danmakuOn = remember { mutableStateOf(true) }
-    var overlayWin by remember { mutableStateOf<JWindow?>(null) }
-    var overlayRetry by remember { mutableStateOf(0) }
     var canvasRef by remember { mutableStateOf<java.awt.Canvas?>(null) }
     var canvasReady by remember { mutableStateOf(false) }
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
@@ -271,55 +319,28 @@ fun PlayerScreen(
                     if (mpvLogs.size > 50) mpvLogs.removeAt(0)
                 }
             }
+            override fun onMouseActivity() {
+                // 收到来自 mpv 核心最深处的呼唤，不管窗口怎么穿透、怎么丢失焦点，强行唤醒控制条
+                if (!controlsVisible) {
+                    controlsVisible = true
+                }
+            }
         }
         onDispose {
-            try { overlayWin?.dispose() } catch (_: Throwable) { }
-            overlayWin = null
             player.destroy()
         }
     }
 
     // 视频全屏，顶栏/底栏浮在上面（工具栏显隐不改变视频尺寸）
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // 视频区（点击切换控制条）— 始终全屏
-        SwingPanel(
-            background = Color.Black,
-                factory = {
-                    java.awt.Canvas().apply {
-                        background = java.awt.Color.BLACK
-                        addComponentListener(object : ComponentAdapter() {
-                            override fun componentResized(e: ComponentEvent) {
-                                if (width > 0 && height > 0) canvasReady = true
-                            }
-                            override fun componentShown(e: ComponentEvent) {
-                                if (width > 0 && height > 0) canvasReady = true
-                            }
-                        })
-                        val playerMouseListener = object : java.awt.event.MouseAdapter() {
-                            private fun wakeUpControls() {
-                                SwingUtilities.invokeLater {
-                                    if (!controlsVisible) {
-                                        controlsVisible = true
-                                    }
-                                }
-                            }
-
-                            override fun mouseMoved(e: java.awt.event.MouseEvent?) {
-                                wakeUpControls()
-                            }
-
-                            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
-                                wakeUpControls()
-                            }
-                        }
-                        addMouseListener(playerMouseListener)
-                        addMouseMotionListener(playerMouseListener)
-                        canvasRef = this
-                    }
-                },
-                update = { /* init 由 LaunchedEffect(canvasReady) 触发 */ },
-                modifier = Modifier.fillMaxSize()
-            )
+        // 视频区独立组件：不受 controlsVisible 重构影响，防止 HWND 顶层压死 UI
+        VideoCanvasArea(
+            controlsVisibleState = controlsVisibleState,
+            onCanvasReady = { canvas ->
+                canvasRef = canvas
+                canvasReady = true
+            }
+        )
 
         // 底控制条（M玻璃，可自动隐藏）— 浮在视频上
         if (controlsVisible) {
