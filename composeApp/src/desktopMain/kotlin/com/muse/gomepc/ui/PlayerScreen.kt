@@ -179,7 +179,11 @@ fun PlayerScreen(
                     }
                     return@Thread
                 }
-                val err = player.init(wid, vo = vo, hwdec = hwdec)
+                val err = try {
+                    player.init(wid, vo = vo, hwdec = hwdec)
+                } catch (e: Throwable) {
+                    "init异常: ${e.message}"
+                }
                 SwingUtilities.invokeLater {
                     initializing = false
                     if (err != null) {
@@ -191,7 +195,11 @@ fun PlayerScreen(
                         if (System.getProperty("ui.loop", "false") == "true") {
                             player.setLoop(true)
                         }
-                        val playErr = player.play(url)
+                        val playErr = try {
+                            player.play(url)
+                        } catch (e: Throwable) {
+                            "play异常: ${e.message}"
+                        }
                         if (playErr != null) {
                             SwingUtilities.invokeLater { initError = "play: $playErr" }
                         }
