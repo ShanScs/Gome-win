@@ -71,6 +71,7 @@ class MpvPlayer {
         if (wid > 0) opt("wid", wid.toString())?.let { return it }
         opt("msg-level", "all=info")?.let { /* 非致命，忽略 */ }
         opt("terminal", "no")?.let { /* 非致命，忽略 */ }
+        opt("tls-verify", "no")?.let { /* 非致命，忽略：自签证书 */ }
 
         // 请求日志消息必须在 initialize 之前（mpv 要求）
         try { lib.mpv_request_log_messages(ctx, "info") } catch (_: Throwable) { }
