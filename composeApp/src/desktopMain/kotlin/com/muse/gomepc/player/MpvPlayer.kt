@@ -73,6 +73,13 @@ class MpvPlayer {
         opt("terminal", "no")?.let { /* 非致命，忽略 */ }
         opt("tls-verify", "no")?.let { /* 非致命，忽略：自签证书 */ }
 
+        // 必须在 mpv_initialize 之前关闭输入拦截，否则原生窗口创建后就太迟了
+        // （用 set_property 在 initialize 之后设置对已创建的窗口无效）
+        opt("input-cursor", "no")?.let { /* 非致命，忽略 */ }
+        opt("input-vo-keyboard", "no")?.let { /* 非致命，忽略 */ }
+        opt("input-default-bindings", "no")?.let { /* 非致命，忽略 */ }
+        opt("osc", "no")?.let { /* 非致命，忽略 */ }
+
         // 请求日志消息必须在 initialize 之前（mpv 要求）
         try { lib.mpv_request_log_messages(ctx, "info") } catch (_: Throwable) { }
 
@@ -84,12 +91,6 @@ class MpvPlayer {
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
         lib.mpv_set_property_string(ctx, "osd-level", "0")
-        // 禁用 mpv 的鼠标/键盘事件拦截，让事件透传给父窗口（AWT Canvas）
-        // 这样我们的 MouseListener 才能收到点击/移动事件
-        try { lib.mpv_set_property_string(ctx, "input-cursor", "no") } catch (_: Throwable) { }
-        try { lib.mpv_set_property_string(ctx, "input-vo-keyboard", "no") } catch (_: Throwable) { }
-        try { lib.mpv_set_property_string(ctx, "input-default-bindings", "no") } catch (_: Throwable) { }
-        try { lib.mpv_set_property_string(ctx, "osc", "no") } catch (_: Throwable) { }
 
         // 观察常用属性（userdata 仅用于区分，事件里直接读 name）
         lib.mpv_observe_property(ctx, 1L, "time-pos", MpvFormat.DOUBLE)

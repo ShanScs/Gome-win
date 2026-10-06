@@ -14,20 +14,22 @@ import javax.swing.Timer
  */
 class AwtDanmakuPanel(
     private val engine: DanmakuEngine,
-    private val videoRectInParent: (() -> java.awt.Rectangle?)? = null
+    private val videoRectInParent: (() -> java.awt.Rectangle?)? = null,
+    private val onMouseActivity: (() -> Unit)? = null
 ) : JPanel() {
-
-    /** 为 true 时面板拦截鼠标事件（用于呼出工具栏）；为 false 时事件穿透给下层按钮 */
-    @Volatile var captureMouse: Boolean = true
-
-    override fun contains(x: Int, y: Int): Boolean {
-        // 不拦截时让事件穿透，工具栏按钮才能点到
-        if (!captureMouse) return false
-        return super.contains(x, y)
-    }
 
     init {
         isOpaque = false
+        // 鼠标活动 → 唤醒工具栏（面板永远保持鼠标感知，不用 contains  trick）
+        if (onMouseActivity != null) {
+            val adapter = object : java.awt.event.MouseAdapter() {
+                override fun mouseMoved(e: java.awt.event.MouseEvent?) { onMouseActivity.invoke() }
+                override fun mouseDragged(e: java.awt.event.MouseEvent?) { onMouseActivity.invoke() }
+                override fun mouseClicked(e: java.awt.event.MouseEvent?) { onMouseActivity.invoke() }
+            }
+            addMouseListener(adapter)
+            addMouseMotionListener(adapter)
+        }
     }
 
     init {
