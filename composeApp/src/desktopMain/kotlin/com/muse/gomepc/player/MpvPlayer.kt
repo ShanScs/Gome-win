@@ -183,6 +183,13 @@ class MpvPlayer {
         }
     }
 
+    /** 通用属性设置（供工具栏等调用）。 */
+    fun setProperty(name: String, value: String) {
+        handle?.let {
+            LibMpv.INSTANCE.mpv_set_property_string(it, name, value)
+        }
+    }
+
     /** 同步读 double 属性，失败返回 null。 */
     fun getPropertyDouble(name: String): Double? {
         val ctx = handle ?: return null

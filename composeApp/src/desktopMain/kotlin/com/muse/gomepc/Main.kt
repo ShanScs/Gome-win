@@ -103,7 +103,10 @@ fun GomeApp(
             episodeIndex = p.episodeIndex,
             owner = owner ?: throw IllegalStateException("no owner window"),
             onBack = { screen = Screen.Detail(p.itemId) },
-            onFullscreen = onFullscreen
+            onFullscreen = onFullscreen,
+            onSwitchEpisode = { eid, idx ->
+                screen = Screen.Player(p.itemId, p.itemName, eid, idx)
+            }
         )
         return
     }

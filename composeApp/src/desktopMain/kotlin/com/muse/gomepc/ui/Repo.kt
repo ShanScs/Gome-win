@@ -9,6 +9,21 @@ import com.muse.gomepc.emby.YambyClient
 object Repo {
     var demoMode: Boolean = false
 
+    /** 剧集列表内存缓存：itemId -> EpisodeData，避免重复请求 */
+    private val episodeCache = mutableMapOf<String, EpisodeData>()
+
+    fun getCachedEpisodes(itemId: String): EpisodeData? = episodeCache[itemId]
+
+    fun cacheEpisodes(itemId: String, data: EpisodeData) {
+        episodeCache[itemId] = data
+        // 限制缓存大小，防止内存膨胀
+        if (episodeCache.size > 20) {
+            episodeCache.keys.firstOrNull()?.let { episodeCache.remove(it) }
+        }
+    }
+
+    fun clearEpisodeCache() = episodeCache.clear()
+
     // ---------- 媒体库 ----------
 
     suspend fun libraries(): List<UiLibrary> {
@@ -68,40 +83,46 @@ object Repo {
      * 返回 Pair(剧集列表, 季列表)——季列表用于多季切换，演示模式为空。
      */
     suspend fun episodes(itemId: String): EpisodeData {
-        if (demoMode) {
+        // 先查缓存
+        getCachedEpisodes(itemId)?.let { return it }
+        val result: EpisodeData = if (demoMode) {
             val libId = itemId.substringBefore("-")
             val lib = mockLibraries.find { it.id == libId }
             val mockItem = MockItem(itemId, "", "", null, 150f, "", "")
             val eps = mockEpisodes(mockItem).map { it.toUi(itemId) }
-            return EpisodeData(eps, emptyList(), null)
-        }
-        val item = YambyClient.getItem(itemId)
-        return when (item.type) {
-            "Movie" -> {
-                // 电影：单集直接播本体
-                EpisodeData(
-                    listOf(UiEpisode(itemId, 1, "正片")),
-                    emptyList(), null
-                )
-            }
-            "Series" -> {
-                val seasons = YambyClient.getSeasons(itemId)
-                if (seasons.isEmpty()) {
-                    EpisodeData(emptyList(), emptyList(), null)
-                } else {
-                    val first = seasons.first()
-                    val eps = YambyClient.getEpisodes(itemId, first.id).map {
-                        UiEpisode(it.id, it.episodeIdx, it.epLabel())
-                    }
+            EpisodeData(eps, emptyList(), null)
+        } else {
+            val item = YambyClient.getItem(itemId)
+            when (item.type) {
+                "Movie" -> {
+                    // 电影：单集直接播本体
                     EpisodeData(
-                        eps,
-                        seasons.map { UiSeason(it.id, it.name.ifBlank { "第${it.seasonIdx}季" }) },
-                        first.id
+                        listOf(UiEpisode(itemId, 1, "正片")),
+                        emptyList(), null
                     )
                 }
+                "Series" -> {
+                    val seasons = YambyClient.getSeasons(itemId)
+                    if (seasons.isEmpty()) {
+                        EpisodeData(emptyList(), emptyList(), null)
+                    } else {
+                        val first = seasons.first()
+                        val eps = YambyClient.getEpisodes(itemId, first.id).map {
+                            UiEpisode(it.id, it.episodeIdx, it.epLabel())
+                        }
+                        EpisodeData(
+                            eps,
+                            seasons.map { UiSeason(it.id, it.name.ifBlank { "第${it.seasonIdx}季" }) },
+                            first.id
+                        )
+                    }
+                }
+                else -> EpisodeData(emptyList(), emptyList(), null)
             }
-            else -> EpisodeData(emptyList(), emptyList(), null)
         }
+        // 写入缓存
+        cacheEpisodes(itemId, result)
+        return result
     }
 
     suspend fun seasonEpisodes(seriesId: String, seasonId: String): List<UiEpisode> {

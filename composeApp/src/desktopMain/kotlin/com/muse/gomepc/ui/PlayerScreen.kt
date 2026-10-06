@@ -172,6 +172,44 @@ private fun VideoCanvasArea(
     )
 }
 
+/** 剧集列表弹窗（Swing） */
+private fun showEpisodeDialog(
+    owner: java.awt.Window,
+    episodes: List<UiEpisode>,
+    currentIndex: Int,
+    onSelect: (UiEpisode, Int) -> Unit
+) {
+    val dialog = javax.swing.JDialog(owner as? java.awt.Frame, "剧集列表", false)
+    dialog.layout = java.awt.BorderLayout()
+    val listModel = javax.swing.DefaultListModel<String>()
+    episodes.forEachIndexed { i, ep ->
+        val mark = if (i == currentIndex) "▶ " else "  "
+        listModel.addElement("$mark${ep.name}")
+    }
+    val list = javax.swing.JList(listModel)
+    list.selectedIndex = currentIndex
+    list.selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
+    list.addMouseListener(object : java.awt.event.MouseAdapter() {
+        override fun mouseClicked(e: java.awt.event.MouseEvent) {
+            if (e.clickCount == 2) {
+                val idx = list.selectedIndex
+                if (idx in episodes.indices) {
+                    dialog.dispose()
+                    onSelect(episodes[idx], idx)
+                }
+            }
+        }
+    })
+    val scroll = javax.swing.JScrollPane(list)
+    scroll.preferredSize = java.awt.Dimension(300, 400)
+    dialog.add(scroll, java.awt.BorderLayout.CENTER)
+    val hint = javax.swing.JLabel("双击切换剧集", javax.swing.SwingConstants.CENTER)
+    dialog.add(hint, java.awt.BorderLayout.SOUTH)
+    dialog.pack()
+    dialog.setLocationRelativeTo(owner)
+    dialog.isVisible = true
+}
+
 @Composable
 fun PlayerScreen(
     itemId: String,
@@ -182,7 +220,8 @@ fun PlayerScreen(
     vo: String = defaultVo(),
     hwdec: String = defaultHwdec(),
     onBack: () -> Unit,
-    onFullscreen: () -> Unit
+    onFullscreen: () -> Unit,
+    onSwitchEpisode: ((episodeId: String, episodeIndex: Int) -> Unit)? = null
 ) {
     val player = remember { MpvPlayer() }
     val engine = remember {
@@ -232,6 +271,36 @@ fun PlayerScreen(
             }
         } catch (e: Exception) {
             urlError = "获取播放地址失败：${e.message?.take(120)}"
+        }
+    }
+
+    // 取剧集列表（带缓存）
+    var episodeList by remember { mutableStateOf<List<UiEpisode>>(emptyList()) }
+    LaunchedEffect(itemId) {
+        try {
+            val data = Repo.episodes(itemId)
+            episodeList = data.episodes
+        } catch (_: Exception) { }
+    }
+
+    // 网速监测：用 mpv 的音视频码率估算
+    var netSpeedText by remember { mutableStateOf("") }
+    LaunchedEffect(videoUrl) {
+        if (videoUrl == null) return@LaunchedEffect
+        while (true) {
+            try {
+                kotlinx.coroutines.delay(2000)
+                val v = player.getPropertyDouble("video-bitrate") ?: 0.0
+                val a = player.getPropertyDouble("audio-bitrate") ?: 0.0
+                val total = v + a
+                netSpeedText = if (total > 0) {
+                    when {
+                        total > 1024 * 1024 -> "%.1f MB/s".format(total / 1024 / 1024)
+                        total > 1024 -> "%.0f KB/s".format(total / 1024)
+                        else -> "%.0f B/s".format(total)
+                    }
+                } else ""
+            } catch (_: Exception) { break }
         }
     }
 
@@ -379,7 +448,30 @@ fun PlayerScreen(
                         getPaused = { paused },
                         getTimePos = { if (dragging) dragPos.toDouble() else timePos },
                         getDuration = { duration },
-                        onSeek = { player.seek(it) }
+                        onSeek = { player.seek(it) },
+                        getNetSpeed = { netSpeedText },
+                        onPrev = if (episodeIndex > 0 && onSwitchEpisode != null) {
+                            {
+                                val prev = episodeList.getOrNull(episodeIndex - 1)
+                                if (prev != null) onSwitchEpisode(prev.id, episodeIndex - 1)
+                            }
+                        } else null,
+                        onNext = if (onSwitchEpisode != null && episodeIndex < episodeList.size - 1) {
+                            {
+                                val next = episodeList.getOrNull(episodeIndex + 1)
+                                if (next != null) onSwitchEpisode(next.id, episodeIndex + 1)
+                            }
+                        } else null,
+                        onPlaylist = if (onSwitchEpisode != null && episodeList.isNotEmpty()) {
+                            {
+                                // 剧集列表弹窗（在 EDT 上显示）
+                                javax.swing.SwingUtilities.invokeLater {
+                                    showEpisodeDialog(root, episodeList, episodeIndex) { ep, idx ->
+                                        onSwitchEpisode(ep.id, idx)
+                                    }
+                                }
+                            }
+                        } else null
                     )
                 }
             } catch (_: Throwable) { }

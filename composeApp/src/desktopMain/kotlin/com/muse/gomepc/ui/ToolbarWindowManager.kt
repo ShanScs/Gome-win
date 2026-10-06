@@ -23,7 +23,11 @@ object ToolbarWindowManager {
         getPaused: () -> Boolean,
         getTimePos: () -> Double,
         getDuration: () -> Double,
-        onSeek: (Double) -> Unit
+        onSeek: (Double) -> Unit,
+        getNetSpeed: (() -> String)? = null,
+        onPrev: (() -> Unit)? = null,
+        onNext: (() -> Unit)? = null,
+        onPlaylist: (() -> Unit)? = null
     ) {
         javax.swing.SwingUtilities.invokeLater {
             try {
@@ -44,7 +48,11 @@ object ToolbarWindowManager {
                         getPaused = getPaused,
                         getTimePos = getTimePos,
                         getDuration = getDuration,
-                        onSeek = onSeek
+                        onSeek = onSeek,
+                        getNetSpeed = getNetSpeed,
+                        onPrev = onPrev,
+                        onNext = onNext,
+                        onPlaylist = onPlaylist
                     )
                     win.contentPane.add(panel)
                     window = win
@@ -67,6 +75,12 @@ object ToolbarWindowManager {
                 }
                 // 已存在：只更新位置+显示，不重建；确保 Timer 在跑
                 val w = window ?: return@invokeLater
+                // 更新面板回调（剧集切换时）
+                try {
+                    val panel = w.contentPane.getComponent(0) as? AwtToolbarPanel
+                    panel?.updateEpisodeCallbacks(onPrev, onNext, onPlaylist)
+                    panel?.updateNetSpeedCallback(getNetSpeed)
+                } catch (_: Throwable) { }
                 if (syncTimer == null) {
                     syncTimer = javax.swing.Timer(200) {
                         val ww = window ?: return@Timer
