@@ -52,17 +52,19 @@ jobs:
       - name: Bundle libmpv-2.dll alongside exe
         shell: pwsh
         run: |
-          $exeDir = Get-ChildItem -Path "composeApp/build/compose/binaries/main/exe" -Directory | Select-Object -First 1
-          if (-not $exeDir) { throw "exe output dir not found" }
+          $exe = Get-ChildItem -Path "composeApp/build" -Recurse -Filter "gome-pc.exe" | Select-Object -First 1
+          if (-not $exe) { throw "gome-pc.exe not found under composeApp/build" }
+          $exeDir = $exe.Directory
           Write-Host "Exe dir: $($exeDir.FullName)"
           Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $exeDir.FullName
           # JNA 按以下顺序找 DLL：java.library.path → PATH → 当前目录。
           # exe 启动器的工作目录即 exe 所在目录，同目录放 DLL 即可加载。
           Get-ChildItem $exeDir.FullName | Format-Table Name, Length
+          echo "EXE_DIR=$($exeDir.FullName)" >> $env:GITHUB_ENV
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: gome-pc-windows-1.0.0
-          path: composeApp/build/compose/binaries/main/exe/
+          path: ${{ env.EXE_DIR }}
           retention-days: 30
