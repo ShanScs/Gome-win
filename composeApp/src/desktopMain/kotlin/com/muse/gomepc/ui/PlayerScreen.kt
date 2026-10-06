@@ -355,7 +355,51 @@ fun PlayerScreen(
                     }
                     root.glassPane = danmakuPanel
                     danmakuPanel.isVisible = true
-                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置（无工具栏）")
+                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
+
+                    // 工具栏独立透明窗口（不干扰视频渲染）
+                    javax.swing.SwingUtilities.invokeLater {
+                        try {
+                            val toolbarWin = javax.swing.JWindow(root).apply {
+                                isAlwaysOnTop = true
+                                background = java.awt.Color(0, 0, 0, 0)
+                            }
+                            val toolbarPanel = AwtToolbarPanel(
+                                player = player,
+                                itemName = itemName,
+                                onBack = { onBack() },
+                                onFullscreen = { onFullscreen() },
+                                isVisibleState = { controlsVisibleState.value },
+                                getPaused = { paused },
+                                getTimePos = { if (dragging) dragPos.toDouble() else timePos },
+                                getDuration = { duration },
+                                onSeek = { player.seek(it) }
+                            )
+                            toolbarWin.contentPane.add(toolbarPanel)
+                            // 跟随主窗口位置大小
+                            fun syncBounds() {
+                                val p = root.locationOnScreen
+                                toolbarWin.bounds = java.awt.Rectangle(p.x, p.y, root.width, root.height)
+                            }
+                            syncBounds()
+                            root.addComponentListener(object : java.awt.event.ComponentAdapter() {
+                                override fun componentResized(e: java.awt.event.ComponentEvent) { syncBounds() }
+                                override fun componentMoved(e: java.awt.event.ComponentEvent) { syncBounds() }
+                            })
+                            // 定时同步可见性
+                            javax.swing.Timer(200) {
+                                val v = controlsVisibleState.value
+                                if (toolbarWin.isVisible != v) {
+                                    toolbarWin.isVisible = v
+                                    if (v) syncBounds()
+                                }
+                            }.start()
+                            toolbarWin.isVisible = controlsVisibleState.value
+                            com.muse.gomepc.player.DebugLog.d("UI", "工具栏独立窗口已创建")
+                        } catch (t: Throwable) {
+                            com.muse.gomepc.player.DebugLog.d("UI", "工具栏窗口创建失败: ${t.message}")
+                        }
+                    }
                 }
             } catch (_: Throwable) { }
             pendingCanvas = canvas
