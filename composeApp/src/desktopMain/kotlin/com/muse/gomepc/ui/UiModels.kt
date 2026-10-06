@@ -30,7 +30,13 @@ data class UiMediaItem(
     /** 继续观看徽章文案（如"剩余：22分47秒"，无则 null） */
     val badge: String? = null,
     /** 副标题（如剧集的"第1集"，无则空） */
-    val subtitle: String = ""
+    val subtitle: String = "",
+    /** 集数（剧集显示右上角徽章，0 则不显示） */
+    val episodeCount: Int = 0,
+    /** 是否已收藏（显示左上角红心） */
+    val isFavorite: Boolean = false,
+    /** 类型（如 ["剧情", "爱情"]） */
+    val genres: List<String> = emptyList()
 )
 
 /** 选集 */
@@ -61,7 +67,10 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
         imageUrl = YambyClient.imageUrl(posterId, "Primary", 400),
         progress = progress,
         badge = badge,
-        subtitle = if (isEp) epLabel() else ""
+        subtitle = if (isEp) epLabel() else "",
+        episodeCount = episodeCount,
+        isFavorite = isFavorite,
+        genres = genres
     )
 }
 

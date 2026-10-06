@@ -27,6 +27,7 @@ import com.muse.gomepc.ui.HomeScreen
 import com.muse.gomepc.ui.LoginScreen
 import com.muse.gomepc.ui.PlayerScreen
 import com.muse.gomepc.ui.Repo
+import com.muse.gomepc.ui.ResumeListScreen
 import com.muse.gomepc.ui.Screen
 import com.muse.gomepc.ui.SearchScreen
 import com.muse.gomepc.ui.SettingsScreen
@@ -116,7 +117,14 @@ fun GomeApp(
     Box(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
         Box(Modifier.fillMaxSize()) {
             when (val s = screen) {
-                is Screen.Home -> HomeScreen(onItemClick = { screen = Screen.Detail(it.id) })
+                is Screen.Home -> HomeScreen(
+                    onItemClick = { screen = Screen.Detail(it.id) },
+                    onResumeMore = { screen = Screen.ResumeList }
+                )
+                is Screen.ResumeList -> ResumeListScreen(
+                    onItemClick = { screen = Screen.Detail(it.id) },
+                    onBack = { screen = Screen.Home }
+                )
                 is Screen.Grid -> GridScreen(onItemClick = { screen = Screen.Detail(it.id) })
                 is Screen.Search -> SearchScreen(onItemClick = { screen = Screen.Detail(it.id) })
                 is Screen.Settings -> SettingsScreen(

@@ -275,4 +275,27 @@ object Prefs {
             }
         }
     }
+
+    // ---------- 搜索历史 ----------
+
+    private const val KEY_SEARCH_HISTORY = "search_history"
+
+    fun getSearchHistory(): List<String> {
+        val raw = get(KEY_SEARCH_HISTORY, "")
+        if (raw.isBlank()) return emptyList()
+        return raw.split("\n").filter { it.isNotBlank() }.take(20)
+    }
+
+    fun addSearchHistory(query: String) {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        val list = getSearchHistory().toMutableList()
+        list.remove(q)
+        list.add(0, q)
+        put(KEY_SEARCH_HISTORY, list.take(20).joinToString("\n"))
+    }
+
+    fun clearSearchHistory() {
+        put(KEY_SEARCH_HISTORY, "")
+    }
 }
