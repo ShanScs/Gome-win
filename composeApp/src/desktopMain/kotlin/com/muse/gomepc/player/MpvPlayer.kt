@@ -78,7 +78,7 @@ class MpvPlayer {
             return "mpv_initialize failed: ${lib.mpv_error_string(r)}"
         }
         // 请求日志消息（诊断用，UI 可展示）
-        try { lib.mpv_request_log_messages(ctx, "warn") } catch (_: Throwable) { }
+        try { lib.mpv_request_log_messages(ctx, "info") } catch (_: Throwable) { }
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
         lib.mpv_set_property_string(ctx, "osd-level", "0")

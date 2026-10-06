@@ -135,6 +135,7 @@ fun PlayerScreen(
     var dragPos by remember { mutableStateOf(0f) }
     val mpvLogs = remember { mutableStateListOf<String>() }
     var showLogs by remember { mutableStateOf(false) }
+    var fileLoaded by remember { mutableStateOf(false) }
     val danmakuOn = remember { mutableStateOf(true) }
     var overlayWin by remember { mutableStateOf<JWindow?>(null) }
     var overlayRetry by remember { mutableStateOf(0) }
@@ -216,7 +217,9 @@ fun PlayerScreen(
 
     DisposableEffect(Unit) {
         player.listener = object : MpvPlayer.Listener {
-            override fun onFileLoaded() {}
+            override fun onFileLoaded() {
+                SwingUtilities.invokeLater { fileLoaded = true }
+            }
             override fun onEndFile() {}
             override fun onError(msg: String) {
                 SwingUtilities.invokeLater { initError = msg }
@@ -358,6 +361,35 @@ fun PlayerScreen(
             ) {
                 Column(Modifier.fillMaxSize().padding(24.dp)) {
                     Text("mpv 日志（点击关闭）", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "URL: ${videoUrl?.take(120) ?: "null"}",
+                        color = Color(0xFF88CCFF),
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                    Text(
+                        "fileLoaded: $fileLoaded, inited: $inited, canvasReady: $canvasReady",
+                        color = Color(0xFF88CCFF),
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                    if (initError != null) {
+                        Text(
+                            "initError: $initError",
+                            color = Color(0xFFFF8888),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
+                    if (urlError != null) {
+                        Text(
+                            "urlError: $urlError",
+                            color = Color(0xFFFF8888),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
                         items(mpvLogs.size) { i ->
