@@ -110,7 +110,29 @@ interface LibMpv : Library {
 
     companion object {
         val INSTANCE: LibMpv by lazy {
-            Native.load("mpv", LibMpv::class.java) as LibMpv
+            // 确保 JNA 能找到 app 目录下的 libmpv-2.dll
+            try {
+                // 从当前 JAR 位置推导 app 目录（jpackage: app/xxx.jar → 上级即 app 根目录的父级）
+                val jarUrl = LibMpv::class.java.protectionDomain?.codeSource?.location
+                if (jarUrl != null) {
+                    val jarPath = java.io.File(jarUrl.toURI())
+                    // jar 在 app/ 下，DLL 在 app/ 的上级目录（Gome/ 根目录）
+                    val appDir = jarPath.parentFile?.parentFile
+                    if (appDir != null && appDir.isDirectory) {
+                        val dll = java.io.File(appDir, "libmpv-2.dll")
+                        if (dll.exists()) {
+                            // 直接用绝对路径加载，最可靠
+                            return@lazy Native.load(dll.absolutePath, LibMpv::class.java) as LibMpv
+                        }
+                    }
+                }
+            } catch (_: Throwable) { }
+            // 回退：按库名搜索
+            try {
+                Native.load("libmpv-2", LibMpv::class.java) as LibMpv
+            } catch (_: Throwable) {
+                Native.load("mpv", LibMpv::class.java) as LibMpv
+            }
         }
     }
 }
