@@ -158,7 +158,9 @@ compose.desktop {
                 "msi" -> targetFormats(TargetFormat.Msi)
                 "deb" -> targetFormats(TargetFormat.Deb)
                 "dmg" -> targetFormats(TargetFormat.Dmg)
-                // 默认不设：只做 app-image（packageDistributionForCurrentOS），由 collectDist 或 CI 后续步骤处理
+                "appimage", "app-image" -> targetFormats(TargetFormat.AppImage)
+                // 默认：app-image 便携目录（Windows CI 用）
+                else -> targetFormats(TargetFormat.AppImage)
             }
             packageName = "gome-pc"
             packageVersion = "1.0.0"
