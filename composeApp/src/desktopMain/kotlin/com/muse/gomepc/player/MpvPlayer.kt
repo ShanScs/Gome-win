@@ -69,7 +69,7 @@ class MpvPlayer {
         opt("osd-level", "0")?.let { return it }        // 关自带 OSD（UI 自己画控制条）
         opt("osd-bar", "no")?.let { /* 非致命，忽略 */ }
         if (wid > 0) opt("wid", wid.toString())?.let { return it }
-        opt("msg-level", "all=warn")?.let { /* 非致命，忽略 */ }
+        opt("msg-level", "all=info")?.let { /* 非致命，忽略 */ }
         opt("terminal", "no")?.let { /* 非致命，忽略 */ }
 
         // 请求日志消息必须在 initialize 之前（mpv 要求）
