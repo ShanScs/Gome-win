@@ -157,6 +157,15 @@ class VectorIcon private constructor(
         val dx = x1 - x0
         val dy = y1 - y0
         val len = kotlin.math.sqrt(dx * dx + dy * dy)
+        // 整圆：起点终点重合且 largeArc=1，用椭圆直接画
+        if (len < 0.01f && largeArc) {
+            // 圆心在起点下方 rx 处（SVG 弧线整圆的常见画法）
+            path.append(
+                java.awt.geom.Ellipse2D.Float(x0 - rx, y0 - ry, rx * 2, ry * 2),
+                false
+            )
+            return
+        }
         if (len < 0.01f) { path.lineTo(x1, y1); return }
         val mx = (x0 + x1) / 2
         val my = (y0 + y1) / 2

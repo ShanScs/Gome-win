@@ -32,7 +32,9 @@ class AwtToolbarPanel(
     private val onPlaylist: (() -> Unit)? = null,
     private val onPrev: (() -> Unit)? = null,
     private val onNext: (() -> Unit)? = null,
-    private val getNetSpeed: (() -> String)? = null
+    private val getNetSpeed: (() -> String)? = null,
+    private val onToggleDanmaku: (() -> Unit)? = null,
+    private val isDanmakuEnabled: (() -> Boolean)? = null
 ) : JPanel() {
 
     private fun icon(name: String, size: Int): Icon {
@@ -73,8 +75,6 @@ class AwtToolbarPanel(
     private var isLocked = false
     private val speedOptions = listOf(0.5, 1.0, 1.5, 2.0)
     private var speedIndex = 1
-    private val aspectModes = listOf("auto" to "-1", "16:9" to "16:9", "4:3" to "4:3", "2.35:1" to "2.35:1")
-    private var aspectIndex = 0
 
     // 可更新的回调（单例复用时更新）
     private var onPrevCb: (() -> Unit)? = onPrev
@@ -102,6 +102,26 @@ class AwtToolbarPanel(
 
     fun updateNetSpeedCallback(getNetSpeed: (() -> String)?) {
         getNetSpeedCb = getNetSpeed
+    }
+
+    private var onToggleDanmakuCb: (() -> Unit)? = onToggleDanmaku
+    private var isDanmakuEnabledCb: (() -> Boolean)? = isDanmakuEnabled
+    private lateinit var danmakuBtn: JButton
+
+    fun updateDanmakuCallbacks(
+        onToggleDanmaku: (() -> Unit)?,
+        isDanmakuEnabled: (() -> Boolean)?
+    ) {
+        onToggleDanmakuCb = onToggleDanmaku
+        isDanmakuEnabledCb = isDanmakuEnabled
+        updateDanmakuBtnState()
+    }
+
+    private fun updateDanmakuBtnState() {
+        if (!::danmakuBtn.isInitialized) return
+        val on = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
+        // 安卓：关闭时变暗 (alpha 0.4)
+        danmakuBtn.isEnabled = true  // 保持可点，用图标透明度表示状态
     }
 
     data class TrackInfo(val id: Int, val title: String, val lang: String)
@@ -143,20 +163,16 @@ class AwtToolbarPanel(
             isBorderPainted = false
             isFocusPainted = false
             preferredSize = Dimension(40, 40)
+            minimumSize = Dimension(40, 40)
+            maximumSize = Dimension(40, 40)
             toolTipText = tooltip
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             if (onClick != null) {
                 addActionListener { onClick() }
             } else {
                 isEnabled = false
-                alphaDisabled()
             }
         }
-    }
-
-    private fun JButton.alphaDisabled() {
-        // 禁用时半透明（安卓风格）
-        disabledIcon = icon
     }
 
     private fun buildTopBar() {
@@ -166,9 +182,7 @@ class AwtToolbarPanel(
         }
 
         // 左：返回
-        val backBtn = toolButton("ic_pl_close", "退出", onBack).apply {
-            preferredSize = Dimension(36, 36)
-        }
+        val backBtn = toolButton("ic_pl_close", "退出", onBack)
         val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
             isOpaque = false
             add(backBtn)
@@ -238,14 +252,11 @@ class AwtToolbarPanel(
             border = EmptyBorder(4, 0, 0, 0)
         }
 
-        // 左组：缩放 / 锁 / 倍速（投屏、旋转在 PC 无意义，已删）
+        // 左组：全屏 / 锁 / 倍速（PC 不需要视频缩放，缩放改为全屏）
         val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply { isOpaque = false }
-        // 缩放：视频比例切换
-        leftGroup.add(toolButton("ic_pl_aspect", "视频缩放") {
-            aspectIndex = (aspectIndex + 1) % aspectModes.size
-            val (label, value) = aspectModes[aspectIndex]
-            player.setProperty("video-aspect-override", value)
-            DebugLog.d("UI", "画面比例切换: $label")
+        // 全屏
+        leftGroup.add(toolButton("ic_pl_aspect", "全屏") {
+            onFullscreen()
         })
         // 锁
         lockBtn = toolButton("ic_pl_lock", "锁定", null).apply {
@@ -273,8 +284,6 @@ class AwtToolbarPanel(
         playBtn = toolButton("ic_pl_play", "播放/暂停", null).apply {
             addActionListener { player.togglePause() }
         }
-        // 播放按钮稍大（安卓：中间按钮组，播放键突出）
-        playBtn.preferredSize = Dimension(48, 48)
         centerGroup.add(playBtn)
         nextBtn = toolButton("ic_pl_next", "下一集", null).apply {
             addActionListener { onNextCb?.invoke() }
@@ -286,7 +295,11 @@ class AwtToolbarPanel(
         val rightGroup = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply { isOpaque = false }
         rightGroup.add(toolButton("ic_pl_audio", "音频") { showAudioDialog() })
         rightGroup.add(toolButton("ic_pl_subtitle", "字幕") { showSubtitleDialog() })
-        rightGroup.add(toolButton("ic_pl_definition", "弹幕设置") { showDanmakuMenu() })
+        danmakuBtn = toolButton("ic_pl_definition", "弹幕") {
+            onToggleDanmakuCb?.invoke()
+            updateDanmakuBtnState()
+        }
+        rightGroup.add(danmakuBtn)
         rightGroup.add(toolButton("ic_pl_more", "更多") { showMoreMenu() })
         playlistBtn = toolButton("ic_pl_playlist", "剧集列表", null).apply {
             addActionListener { onPlaylistCb?.invoke() }
@@ -352,39 +365,76 @@ class AwtToolbarPanel(
         }
     }
 
-    /** 音频轨选择弹窗 */
+    /** 音频轨选择弹窗（磨砂风格，1:1 安卓） */
     private fun showAudioDialog() {
         val tracks = getTracks("audio")
         if (tracks.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "没有可用音频轨", "音频", JOptionPane.INFORMATION_MESSAGE)
+            showTip("没有可用音频轨")
             return
         }
-        val options = tracks.map { "${it.id}: ${it.title}${if (it.lang.isNotEmpty()) " (${it.lang})" else ""}" }.toTypedArray()
-        val selected = JOptionPane.showInputDialog(
-            this, "选择音频轨", "音频",
-            JOptionPane.PLAIN_MESSAGE, null, options, options[0]
-        ) as? String ?: return
-        val id = selected.substringBefore(":").toIntOrNull() ?: return
-        player.setProperty("aid", id.toString())
-        DebugLog.d("UI", "音频轨切换: $id")
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        // 找到音频按钮作为锚点
+        val anchor = findButtonByTooltip("音频") ?: this
+        val currentAid = player.getPropertyString("aid")
+        val rows = tracks.map { t ->
+            val label = "${t.title}${if (t.lang.isNotEmpty()) " (${t.lang})" else ""}"
+            FrostedPopup.Row(
+                label = label,
+                checked = currentAid == t.id.toString(),
+                action = {
+                    player.setProperty("aid", t.id.toString())
+                    DebugLog.d("UI", "音频轨切换: ${t.id}")
+                }
+            )
+        }
+        FrostedPopup(owner, anchor).show(rows, width = 260)
     }
 
-    /** 字幕轨选择弹窗 */
+    /** 字幕轨选择弹窗（磨砂风格，1:1 安卓） */
     private fun showSubtitleDialog() {
         val tracks = getTracks("sub")
-        val options = mutableListOf("关闭字幕")
-        options.addAll(tracks.map { "${it.id}: ${it.title}${if (it.lang.isNotEmpty()) " (${it.lang})" else ""}" })
-        val selected = JOptionPane.showInputDialog(
-            this, "选择字幕轨", "字幕",
-            JOptionPane.PLAIN_MESSAGE, null, options.toTypedArray(), options[0]
-        ) as? String ?: return
-        if (selected == "关闭字幕") {
-            player.setProperty("sid", "no")
-        } else {
-            val id = selected.substringBefore(":").toIntOrNull() ?: return
-            player.setProperty("sid", id.toString())
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        val anchor = findButtonByTooltip("字幕") ?: this
+        val currentSid = player.getPropertyString("sid")
+        val rows = mutableListOf<FrostedPopup.Row>()
+        rows.add(
+            FrostedPopup.Row(
+                label = "关闭字幕",
+                checked = currentSid == "no" || currentSid == null,
+                action = {
+                    player.setProperty("sid", "no")
+                    DebugLog.d("UI", "字幕关闭")
+                }
+            )
+        )
+        tracks.forEach { t ->
+            val label = "${t.title}${if (t.lang.isNotEmpty()) " (${t.lang})" else ""}"
+            rows.add(
+                FrostedPopup.Row(
+                    label = label,
+                    checked = currentSid == t.id.toString(),
+                    action = {
+                        player.setProperty("sid", t.id.toString())
+                        DebugLog.d("UI", "字幕轨切换: ${t.id}")
+                    }
+                )
+            )
         }
-        DebugLog.d("UI", "字幕轨切换: $selected")
+        FrostedPopup(owner, anchor).show(rows, width = 260)
+    }
+
+    private fun findButtonByTooltip(tooltip: String): JButton? {
+        return components.flatMap {
+            when (it) {
+                is JButton -> listOf(it)
+                is Container -> it.components.filterIsInstance<JButton>()
+                else -> emptyList()
+            }
+        }.firstOrNull { it.toolTipText == tooltip }
+    }
+
+    private fun showTip(msg: String) {
+        JOptionPane.showMessageDialog(this, msg, "提示", JOptionPane.INFORMATION_MESSAGE)
     }
 
     /** 弹幕菜单（安卓 btnDefinition 对应弹幕菜单） */
@@ -405,23 +455,29 @@ class AwtToolbarPanel(
         }
     }
 
-    /** 更多菜单 */
+    /** 更多菜单（磨砂风格，1:1 安卓） */
     private fun showMoreMenu() {
-        val options = arrayOf("视频信息", "打开日志目录")
-        val selected = JOptionPane.showInputDialog(
-            this, "更多", "更多",
-            JOptionPane.PLAIN_MESSAGE, null, options, options[0]
-        ) as? String ?: return
-        when (selected) {
-            "视频信息" -> showMediaInfo()
-            "打开日志目录" -> {
-                try {
-                    java.awt.Desktop.getDesktop().open(java.io.File(System.getProperty("user.home"), ".gome"))
-                } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(this, "无法打开: ${e.message}", "错误", JOptionPane.ERROR_MESSAGE)
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        val anchor = findButtonByTooltip("更多") ?: this
+        val rows = listOf(
+            FrostedPopup.Row(
+                label = "视频信息",
+                iconName = "ic_pl_info",
+                action = { showMediaInfo() }
+            ),
+            FrostedPopup.Row(
+                label = "打开日志目录",
+                iconName = "ic_pl_info",
+                action = {
+                    try {
+                        java.awt.Desktop.getDesktop().open(java.io.File(System.getProperty("user.home"), ".gome"))
+                    } catch (e: Exception) {
+                        showTip("无法打开: ${e.message}")
+                    }
                 }
-            }
-        }
+            )
+        )
+        FrostedPopup(owner, anchor).show(rows)
     }
 
     /** 视频信息弹窗 */

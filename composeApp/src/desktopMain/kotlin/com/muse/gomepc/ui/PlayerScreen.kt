@@ -256,6 +256,8 @@ fun PlayerScreen(
     var urlError by remember { mutableStateOf<String?>(null) }
     // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
+    var danmakuPanelRef by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
+    var danmakuEnabled by remember { mutableStateOf(true) }
     var mpvInitDone by remember { mutableStateOf(false) }
 
     // 取播放地址
@@ -435,6 +437,7 @@ fun PlayerScreen(
                     }
                     root.glassPane = danmakuPanel
                     danmakuPanel.isVisible = true
+                    danmakuPanelRef = danmakuPanel
                     com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
 
                     // 工具栏：单例复用，只创建一次
@@ -450,6 +453,13 @@ fun PlayerScreen(
                         getDuration = { duration },
                         onSeek = { player.seek(it) },
                         getNetSpeed = { netSpeedText },
+                        onToggleDanmaku = {
+                            danmakuEnabled = !danmakuEnabled
+                            javax.swing.SwingUtilities.invokeLater {
+                                danmakuPanelRef?.isVisible = danmakuEnabled
+                            }
+                        },
+                        isDanmakuEnabled = { danmakuEnabled },
                         onPrev = if (episodeIndex > 0 && onSwitchEpisode != null) {
                             {
                                 val prev = episodeList.getOrNull(episodeIndex - 1)

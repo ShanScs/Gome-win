@@ -27,7 +27,9 @@ object ToolbarWindowManager {
         getNetSpeed: (() -> String)? = null,
         onPrev: (() -> Unit)? = null,
         onNext: (() -> Unit)? = null,
-        onPlaylist: (() -> Unit)? = null
+        onPlaylist: (() -> Unit)? = null,
+        onToggleDanmaku: (() -> Unit)? = null,
+        isDanmakuEnabled: (() -> Boolean)? = null
     ) {
         javax.swing.SwingUtilities.invokeLater {
             try {
@@ -53,7 +55,9 @@ object ToolbarWindowManager {
                         getNetSpeed = getNetSpeed,
                         onPrev = onPrev,
                         onNext = onNext,
-                        onPlaylist = onPlaylist
+                        onPlaylist = onPlaylist,
+                        onToggleDanmaku = onToggleDanmaku,
+                        isDanmakuEnabled = isDanmakuEnabled
                     )
                     win.contentPane.add(panel)
                     window = win
@@ -66,8 +70,7 @@ object ToolbarWindowManager {
                         }
                         if (v) {
                             try {
-                                val p = owner.locationOnScreen
-                                val b = java.awt.Rectangle(p.x, p.y, owner.width, owner.height)
+                                val b = contentBounds(owner)
                                 if (w.bounds != b) w.bounds = b
                             } catch (_: Throwable) { }
                         }
@@ -81,6 +84,7 @@ object ToolbarWindowManager {
                     val panel = w.contentPane.getComponent(0) as? AwtToolbarPanel
                     panel?.updateEpisodeCallbacks(onPrev, onNext, onPlaylist)
                     panel?.updateNetSpeedCallback(getNetSpeed)
+                    panel?.updateDanmakuCallbacks(onToggleDanmaku, isDanmakuEnabled)
                 } catch (_: Throwable) { }
                 if (syncTimer == null) {
                     syncTimer = javax.swing.Timer(200) {
@@ -91,21 +95,36 @@ object ToolbarWindowManager {
                         }
                         if (v) {
                             try {
-                                val p = owner.locationOnScreen
-                                val b = java.awt.Rectangle(p.x, p.y, owner.width, owner.height)
+                                val b = contentBounds(owner)
                                 if (ww.bounds != b) ww.bounds = b
                             } catch (_: Throwable) { }
                         }
                     }.apply { start() }
                 }
                 try {
-                    val p = owner.locationOnScreen
-                    w.bounds = java.awt.Rectangle(p.x, p.y, owner.width, owner.height)
+                    w.bounds = contentBounds(owner)
                 } catch (_: Throwable) { }
                 w.isVisible = try { isVisibleState() } catch (_: Throwable) { false }
             } catch (t: Throwable) {
                 DebugLog.d("UI", "工具栏显示失败: ${t.message}")
             }
+        }
+    }
+
+    /** 计算 owner 的内容区（视频界面）在屏幕上的 bounds，不含窗口装饰 */
+    private fun contentBounds(owner: java.awt.Window): java.awt.Rectangle {
+        return try {
+            val p = owner.locationOnScreen
+            val insets = owner.insets
+            java.awt.Rectangle(
+                p.x + insets.left,
+                p.y + insets.top,
+                owner.width - insets.left - insets.right,
+                owner.height - insets.top - insets.bottom
+            )
+        } catch (_: Throwable) {
+            val p = try { owner.locationOnScreen } catch (_: Throwable) { java.awt.Point(0, 0) }
+            java.awt.Rectangle(p.x, p.y, owner.width, owner.height)
         }
     }
 
