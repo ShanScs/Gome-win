@@ -1,0 +1,70 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download Windows libmpv (with libdovi)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261006/mpv-dev-x86_64-20261006-git-6c092d978b.7z"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
+          7z x "$env:RUNNER_TEMP\mpv-dev.7z" -o"$env:RUNNER_TEMP\mpv-dev"
+          $dll = Get-ChildItem -Path "$env:RUNNER_TEMP\mpv-dev" -Recurse -Filter "libmpv-2.dll" | Select-Object -First 1
+          if (-not $dll) { throw "libmpv-2.dll not found in archive" }
+          Write-Host "Found: $($dll.FullName) ($([math]::Round($dll.Length/1MB,1)) MB)"
+          # 验证 64 位 + DOVI 符号
+          $bytes = [System.IO.File]::ReadAllBytes($dll.FullName)
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if ($text -notmatch "apply_dolbyvision") { throw "DLL missing apply_dolbyvision (no libdovi)" }
+          Write-Host "DOVI check: apply_dolbyvision found ✅"
+          # 放到 composeApp 构建目录，供 packageExe 打包时复制
+          New-Item -ItemType Directory -Force -Path "composeApp/build/mpv-win" | Out-Null
+          Copy-Item $dll.FullName "composeApp/build/mpv-win/libmpv-2.dll"
+          # 也保留一份到仓库外的临时目录，供后续步骤
+          echo "MPV_DLL=$env:RUNNER_TEMP\mpv-dev\$($dll.Name)" >> $env:GITHUB_ENV
+
+      - name: Build desktop jar
+        run: ./gradlew :composeApp:desktopJar -Pkotlin.compiler.execution.strategy=in-process --no-daemon
+        shell: bash
+
+      - name: Package Windows exe (jpackage)
+        run: ./gradlew :composeApp:packageExe -PtargetFormat=Exe -Pkotlin.compiler.execution.strategy=in-process --no-daemon
+        shell: bash
+
+      - name: Bundle libmpv-2.dll alongside exe
+        shell: pwsh
+        run: |
+          $exeDir = Get-ChildItem -Path "composeApp/build/compose/binaries/main/exe" -Directory | Select-Object -First 1
+          if (-not $exeDir) { throw "exe output dir not found" }
+          Write-Host "Exe dir: $($exeDir.FullName)"
+          Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $exeDir.FullName
+          # JNA 按以下顺序找 DLL：java.library.path → PATH → 当前目录。
+          # exe 启动器的工作目录即 exe 所在目录，同目录放 DLL 即可加载。
+          Get-ChildItem $exeDir.FullName | Format-Table Name, Length
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gome-pc-windows-1.0.0
+          path: composeApp/build/compose/binaries/main/exe/
+          retention-days: 30
