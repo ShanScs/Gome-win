@@ -217,6 +217,8 @@ fun PlayerScreen(
     var urlError by remember { mutableStateOf<String?>(null) }
     // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
+    // 工具栏独立窗口引用，退出时销毁
+    val toolbarWinRef = remember { java.util.concurrent.atomic.AtomicReference<javax.swing.JWindow?>(null) }
     var mpvInitDone by remember { mutableStateOf(false) }
 
     // 取播放地址
@@ -329,6 +331,20 @@ fun PlayerScreen(
         tryInitPlayer()
     }
 
+    // 退出播放器时销毁工具栏窗口
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                toolbarWinRef.get()?.let {
+                    it.isVisible = false
+                    it.dispose()
+                    com.muse.gomepc.player.DebugLog.d("UI", "工具栏窗口已销毁")
+                }
+            } catch (_: Throwable) { }
+            try { player.destroy() } catch (_: Throwable) { }
+        }
+    }
+
     // 稳定回调：remember 固定实例，防止父重构导致 Canvas 重建
     val onCanvasReadyStable = remember {
         { canvas: java.awt.Canvas ->
@@ -395,6 +411,7 @@ fun PlayerScreen(
                                 }
                             }.start()
                             toolbarWin.isVisible = controlsVisibleState.value
+                            toolbarWinRef.set(toolbarWin)
                             com.muse.gomepc.player.DebugLog.d("UI", "工具栏独立窗口已创建")
                         } catch (t: Throwable) {
                             com.muse.gomepc.player.DebugLog.d("UI", "工具栏窗口创建失败: ${t.message}")
