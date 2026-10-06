@@ -50,6 +50,7 @@ import com.muse.gomepc.emby.YambyClient
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.rememberCoroutineScope
 import com.muse.gomepc.emby.ServerEntry
 
@@ -347,18 +348,18 @@ fun HomeScreen(
         try {
             error = null
             libs = null; resume = null; libItems = emptyMap(); latest = null
-            // 第一批并行：libraries + resume + latest
-            val libsDef = async { Repo.libraries() }
-            val resumeDef = async { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } }
-            val latestDef = async { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } }
+            // 第一批并行：libraries + resume + latest（各 10 秒超时）
+            val libsDef = async { withTimeoutOrNull(10000) { Repo.libraries() } ?: emptyList() }
+            val resumeDef = async { withTimeoutOrNull(10000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
+            val latestDef = async { withTimeoutOrNull(10000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
             val l = libsDef.await()
             libs = l
             resume = resumeDef.await()
             latest = latestDef.await()
-            // 第二批并行：每个媒体库的 items
+            // 第二批并行：每个媒体库的 items（各 10 秒超时）
             val itemsDefs = l.map { lib ->
                 lib.id to async {
-                    try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() }
+                    withTimeoutOrNull(10000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
                 }
             }
             val map = mutableMapOf<String, List<UiMediaItem>>()
