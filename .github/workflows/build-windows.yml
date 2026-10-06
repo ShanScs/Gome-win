@@ -52,8 +52,10 @@ jobs:
       - name: Bundle libmpv-2.dll alongside exe
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path "composeApp/build" -Recurse -Filter "gome-pc.exe" | Select-Object -First 1
-          if (-not $exe) { throw "gome-pc.exe not found under composeApp/build" }
+          Write-Host "=== build output tree ==="
+          Get-ChildItem -Path "composeApp/build/compose" -Recurse -Depth 4 | Format-Table FullName
+          $exe = Get-ChildItem -Path "composeApp/build" -Recurse -Include "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "no exe found under composeApp/build" }
           $exeDir = $exe.Directory
           Write-Host "Exe dir: $($exeDir.FullName)"
           Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $exeDir.FullName
