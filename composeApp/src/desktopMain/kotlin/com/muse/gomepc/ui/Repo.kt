@@ -108,7 +108,11 @@ object Repo {
                     } else {
                         val first = seasons.first()
                         val eps = YambyClient.getEpisodes(itemId, first.id).map {
-                            UiEpisode(it.id, it.episodeIdx, it.epLabel())
+                            UiEpisode(
+                                it.id, it.episodeIdx, it.epLabel(),
+                                width = it.width, height = it.height,
+                                runTicks = it.runTicks, sizeBytes = it.sizeBytes
+                            )
                         }
                         EpisodeData(
                             eps,
@@ -128,7 +132,11 @@ object Repo {
     suspend fun seasonEpisodes(seriesId: String, seasonId: String): List<UiEpisode> {
         if (demoMode) return emptyList()
         return YambyClient.getEpisodes(seriesId, seasonId).map {
-            UiEpisode(it.id, it.episodeIdx, it.epLabel())
+            UiEpisode(
+                it.id, it.episodeIdx, it.epLabel(),
+                width = it.width, height = it.height,
+                runTicks = it.runTicks, sizeBytes = it.sizeBytes
+            )
         }
     }
 

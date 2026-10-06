@@ -43,7 +43,11 @@ data class UiMediaItem(
 data class UiEpisode(
     val id: String,
     val index: Int,
-    val name: String
+    val name: String,
+    val width: Int = 0,
+    val height: Int = 0,
+    val runTicks: Long = 0L,
+    val sizeBytes: Long = 0L
 )
 
 /** YambyClient.Item → UiMediaItem */

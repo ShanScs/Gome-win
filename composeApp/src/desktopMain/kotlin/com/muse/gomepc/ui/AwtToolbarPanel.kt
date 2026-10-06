@@ -34,7 +34,9 @@ class AwtToolbarPanel(
     private val onNext: (() -> Unit)? = null,
     private val getNetSpeed: (() -> String)? = null,
     private val onToggleDanmaku: (() -> Unit)? = null,
-    private val isDanmakuEnabled: (() -> Boolean)? = null
+    private val isDanmakuEnabled: (() -> Boolean)? = null,
+    private val onDanmakuPosition: ((Int) -> Unit)? = null,
+    private val getDanmakuPosition: (() -> Int)? = null
 ) : JPanel() {
 
     private fun icon(name: String, size: Int): Icon {
@@ -106,22 +108,91 @@ class AwtToolbarPanel(
 
     private var onToggleDanmakuCb: (() -> Unit)? = onToggleDanmaku
     private var isDanmakuEnabledCb: (() -> Boolean)? = isDanmakuEnabled
+    private var onDanmakuPositionCb: ((Int) -> Unit)? = onDanmakuPosition
+    private var getDanmakuPositionCb: (() -> Int)? = getDanmakuPosition
     private lateinit var danmakuBtn: JButton
 
     fun updateDanmakuCallbacks(
         onToggleDanmaku: (() -> Unit)?,
-        isDanmakuEnabled: (() -> Boolean)?
+        isDanmakuEnabled: (() -> Boolean)?,
+        onDanmakuPosition: ((Int) -> Unit)?,
+        getDanmakuPosition: (() -> Int)?
     ) {
         onToggleDanmakuCb = onToggleDanmaku
         isDanmakuEnabledCb = isDanmakuEnabled
+        onDanmakuPositionCb = onDanmakuPosition
+        getDanmakuPositionCb = getDanmakuPosition
         updateDanmakuBtnState()
     }
 
     private fun updateDanmakuBtnState() {
         if (!::danmakuBtn.isInitialized) return
         val on = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
-        // 安卓：关闭时变暗 (alpha 0.4)
-        danmakuBtn.isEnabled = true  // 保持可点，用图标透明度表示状态
+        danmakuBtn.isEnabled = true
+    }
+
+    /** 弹幕菜单（1:1 安卓） */
+    private fun showDanmakuMenu() {
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        val anchor = danmakuBtn
+        val enabled = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
+        val pos = try { getDanmakuPositionCb?.invoke() } catch (_: Exception) { null } ?: 0
+        val posLabels = listOf("顶部", "半屏", "全屏")
+        val rows = listOf(
+            FrostedPopup.Row(
+                label = "搜索弹幕",
+                iconName = "ic_pl_search",
+                action = { showTip("PC端暂不支持搜索弹幕") }
+            ),
+            FrostedPopup.Row(
+                label = "本地导入",
+                iconName = "ic_pl_import",
+                action = { showTip("PC端暂不支持本地导入") }
+            ),
+            FrostedPopup.Row(
+                label = "＞ API设置",
+                iconName = "ic_pl_api",
+                action = { showTip("PC端暂不支持API设置") }
+            ),
+            FrostedPopup.Row(
+                label = if (enabled) "禁用弹幕" else "启用弹幕",
+                iconName = "ic_pl_danmaku",
+                action = {
+                    onToggleDanmakuCb?.invoke()
+                    updateDanmakuBtnState()
+                }
+            ),
+            FrostedPopup.Row(
+                label = "＞ 弹幕位置：${posLabels.getOrNull(pos) ?: "顶部"}",
+                iconName = "ic_pl_position",
+                action = { showDanmakuPositionMenu() }
+            ),
+            FrostedPopup.Row(
+                label = "弹幕设置",
+                iconName = "ic_pl_setting",
+                action = { showTip("PC端弹幕设置暂未实现") }
+            )
+        )
+        FrostedPopup(owner, anchor).show(rows, width = 260)
+    }
+
+    /** 弹幕位置子菜单 */
+    private fun showDanmakuPositionMenu() {
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        val anchor = danmakuBtn
+        val current = try { getDanmakuPositionCb?.invoke() } catch (_: Exception) { null } ?: 0
+        val labels = listOf("顶部", "半屏", "全屏")
+        val rows = labels.mapIndexed { i, label ->
+            FrostedPopup.Row(
+                label = label,
+                checked = current == i,
+                action = {
+                    onDanmakuPositionCb?.invoke(i)
+                    DebugLog.d("UI", "弹幕位置: $label")
+                }
+            )
+        }
+        FrostedPopup(owner, anchor).show(rows, width = 220)
     }
 
     data class TrackInfo(val id: Int, val title: String, val lang: String)
@@ -296,8 +367,7 @@ class AwtToolbarPanel(
         rightGroup.add(toolButton("ic_pl_audio", "音频") { showAudioDialog() })
         rightGroup.add(toolButton("ic_pl_subtitle", "字幕") { showSubtitleDialog() })
         danmakuBtn = toolButton("ic_pl_definition", "弹幕") {
-            onToggleDanmakuCb?.invoke()
-            updateDanmakuBtnState()
+            showDanmakuMenu()
         }
         rightGroup.add(danmakuBtn)
         rightGroup.add(toolButton("ic_pl_more", "更多") { showMoreMenu() })
@@ -377,7 +447,7 @@ class AwtToolbarPanel(
         val anchor = findButtonByTooltip("音频") ?: this
         val currentAid = player.getPropertyString("aid")
         val rows = tracks.map { t ->
-            val label = "${t.title}${if (t.lang.isNotEmpty()) " (${t.lang})" else ""}"
+            val label = "> ${t.title}${if (t.lang.isNotEmpty()) " (${t.lang})" else ""}"
             FrostedPopup.Row(
                 label = label,
                 checked = currentAid == t.id.toString(),
@@ -390,13 +460,15 @@ class AwtToolbarPanel(
         FrostedPopup(owner, anchor).show(rows, width = 260)
     }
 
-    /** 字幕轨选择弹窗（磨砂风格，1:1 安卓） */
+    /** 字幕弹窗（1:1 安卓：关闭字幕 + 字幕大小） */
     private fun showSubtitleDialog() {
         val tracks = getTracks("sub")
         val owner = SwingUtilities.getWindowAncestor(this) ?: return
         val anchor = findButtonByTooltip("字幕") ?: this
         val currentSid = player.getPropertyString("sid")
         val rows = mutableListOf<FrostedPopup.Row>()
+
+        // 关闭字幕
         rows.add(
             FrostedPopup.Row(
                 label = "关闭字幕",
@@ -407,6 +479,7 @@ class AwtToolbarPanel(
                 }
             )
         )
+        // 字幕轨
         tracks.forEach { t ->
             val label = "${t.title}${if (t.lang.isNotEmpty()) " (${t.lang})" else ""}"
             rows.add(
@@ -416,6 +489,22 @@ class AwtToolbarPanel(
                     action = {
                         player.setProperty("sid", t.id.toString())
                         DebugLog.d("UI", "字幕轨切换: ${t.id}")
+                    }
+                )
+            )
+        }
+        // 分隔：字幕大小
+        rows.add(FrostedPopup.Row(label = "—— 字幕大小 ——", enabled = false))
+        val sizes = listOf("小" to 36, "中" to 48, "大" to 60, "特大" to 72)
+        val currentSize = player.getPropertyDouble("sub-font-size")?.toInt() ?: 48
+        sizes.forEach { (label, size) ->
+            rows.add(
+                FrostedPopup.Row(
+                    label = label,
+                    checked = currentSize == size,
+                    action = {
+                        player.setProperty("sub-font-size", size.toString())
+                        DebugLog.d("UI", "字幕大小: $label")
                     }
                 )
             )
@@ -435,24 +524,6 @@ class AwtToolbarPanel(
 
     private fun showTip(msg: String) {
         JOptionPane.showMessageDialog(this, msg, "提示", JOptionPane.INFORMATION_MESSAGE)
-    }
-
-    /** 弹幕菜单（安卓 btnDefinition 对应弹幕菜单） */
-    private fun showDanmakuMenu() {
-        val options = arrayOf("启用/禁用弹幕", "弹幕设置")
-        val selected = JOptionPane.showInputDialog(
-            this, "弹幕", "弹幕",
-            JOptionPane.PLAIN_MESSAGE, null, options, options[0]
-        ) as? String ?: return
-        when (selected) {
-            "启用/禁用弹幕" -> {
-                // TODO: 接入 PC 弹幕开关
-                JOptionPane.showMessageDialog(this, "弹幕开关功能开发中", "弹幕", JOptionPane.INFORMATION_MESSAGE)
-            }
-            "弹幕设置" -> {
-                JOptionPane.showMessageDialog(this, "弹幕设置功能开发中", "弹幕", JOptionPane.INFORMATION_MESSAGE)
-            }
-        }
     }
 
     /** 更多菜单（磨砂风格，1:1 安卓） */

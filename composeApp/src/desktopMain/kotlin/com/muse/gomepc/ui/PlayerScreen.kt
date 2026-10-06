@@ -172,43 +172,6 @@ private fun VideoCanvasArea(
     )
 }
 
-/** 剧集列表弹窗（Swing） */
-private fun showEpisodeDialog(
-    owner: java.awt.Window,
-    episodes: List<UiEpisode>,
-    currentIndex: Int,
-    onSelect: (UiEpisode, Int) -> Unit
-) {
-    val dialog = javax.swing.JDialog(owner as? java.awt.Frame, "剧集列表", false)
-    dialog.layout = java.awt.BorderLayout()
-    val listModel = javax.swing.DefaultListModel<String>()
-    episodes.forEachIndexed { i, ep ->
-        val mark = if (i == currentIndex) "▶ " else "  "
-        listModel.addElement("$mark${ep.name}")
-    }
-    val list = javax.swing.JList(listModel)
-    list.selectedIndex = currentIndex
-    list.selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
-    list.addMouseListener(object : java.awt.event.MouseAdapter() {
-        override fun mouseClicked(e: java.awt.event.MouseEvent) {
-            if (e.clickCount == 2) {
-                val idx = list.selectedIndex
-                if (idx in episodes.indices) {
-                    dialog.dispose()
-                    onSelect(episodes[idx], idx)
-                }
-            }
-        }
-    })
-    val scroll = javax.swing.JScrollPane(list)
-    scroll.preferredSize = java.awt.Dimension(300, 400)
-    dialog.add(scroll, java.awt.BorderLayout.CENTER)
-    val hint = javax.swing.JLabel("双击切换剧集", javax.swing.SwingConstants.CENTER)
-    dialog.add(hint, java.awt.BorderLayout.SOUTH)
-    dialog.pack()
-    dialog.setLocationRelativeTo(owner)
-    dialog.isVisible = true
-}
 
 @Composable
 fun PlayerScreen(
@@ -258,6 +221,7 @@ fun PlayerScreen(
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
     var danmakuPanelRef by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
     var danmakuEnabled by remember { mutableStateOf(true) }
+    var danmakuPosition by remember { mutableStateOf(0) }
     var mpvInitDone by remember { mutableStateOf(false) }
 
     // 取播放地址
@@ -455,11 +419,20 @@ fun PlayerScreen(
                         getNetSpeed = { netSpeedText },
                         onToggleDanmaku = {
                             danmakuEnabled = !danmakuEnabled
+                            engine.setEnabled(danmakuEnabled)
                             javax.swing.SwingUtilities.invokeLater {
                                 danmakuPanelRef?.isVisible = danmakuEnabled
                             }
                         },
                         isDanmakuEnabled = { danmakuEnabled },
+                        onDanmakuPosition = { pos ->
+                            danmakuPosition = pos
+                            engine.setPosition(pos)
+                        },
+                        getDanmakuPosition = {
+                            // DanmakuEngine 没有 getter，用 remember 的值
+                            danmakuPosition
+                        },
                         onPrev = if (episodeIndex > 0 && onSwitchEpisode != null) {
                             {
                                 val prev = episodeList.getOrNull(episodeIndex - 1)
@@ -474,11 +447,17 @@ fun PlayerScreen(
                         } else null,
                         onPlaylist = if (onSwitchEpisode != null && episodeList.isNotEmpty()) {
                             {
-                                // 剧集列表弹窗（在 EDT 上显示）
                                 javax.swing.SwingUtilities.invokeLater {
-                                    showEpisodeDialog(root, episodeList, episodeIndex) { ep, idx ->
-                                        onSwitchEpisode(ep.id, idx)
+                                    val infos = episodeList.map {
+                                        EpisodePanel.EpisodeInfo(
+                                            id = it.id, index = it.index, name = it.name,
+                                            width = it.width, height = it.height,
+                                            durationTicks = it.runTicks, sizeBytes = it.sizeBytes
+                                        )
                                     }
+                                    EpisodePanel(root, infos, episodeIndex) { ep, idx ->
+                                        onSwitchEpisode(ep.id, idx)
+                                    }.show()
                                 }
                             }
                         } else null

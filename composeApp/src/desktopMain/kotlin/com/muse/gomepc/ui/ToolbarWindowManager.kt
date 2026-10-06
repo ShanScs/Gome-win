@@ -29,7 +29,9 @@ object ToolbarWindowManager {
         onNext: (() -> Unit)? = null,
         onPlaylist: (() -> Unit)? = null,
         onToggleDanmaku: (() -> Unit)? = null,
-        isDanmakuEnabled: (() -> Boolean)? = null
+        isDanmakuEnabled: (() -> Boolean)? = null,
+        onDanmakuPosition: ((Int) -> Unit)? = null,
+        getDanmakuPosition: (() -> Int)? = null
     ) {
         javax.swing.SwingUtilities.invokeLater {
             try {
@@ -57,7 +59,9 @@ object ToolbarWindowManager {
                         onNext = onNext,
                         onPlaylist = onPlaylist,
                         onToggleDanmaku = onToggleDanmaku,
-                        isDanmakuEnabled = isDanmakuEnabled
+                        isDanmakuEnabled = isDanmakuEnabled,
+                        onDanmakuPosition = onDanmakuPosition,
+                        getDanmakuPosition = getDanmakuPosition
                     )
                     win.contentPane.add(panel)
                     window = win
@@ -84,7 +88,7 @@ object ToolbarWindowManager {
                     val panel = w.contentPane.getComponent(0) as? AwtToolbarPanel
                     panel?.updateEpisodeCallbacks(onPrev, onNext, onPlaylist)
                     panel?.updateNetSpeedCallback(getNetSpeed)
-                    panel?.updateDanmakuCallbacks(onToggleDanmaku, isDanmakuEnabled)
+                    panel?.updateDanmakuCallbacks(onToggleDanmaku, isDanmakuEnabled, onDanmakuPosition, getDanmakuPosition)
                 } catch (_: Throwable) { }
                 if (syncTimer == null) {
                     syncTimer = javax.swing.Timer(200) {
