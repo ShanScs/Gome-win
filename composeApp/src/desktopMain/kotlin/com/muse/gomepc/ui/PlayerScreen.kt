@@ -215,8 +215,8 @@ fun PlayerScreen(
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
     var videoUrl by remember { mutableStateOf<String?>(null) }
     var urlError by remember { mutableStateOf<String?>(null) }
-    // 待初始化的 Canvas（非状态，避免重构）：等 videoUrl 就绪后触发播放
-    var pendingCanvas: java.awt.Canvas? = null
+    // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
+    var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
     var mpvInitDone by remember { mutableStateOf(false) }
 
     // 取播放地址
