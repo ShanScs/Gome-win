@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -875,7 +876,7 @@ private fun ServerCardsGrid(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = GridCells.Fixed(4),
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(
                         start = 8.dp, end = 8.dp, bottom = 96.dp
@@ -950,6 +951,7 @@ private fun ServerCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(7.dp)
+            .shadow(1.dp, RoundedCornerShape(24.dp))
             .clip(RoundedCornerShape(24.dp))
             .background(Color.White)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
