@@ -52,8 +52,8 @@ jobs:
       - name: Bundle libmpv-2.dll and build MSI
         shell: pwsh
         run: |
-          $launcher = Get-ChildItem -Path "composeApp/build/compose/binaries/main/app" -Recurse -Filter "gome-pc.exe" | Select-Object -First 1
-          if (-not $launcher) { throw "gome-pc.exe launcher not found in app-image" }
+          $launcher = Get-ChildItem -Path "composeApp/build/compose/binaries/main/app" -Recurse -Filter "Gome.exe" | Select-Object -First 1
+          if (-not $launcher) { throw "Gome.exe launcher not found in app-image" }
           $appDir = $launcher.Directory.FullName
           Write-Host "App dir: $appDir"
           Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $appDir
@@ -61,15 +61,18 @@ jobs:
           # 安装后 exe 所在目录即程序目录，同目录放 DLL 即可加载。
           # 用 jpackage 把 app-image 打成 MSI 安装包
           $jpackage = Join-Path $env:JAVA_HOME "bin\jpackage.exe"
-          & $jpackage --type msi --app-image "$appDir" --name "gome-pc" --app-version "1.0.0" --vendor "Muse" --description "Gome PC - Emby client (Dolby Vision compatible)" --dest "composeApp/build/msi" --win-menu --win-shortcut
+          & $jpackage --type msi --app-image "$appDir" --name "Gome" --app-version "1.0.0" --vendor "Muse" --description "Gome PC - Emby client (Dolby Vision compatible)" --dest "composeApp/build/msi" --win-menu --win-shortcut
           $msi = Get-ChildItem -Path "composeApp/build/msi" -Filter "*.msi" | Select-Object -First 1
           if (-not $msi) { throw "MSI not created" }
-          Write-Host "MSI: $($msi.FullName) ($([math]::Round($msi.Length/1MB,1)) MB)"
-          echo "MSI_PATH=$($msi.FullName)" >> $env:GITHUB_ENV
+          # 安装包文件名改为 Gome-win（跟仓库名一致），app 本体仍叫 Gome
+          $msiFinal = Join-Path "composeApp/build/msi" "Gome-win-1.0.0.msi"
+          Move-Item $msi.FullName $msiFinal -Force
+          Write-Host "MSI: $msiFinal ($([math]::Round((Get-Item $msiFinal).Length/1MB,1)) MB)"
+          echo "MSI_PATH=$msiFinal" >> $env:GITHUB_ENV
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gome-pc-windows-1.0.0-msi
+          name: Gome-win-1.0.0-msi
           path: ${{ env.MSI_PATH }}
           retention-days: 30
