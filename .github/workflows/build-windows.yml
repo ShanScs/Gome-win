@@ -44,12 +44,10 @@ jobs:
           echo "MPV_DLL=$env:RUNNER_TEMP\mpv-dev\$($dll.Name)" >> $env:GITHUB_ENV
 
       - name: Build desktop jar
-        run: ./gradlew :composeApp:desktopJar -Pkotlin.compiler.execution.strategy=in-process --no-daemon
-        shell: bash
+        run: ./gradlew.bat :composeApp:desktopJar -Pkotlin.compiler.execution.strategy=in-process --no-daemon
 
       - name: Package Windows exe (jpackage)
-        run: ./gradlew :composeApp:packageExe -PtargetFormat=Exe -Pkotlin.compiler.execution.strategy=in-process --no-daemon
-        shell: bash
+        run: ./gradlew.bat :composeApp:packageExe -PtargetFormat=Exe -Pkotlin.compiler.execution.strategy=in-process --no-daemon
 
       - name: Bundle libmpv-2.dll alongside exe
         shell: pwsh
