@@ -242,6 +242,29 @@ fun PlayerScreen(
         } catch (_: Throwable) { }
     }
 
+    // 全局鼠标监听：mpv 原生渲染可能拦截 Canvas 的鼠标事件，
+    // 用 Toolkit 级别的监听确保点击/移动能呼出控制条
+    // 点击只负责显示（3秒自动隐藏负责消失），避免点工具栏按钮时误触切换
+    DisposableEffect(Unit) {
+        val listener = java.awt.event.AWTEventListener { event ->
+            if (event is java.awt.event.MouseEvent) {
+                when (event.id) {
+                    java.awt.event.MouseEvent.MOUSE_CLICKED,
+                    java.awt.event.MouseEvent.MOUSE_MOVED -> {
+                        SwingUtilities.invokeLater { controlsVisible = true }
+                    }
+                }
+            }
+        }
+        java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(
+            listener,
+            java.awt.AWTEvent.MOUSE_EVENT_MASK or java.awt.AWTEvent.MOUSE_MOTION_EVENT_MASK
+        )
+        onDispose {
+            java.awt.Toolkit.getDefaultToolkit().removeAWTEventListener(listener)
+        }
+    }
+
     DisposableEffect(Unit) {
         player.listener = object : MpvPlayer.Listener {
             override fun onFileLoaded() {
