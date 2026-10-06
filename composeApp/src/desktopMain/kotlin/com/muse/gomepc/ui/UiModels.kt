@@ -26,7 +26,11 @@ data class UiMediaItem(
     val imageUrl: String?,
     val hue: Float = 210f,
     /** 继续观看进度 0..1（无则 null） */
-    val progress: Float? = null
+    val progress: Float? = null,
+    /** 继续观看徽章文案（如"剩余：22分47秒"，无则 null） */
+    val badge: String? = null,
+    /** 副标题（如剧集的"第1集"，无则空） */
+    val subtitle: String = ""
 )
 
 /** 选集 */
@@ -41,15 +45,23 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
     val progress = if (runTicks > 0 && playTicks > 0) {
         (playTicks.toFloat() / runTicks.toFloat()).coerceIn(0f, 1f)
     } else null
+    // 剧集单集通常没有自己的 Primary 海报，用剧的海报（修复继续观看占位图 bug）
+    val posterId = if (type == "Episode" && seriesId.isNotEmpty()) seriesId else id
+    val badge = if (progress != null && remainingTicks > 0) {
+        YambyClient.remainingLabel(remainingTicks)
+    } else null
+    val isEp = type == "Episode"
     return UiMediaItem(
         id = id,
-        name = name,
+        name = if (isEp && seriesName.isNotEmpty()) seriesName else name,
         year = if (year > 0) year.toString() else "",
         rating = if (communityRating > 0) "%.1f".format(communityRating) else null,
         overview = overview,
         libName = libName,
-        imageUrl = YambyClient.imageUrl(id, "Primary", 400),
-        progress = progress
+        imageUrl = YambyClient.imageUrl(posterId, "Primary", 400),
+        progress = progress,
+        badge = badge,
+        subtitle = if (isEp) epLabel() else ""
     )
 }
 
