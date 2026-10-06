@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -97,66 +98,6 @@ fun ErrorBox(msg: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** 左侧边栏（代替手机底部 dock，M玻璃材质） */
-@Composable
-fun Sidebar(
-    current: Screen,
-    onSelect: (Screen) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val tabs = listOf(
-        Triple("首页", NavKind.HOME, Screen.Home as Screen),
-        Triple("宫格", NavKind.GRID, Screen.Grid as Screen),
-        Triple("搜索", NavKind.SEARCH, Screen.Search as Screen),
-        Triple("设置", NavKind.SETTINGS, Screen.Settings as Screen),
-    )
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            .width(96.dp)
-            .padding(12.dp)
-    ) {
-        MGlassBox(modifier = Modifier.fillMaxSize(), corner = 20.dp) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Gome 字标
-                Text(
-                    "Gome",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = GomeTheme.TextPrimary,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                tabs.forEach { (label, kind, screen) ->
-                    val selected = current::class == screen::class
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selected) Color(0x33000000) else Color.Transparent)
-                            .clickable { onSelect(screen) }
-                            .padding(vertical = 10.dp, horizontal = 16.dp)
-                    ) {
-                        NavIcon(
-                            kind,
-                            tint = if (selected) GomeTheme.Accent else Color(0xFF555555)
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            label,
-                            fontSize = 12.sp,
-                            color = if (selected) GomeTheme.Accent else Color(0xFF555555),
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 /** 海报：真实模式用 EmbyImage，演示模式用渐变占位 */
 @Composable
@@ -213,7 +154,85 @@ private fun PosterGradient(
     }
 }
 
-/** 首页宫格卡片（参考 item_grid_poster：海报 + 剧名 + 年份） */
+/** 继续观看卡片（对齐 Android item_resume.xml：200×112dp，圆角 14dp，徽章+进度条） */
+@Composable
+fun ResumeCard(
+    item: UiMediaItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(4.dp)
+    ) {
+        Box(
+            Modifier
+                .width(200.dp)
+                .height(112.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFFE0E0E0))
+        ) {
+            if (item.imageUrl != null) {
+                EmbyImage(
+                    url = item.imageUrl,
+                    contentDescription = item.name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                PosterGradient(item = item, corner = 14.dp, modifier = Modifier.fillMaxSize())
+            }
+            // 剩余时间徽章：左下角
+            if (item.badge != null) {
+                Text(
+                    item.badge,
+                    fontSize = 11.sp,
+                    color = Color(0xFF2F6FED),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFFDCE9FB))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+            // 播放进度条：底部 3dp
+            if (item.progress != null && item.progress > 0f) {
+                Box(
+                    Modifier.align(Alignment.BottomStart)
+                        .fillMaxWidth(item.progress)
+                        .height(3.dp)
+                        .background(GomeTheme.Accent)
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            item.name,
+            fontSize = 14.sp,
+            color = GomeTheme.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(200.dp)
+        )
+        if (item.subtitle.isNotEmpty()) {
+            Text(
+                item.subtitle,
+                fontSize = 12.sp,
+                color = GomeTheme.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(200.dp)
+            )
+        }
+    }
+}
+
+/** 首页宫格卡片（对齐 Android item_poster_h.xml：120×170dp，圆角 14dp） */
 @Composable
 fun ItemCard(
     item: UiMediaItem,
@@ -225,11 +244,17 @@ fun ItemCard(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(6.dp)
+            .padding(4.dp)
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f)) {
+        Box(
+            Modifier
+                .width(120.dp)
+                .height(170.dp)
+                .clip(RoundedCornerShape(14.dp))
+        ) {
             PosterImage(
                 item,
+                corner = 14.dp,
                 modifier = Modifier.fillMaxSize()
             )
             // 继续观看进度条
@@ -237,7 +262,7 @@ fun ItemCard(
                 Box(
                     Modifier.align(Alignment.BottomStart)
                         .fillMaxWidth(item.progress)
-                        .height(4.dp)
+                        .height(3.dp)
                         .background(GomeTheme.Accent)
                 )
             }
@@ -250,14 +275,14 @@ fun ItemCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.width(120.dp)
         )
         Text(
             item.year,
             fontSize = 11.sp,
             color = GomeTheme.TextSecondary,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.width(120.dp)
         )
     }
 }
@@ -295,7 +320,7 @@ fun HomeScreen(onItemClick: (UiMediaItem) -> Unit) {
         libs == null || resume == null -> LoadingBox()
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().background(GomeTheme.Bg),
-            contentPadding = PaddingValues(20.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item {
@@ -319,7 +344,7 @@ fun HomeScreen(onItemClick: (UiMediaItem) -> Unit) {
                     SectionHeader("继续观看", "更多")
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(resume!!) { item ->
-                            ItemCard(item, onClick = { onItemClick(item) }, modifier = Modifier.width(130.dp))
+                            ResumeCard(item, onClick = { onItemClick(item) })
                         }
                     }
                 }
@@ -331,7 +356,7 @@ fun HomeScreen(onItemClick: (UiMediaItem) -> Unit) {
                         SectionHeader(lib.name, "更多")
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(items) { item ->
-                                ItemCard(item, onClick = { onItemClick(item) }, modifier = Modifier.width(140.dp))
+                                ItemCard(item, onClick = { onItemClick(item) })
                             }
                         }
                     }
@@ -353,43 +378,155 @@ private fun SectionHeader(title: String, action: String) {
     }
 }
 
-/** 宫格：全部条目网格 */
+/** 媒体库卡片（对齐 Android item_library_card.xml：190×105dp，14dp 圆角，2×2 拼图） */
+@Composable
+fun LibraryCard(
+    lib: UiLibrary,
+    posters: List<UiMediaItem>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(4.dp)
+    ) {
+        Box(
+            Modifier
+                .width(190.dp)
+                .height(105.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFFCFD8DC))
+        ) {
+            // 2×2 拼图
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    LibraryCollageCell(posters.getOrNull(0), Modifier.weight(1f).fillMaxSize())
+                    LibraryCollageCell(posters.getOrNull(1), Modifier.weight(1f).fillMaxSize())
+                }
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    LibraryCollageCell(posters.getOrNull(2), Modifier.weight(1f).fillMaxSize())
+                    LibraryCollageCell(posters.getOrNull(3), Modifier.weight(1f).fillMaxSize())
+                }
+            }
+            // 库名压在拼图上：白色 20sp bold，左侧
+            Text(
+                lib.name,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibraryCollageCell(item: UiMediaItem?, modifier: Modifier = Modifier) {
+    Box(modifier.background(Color(0xFFB0BEC5))) {
+        if (item?.imageUrl != null) {
+            EmbyImage(url = item.imageUrl, contentDescription = item.name, modifier = Modifier.fillMaxSize())
+        }
+    }
+}
+
+/** 宫格：媒体库卡片，点击进入该库 */
 @Composable
 fun GridScreen(onItemClick: (UiMediaItem) -> Unit) {
-    var all by remember { mutableStateOf<List<UiMediaItem>?>(null) }
+    var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
+    var collages by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
+    var selectedLib by remember { mutableStateOf<UiLibrary?>(null) }
+    var libItems by remember { mutableStateOf<List<UiMediaItem>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(reloadKey) {
         try {
-            error = null; all = null
-            val libs = Repo.libraries()
-            all = libs.flatMap {
-                try { Repo.items(it.id, 20) } catch (_: Exception) { emptyList() }
+            error = null; libs = null
+            val l = Repo.libraries()
+            libs = l
+            val map = mutableMapOf<String, List<UiMediaItem>>()
+            for (lib in l) {
+                try { map[lib.id] = Repo.items(lib.id, 4) } catch (_: Exception) { }
             }
+            collages = map
         } catch (e: Exception) {
             error = e.message ?: "未知错误"
         }
     }
 
+    LaunchedEffect(selectedLib) {
+        val lib = selectedLib ?: return@LaunchedEffect
+        libItems = null
+        try { libItems = Repo.items(lib.id, 60) }
+        catch (_: Exception) { libItems = emptyList() }
+    }
+
+    val sel = selectedLib
     when {
         error != null -> ErrorBox(error!!, onRetry = { reloadKey++ })
-        all == null -> LoadingBox()
+        libs == null -> LoadingBox()
+        sel != null -> {
+            Column(Modifier.fillMaxSize().background(Color.White)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "‹ 返回",
+                        fontSize = 15.sp,
+                        color = GomeTheme.TextPrimary,
+                        modifier = Modifier.clickable { selectedLib = null; libItems = null }
+                            .padding(12.dp)
+                    )
+                    Text(
+                        sel.name,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GomeTheme.TextPrimary,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                if (libItems == null) {
+                    LoadingBox(Modifier.weight(1f))
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(150.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 110.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(libItems!!) { item ->
+                            ItemCard(item, onClick = { onItemClick(item) })
+                        }
+                    }
+                }
+            }
+        }
         else -> LazyVerticalGrid(
-            columns = GridCells.Adaptive(150.dp),
-            modifier = Modifier.fillMaxSize().background(GomeTheme.Bg),
-            contentPadding = PaddingValues(20.dp),
+            columns = GridCells.Adaptive(220.dp),
+            modifier = Modifier.fillMaxSize().background(Color.White),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 110.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(all!!) { item ->
-                ItemCard(item, onClick = { onItemClick(item) })
+            items(libs!!) { lib ->
+                LibraryCard(
+                    lib,
+                    posters = collages[lib.id] ?: emptyList(),
+                    onClick = { selectedLib = lib }
+                )
             }
         }
     }
 }
 
-/** 搜索 */
+/** 搜索（对齐 Android activity_search.xml：白底，药丸+圆角搜索框） */
 @Composable
 fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
     var query by remember { mutableStateOf("") }
@@ -414,30 +551,60 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
         searching = false
     }
 
-    Column(Modifier.fillMaxSize().background(GomeTheme.Bg).padding(20.dp)) {
-        androidx.compose.material3.OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("搜索剧名") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(12.dp))
-        androidx.compose.material3.Button(
-            onClick = { searchKey++ },
-            modifier = Modifier.fillMaxWidth()
+    Column(Modifier.fillMaxSize().background(Color.White)) {
+        // 搜索框：#F2F4F8 底，28dp 圆角，48dp 高
+        Row(
+            Modifier.fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color(0xFFF2F4F8))
+                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("搜索")
+            NavIcon(NavKind.SEARCH, tint = Color(0xFF1A1A1A).copy(alpha = 0.5f), iconSize = 24.dp)
+            Spacer(Modifier.width(8.dp))
+            androidx.compose.foundation.text.BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onSearch = { searchKey++ }
+                ),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = 16.sp,
+                    color = Color(0xFF1A1A1A)
+                ),
+                modifier = Modifier.weight(1f).height(48.dp),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text("搜索电影、剧集、演员", fontSize = 16.sp, color = Color(0xFFAAAAAA))
+                        }
+                        inner()
+                    }
+                }
+            )
         }
         Spacer(Modifier.height(8.dp))
         when {
             searching -> LoadingBox(Modifier.weight(1f))
-            results == null -> Text("输入关键词搜索", fontSize = 13.sp, color = GomeTheme.TextSecondary)
+            results == null -> Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text("输入关键词搜索", fontSize = 13.sp, color = GomeTheme.TextSecondary)
+            }
             else -> {
-                Text("找到 ${results!!.size} 个结果", fontSize = 13.sp, color = GomeTheme.TextSecondary)
+                Text(
+                    "找到 ${results!!.size} 个结果",
+                    fontSize = 13.sp,
+                    color = GomeTheme.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
                 Spacer(Modifier.height(8.dp))
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(150.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 110.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
@@ -451,7 +618,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
     }
 }
 
-/** 设置 */
+/** 设置（对齐 Android activity_settings.xml：iOS 分组卡片风格） */
 @Composable
 fun SettingsScreen(
     onLogout: () -> Unit = {},
@@ -460,64 +627,169 @@ fun SettingsScreen(
     var danmakuOn by remember { mutableStateOf(true) }
     var hwdecOn by remember { mutableStateOf(true) }
     LazyColumn(
-        Modifier.fillMaxSize().background(GomeTheme.Bg).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        Modifier.fillMaxSize().background(Color(0xFFF2F1F6)),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 110.dp)
     ) {
-        item { Text("设置", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary) }
         item {
-            MGlassBox(Modifier.fillMaxWidth(), corner = 16.dp) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("播放", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
-                    SettingRow("弹幕", danmakuOn) { danmakuOn = it }
-                    SettingRow("硬件解码", hwdecOn) { hwdecOn = it }
-                }
+            Text(
+                "设置",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+        }
+        // 播放设置组
+        item { SettingGroupTitle("播放设置") }
+        item {
+            SettingCard {
+                SettingRowIcon(
+                    label = "弹幕",
+                    iconBg = Color(0xFF2F7CF6),
+                    iconText = "幕",
+                    checked = danmakuOn,
+                    onChange = { danmakuOn = it },
+                    showDivider = true
+                )
+                SettingRowIcon(
+                    label = "硬件解码",
+                    iconBg = Color(0xFF5856D6),
+                    iconText = "硬",
+                    checked = hwdecOn,
+                    onChange = { hwdecOn = it },
+                    showDivider = false
+                )
             }
         }
+        // 服务器组
+        item { SettingGroupTitle("服务器") }
         item {
-            MGlassBox(Modifier.fillMaxWidth(), corner = 16.dp) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("服务器", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
-                    if (Repo.demoMode) {
-                        Text("当前：演示模式（Mock 数据）", fontSize = 13.sp, color = GomeTheme.TextSecondary)
-                    } else {
-                        Text(
-                            "当前：${com.muse.gomepc.emby.Prefs.serverName.ifBlank { com.muse.gomepc.emby.Prefs.baseUrl() }}",
-                            fontSize = 13.sp,
-                            color = GomeTheme.TextSecondary
-                        )
-                        Text(
-                            "用户：${com.muse.gomepc.emby.Prefs.username}",
-                            fontSize = 13.sp,
-                            color = GomeTheme.TextSecondary
-                        )
-                    }
-                    androidx.compose.material3.TextButton(
-                        onClick = {
-                            if (Repo.demoMode) {
-                                onToggleDemo(false)
-                            } else {
-                                com.muse.gomepc.emby.Prefs.clearLogin()
-                                onLogout()
-                            }
+            SettingCard {
+                val serverText = if (Repo.demoMode) "演示模式（Mock 数据）"
+                else com.muse.gomepc.emby.Prefs.serverName.ifBlank { com.muse.gomepc.emby.Prefs.baseUrl() }
+                SettingRowIcon(
+                    label = serverText,
+                    iconBg = Color(0xFF34C759),
+                    iconText = "服",
+                    showDivider = true,
+                    trailing = {}
+                )
+                Row(
+                    Modifier.fillMaxWidth().height(52.dp)
+                        .clickable {
+                            if (Repo.demoMode) onToggleDemo(false)
+                            else { com.muse.gomepc.emby.Prefs.clearLogin(); onLogout() }
                         }
-                    ) {
-                        Text(
-                            if (Repo.demoMode) "退出演示模式" else "退出登录",
-                            color = Color(0xFFE53935),
-                            fontSize = 14.sp
-                        )
-                    }
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (Repo.demoMode) "退出演示模式" else "退出登录",
+                        fontSize = 16.sp,
+                        color = Color(0xFFE53935),
+                        modifier = Modifier.padding(start = 41.dp)
+                    )
                 }
             }
         }
+        // 关于组
+        item { SettingGroupTitle("关于") }
         item {
-            MGlassBox(Modifier.fillMaxWidth(), corner = 16.dp) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("关于", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
-                    Text("Gome PC 1.0.0（杜比视界兼容版）", fontSize = 13.sp, color = GomeTheme.TextSecondary)
-                    Text("播放核心：libmpv + libplacebo", fontSize = 13.sp, color = GomeTheme.TextSecondary)
+            SettingCard {
+                SettingRowIcon(
+                    label = "Gome PC 1.0.0（杜比视界兼容版）",
+                    iconBg = Color(0xFF8E8E93),
+                    iconText = "ⓘ",
+                    showDivider = true,
+                    trailing = {}
+                )
+                SettingRowIcon(
+                    label = "播放核心：libmpv + libplacebo",
+                    iconBg = Color(0xFF8E8E93),
+                    iconText = "▶",
+                    showDivider = false,
+                    trailing = {}
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingGroupTitle(text: String) {
+    Text(
+        text,
+        fontSize = 13.sp,
+        color = Color(0xFF8E8E93),
+        modifier = Modifier.padding(start = 12.dp, bottom = 6.dp, top = 8.dp)
+    )
+}
+
+@Composable
+private fun SettingCard(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White),
+        content = { content() }
+    )
+}
+
+/** 设置行：29dp 彩色图标 + 16sp 文字 + 右侧控件/值 + › */
+@Composable
+private fun SettingRowIcon(
+    label: String,
+    iconBg: Color,
+    iconText: String,
+    checked: Boolean? = null,
+    onChange: ((Boolean) -> Unit)? = null,
+    showDivider: Boolean = true,
+    trailing: @Composable (() -> Unit)? = null
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().height(52.dp)
+                .clickable(enabled = onChange != null) { onChange?.invoke(!(checked ?: false)) }
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(29.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(iconBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(iconText, fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                label,
+                fontSize = 16.sp,
+                color = Color.Black,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            when {
+                trailing != null -> trailing()
+                checked != null -> {
+                    androidx.compose.material3.Switch(
+                        checked = checked,
+                        onCheckedChange = { onChange?.invoke(it) }
+                    )
                 }
             }
+            if (onChange == null && trailing == null) {
+                Text("›", fontSize = 22.sp, color = Color(0xFFC7C7CC))
+            }
+        }
+        if (showDivider) {
+            Box(
+                Modifier.fillMaxWidth()
+                    .padding(start = 53.dp)
+                    .height(1.dp)
+                    .background(Color(0xFFEFEFF4))
+            )
         }
     }
 }
@@ -582,10 +854,13 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                 seasonLoading = false
             }
 
-            LazyColumn(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
+            LazyColumn(
+                Modifier.fillMaxSize().background(GomeTheme.Bg),
+                contentPadding = PaddingValues(bottom = 110.dp)
+            ) {
                 // 海报头
                 item {
-                    Box(Modifier.fillMaxWidth().height(300.dp)) {
+                    Box(Modifier.fillMaxWidth().height(480.dp)) {
                         if (it.imageUrl != null) {
                             EmbyImage(
                                 url = com.muse.gomepc.emby.YambyClient.imageUrl(it.id, "Backdrop", 1280),
@@ -614,18 +889,27 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                             modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
                         ) { Text("‹ 返回", color = Color.White, fontSize = 15.sp) }
                         Column(
-                            Modifier.align(Alignment.BottomStart).padding(20.dp)
+                            Modifier.align(Alignment.BottomCenter)
+                                .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(it.name, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                it.name,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(6.dp))
                             Text(
                                 listOfNotNull(
                                     it.year.takeIf { s -> s.isNotEmpty() },
                                     it.libName.takeIf { s -> s.isNotEmpty() },
                                     it.rating?.let { r -> "★$r" }
                                 ).joinToString(" · "),
-                                fontSize = 14.sp,
-                                color = Color.White.copy(alpha = 0.85f)
+                                fontSize = 13.sp,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
