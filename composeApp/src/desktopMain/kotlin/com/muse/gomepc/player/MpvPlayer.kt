@@ -3,6 +3,25 @@ package com.muse.gomepc.player
 import com.sun.jna.Memory
 import com.sun.jna.Pointer
 
+/** 诊断日志：写文件供用户拖回分析 */
+object DebugLog {
+    private val logFile by lazy {
+        val tmp = System.getProperty("java.io.tmpdir") ?: "."
+        java.io.File(tmp, "gome-debug.log").apply {
+            if (exists()) delete()
+            createNewFile()
+        }
+    }
+    @Synchronized
+    fun d(tag: String, msg: String) {
+        try {
+            val ts = java.text.SimpleDateFormat("HH:mm:ss.SSS").format(java.util.Date())
+            logFile.appendText("[$ts][$tag] $msg\n")
+        } catch (_: Throwable) { }
+    }
+    fun path(): String = try { logFile.absolutePath } catch (_: Throwable) { "unknown" }
+}
+
 /**
  * libmpv 播放器封装（JNA）。
  *
@@ -35,6 +54,8 @@ class MpvPlayer {
     @Volatile private var lastTimePos = 0.0
     @Volatile private var lastDuration = 0.0
     @Volatile private var lastPaused = false
+    // 鼠标高频事件节流降频时间戳
+    private var lastMouseActivityTime = 0L
 
     val timePos: Double get() = lastTimePos
     val duration: Double get() = lastDuration
@@ -77,7 +98,7 @@ class MpvPlayer {
         opt("tls-verify", "no")?.let { /* 非致命，忽略：自签证书 */ }
 
         // 允许 mpv 拥有正常的窗口碰撞实体（不要 no），但解除它的快捷键和自带控制条
-        opt("input-cursor", "yes")?.let { /* 非致命，忽略 */ }
+        opt("input-cursor", "no")?.let { /* 非致命，忽略 */ }
         opt("input-vo-keyboard", "no")?.let { /* 非致命，忽略 */ }
         opt("input-default-bindings", "no")?.let { /* 非致命，忽略 */ }
         opt("osc", "no")?.let { /* 非致命，忽略 */ }
@@ -105,7 +126,9 @@ class MpvPlayer {
             }
 
             lib.mpv_command(ctx, arrayOf("load-script", tempScriptFile.absolutePath, null))
+            DebugLog.d("MPV", "哨兵脚本已注入: ${tempScriptFile.absolutePath}")
         } catch (e: Throwable) {
+            DebugLog.d("MPV", "注入哨兵脚本失败: ${e.message}")
             println("注入哨兵脚本失败: ${e.message}")
         }
 
@@ -238,15 +261,24 @@ class MpvPlayer {
                         lm.read()
                         val text = (lm.text ?: "").trim()
 
-                        // 💥 【核心修复 2】：如果收到来自内部内嵌 Lua 脚本的"告密信号"
+                        // 拦截来自内部 Lua 脚本的"告密信号"
                         if (text.contains("SENTINEL_MOUSE_MOVE_EVENT")) {
-                            // 强制切回 AWT/Swing 事件分发线程，安全地回调给外部
-                            javax.swing.SwingUtilities.invokeLater {
-                                listener?.onMouseActivity()
+                            DebugLog.d("SENTINEL", "收到鼠标移动告密信号")
+                            val now = System.currentTimeMillis()
+                            // 节流：50 毫秒内只向 Compose 汇报一次鼠标活动，防止高频重构卡死主线程
+                            if (now - lastMouseActivityTime > 50) {
+                                lastMouseActivityTime = now
+                                javax.swing.SwingUtilities.invokeLater {
+                                    listener?.onMouseActivity()
+                                }
                             }
                         } else {
-                            // 原本的普通日志分发逻辑维持原样
-                            listener?.onLog(lm.prefix ?: "", lm.level ?: "", text)
+                            // 其他常规日志正常派发
+                            listener?.onLog(
+                                lm.prefix ?: "",
+                                lm.level ?: "",
+                                text
+                            )
                         }
                     } catch (_: Throwable) { }
                 }

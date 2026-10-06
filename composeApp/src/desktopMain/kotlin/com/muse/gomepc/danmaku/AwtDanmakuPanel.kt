@@ -27,6 +27,7 @@ class AwtDanmakuPanel(
 
         val mouseAdapter = object : java.awt.event.MouseAdapter() {
             override fun mouseMoved(e: java.awt.event.MouseEvent?) {
+                com.muse.gomepc.player.DebugLog.d("DANMAKU", "弹幕面板收到 mouseMoved")
                 onMouseActivity()
             }
 
@@ -34,8 +35,41 @@ class AwtDanmakuPanel(
                 onMouseActivity()
             }
 
-            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+            private fun dispatchToUnderlying(e: java.awt.event.MouseEvent?) {
+                if (e == null) return
+                val ownerWindow = javax.swing.SwingUtilities.getWindowAncestor(this@AwtDanmakuPanel)
+                if (ownerWindow != null && ownerWindow.owner != null) {
+                    val mainWin = ownerWindow.owner
+                    val screenPoint = e.locationOnScreen
+                    val targetPoint = screenPoint.apply {
+                        translate(-mainWin.x, -mainWin.y)
+                    }
+                    val convertedEvent = java.awt.event.MouseEvent(
+                        mainWin,
+                        e.id,
+                        e.`when`,
+                        e.modifiersEx,
+                        targetPoint.x,
+                        targetPoint.y,
+                        e.clickCount,
+                        e.isPopupTrigger,
+                        e.button
+                    )
+                    mainWin.dispatchEvent(convertedEvent)
+                }
+            }
+
+            override fun mousePressed(e: java.awt.event.MouseEvent?) {
                 onMouseActivity()
+                dispatchToUnderlying(e)
+            }
+
+            override fun mouseReleased(e: java.awt.event.MouseEvent?) {
+                dispatchToUnderlying(e)
+            }
+
+            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                dispatchToUnderlying(e)
             }
         }
         addMouseListener(mouseAdapter)

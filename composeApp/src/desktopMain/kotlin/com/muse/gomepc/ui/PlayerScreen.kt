@@ -115,33 +115,47 @@ private fun defaultHwdec(): String =
 @Composable
 private fun VideoCanvasArea(
     controlsVisibleState: androidx.compose.runtime.MutableState<Boolean>,
-    onCanvasReady: (java.awt.Canvas) -> Unit,
+    onCanvasReadyOnce: (java.awt.Canvas) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var hasNotified by remember { mutableStateOf(false) }
+
     SwingPanel(
         background = Color.Black,
         factory = {
             java.awt.Canvas().apply {
                 background = java.awt.Color.BLACK
                 val canvas = this
+                com.muse.gomepc.player.DebugLog.d("UI", "Canvas 已创建: ${width}x${height}")
                 addComponentListener(object : ComponentAdapter() {
+                    private fun tryNotify() {
+                        if (width > 0 && height > 0 && !hasNotified) {
+                            hasNotified = true
+                            onCanvasReadyOnce(canvas)
+                        }
+                    }
+
                     override fun componentResized(e: ComponentEvent) {
-                        if (width > 0 && height > 0) onCanvasReady(canvas)
+                        tryNotify()
                     }
                     override fun componentShown(e: ComponentEvent) {
-                        if (width > 0 && height > 0) onCanvasReady(canvas)
+                        tryNotify()
                     }
                 })
                 val playerMouseListener = object : java.awt.event.MouseAdapter() {
                     private fun wakeUpControls() {
-                        SwingUtilities.invokeLater {
-                            if (!controlsVisibleState.value) {
+                        if (!controlsVisibleState.value) {
+                            SwingUtilities.invokeLater {
                                 controlsVisibleState.value = true
                             }
                         }
                     }
 
                     override fun mouseMoved(e: java.awt.event.MouseEvent?) {
+                        wakeUpControls()
+                    }
+
+                    override fun mouseDragged(e: java.awt.event.MouseEvent?) {
                         wakeUpControls()
                     }
 
@@ -187,6 +201,7 @@ fun PlayerScreen(
     var controlsVisible by controlsVisibleState
     // 显示后3秒自动隐藏
     LaunchedEffect(controlsVisible) {
+        com.muse.gomepc.player.DebugLog.d("UI", "controlsVisible 变化: $controlsVisible")
         if (controlsVisible) {
             kotlinx.coroutines.delay(3000)
             controlsVisible = false
@@ -198,7 +213,6 @@ fun PlayerScreen(
     var fileLoaded by remember { mutableStateOf(false) }
     val danmakuOn = remember { mutableStateOf(true) }
     var canvasRef by remember { mutableStateOf<java.awt.Canvas?>(null) }
-    var canvasReady by remember { mutableStateOf(false) }
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
     var videoUrl by remember { mutableStateOf<String?>(null) }
     var urlError by remember { mutableStateOf<String?>(null) }
@@ -221,53 +235,8 @@ fun PlayerScreen(
 
     // canvas 有实际尺寸 + 拿到播放地址后才 init mpv（0x0 时无法渲染）
     var initializing by remember { mutableStateOf(false) }
-    LaunchedEffect(canvasReady, videoUrl) {
-        val canvas = canvasRef
-        val url = videoUrl
-        if (!inited && !initializing && canvasReady && canvas != null && canvas.isDisplayable && url != null) {
-            initializing = true
-            Thread {
-                val wid = try {
-                    Win32Util.nativeWindowId(canvas)
-                } catch (e: Throwable) {
-                    SwingUtilities.invokeLater {
-                        initError = "wid: ${e.message}"
-                        initializing = false
-                    }
-                    return@Thread
-                }
-                val err = try {
-                    player.init(wid, vo = vo, hwdec = hwdec)
-                } catch (e: Throwable) {
-                    "init异常: ${e.message}"
-                }
-                SwingUtilities.invokeLater {
-                    initializing = false
-                    if (err != null) {
-                        initError = err
-                    } else {
-                        inited = true
-                        player.setVolume(volume.toDouble())
-                        // 截图演示时循环，避免 5 秒测试片播完黑屏
-                        if (System.getProperty("ui.loop", "false") == "true") {
-                            player.setLoop(true)
-                        }
-                        val playErr = try {
-                            player.play(url)
-                        } catch (e: Throwable) {
-                            "play异常: ${e.message}"
-                        }
-                        if (playErr != null) {
-                            SwingUtilities.invokeLater { initError = "play: $playErr" }
-                        }
-                    }
-                }
-            }.start()
-        }
-    }
-
     // 弹幕：主窗口 GlassPane AWT 直接绘制（盖住 heavyweight Canvas）
-    LaunchedEffect(owner, canvasReady) {
+    LaunchedEffect(owner, canvasRef) {
         try {
             val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
                 ?: owner as? javax.swing.JFrame
@@ -320,8 +289,10 @@ fun PlayerScreen(
                 }
             }
             override fun onMouseActivity() {
+                com.muse.gomepc.player.DebugLog.d("UI", "onMouseActivity 回调触发")
                 // 收到来自 mpv 核心最深处的呼唤，不管窗口怎么穿透、怎么丢失焦点，强行唤醒控制条
                 if (!controlsVisible) {
+                    com.muse.gomepc.player.DebugLog.d("UI", "唤醒工具栏: false -> true")
                     controlsVisible = true
                 }
             }
@@ -336,9 +307,48 @@ fun PlayerScreen(
         // 视频区独立组件：不受 controlsVisible 重构影响，防止 HWND 顶层压死 UI
         VideoCanvasArea(
             controlsVisibleState = controlsVisibleState,
-            onCanvasReady = { canvas ->
+            onCanvasReadyOnce = { canvas ->
                 canvasRef = canvas
-                canvasReady = true
+                // 单次安全的异步初始化，不触发重构死循环
+                Thread {
+                    val wid = try {
+                        Win32Util.nativeWindowId(canvas)
+                    } catch (e: Throwable) {
+                        SwingUtilities.invokeLater {
+                            initError = "wid: ${e.message}"
+                            initializing = false
+                        }
+                        return@Thread
+                    }
+                    val err = try {
+                        player.init(wid, vo = vo, hwdec = hwdec)
+                    } catch (e: Throwable) {
+                        "init异常: ${e.message}"
+                    }
+                    SwingUtilities.invokeLater {
+                        initializing = false
+                        if (err != null) {
+                            initError = err
+                        } else {
+                            inited = true
+                            player.setVolume(volume.toDouble())
+                            if (System.getProperty("ui.loop", "false") == "true") {
+                                player.setLoop(true)
+                            }
+                            val url = videoUrl
+                            if (url != null) {
+                                val playErr = try {
+                                    player.play(url)
+                                } catch (e: Throwable) {
+                                    "play异常: ${e.message}"
+                                }
+                                if (playErr != null) {
+                                    initError = "play: $playErr"
+                                }
+                            }
+                        }
+                    }
+                }.start()
             }
         )
 
@@ -445,7 +455,7 @@ fun PlayerScreen(
                         modifier = Modifier.padding(vertical = 2.dp)
                     )
                     Text(
-                        "fileLoaded: $fileLoaded, inited: $inited, canvasReady: $canvasReady",
+                        "fileLoaded: $fileLoaded, inited: $inited, canvas: ${canvasRef != null}",
                         color = Color(0xFF88CCFF),
                         fontSize = 11.sp,
                         modifier = Modifier.padding(vertical = 2.dp)
