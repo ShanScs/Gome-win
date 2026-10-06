@@ -128,7 +128,16 @@ class AwtToolbarPanel(
     private fun updateDanmakuBtnState() {
         if (!::danmakuBtn.isInitialized) return
         val on = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
+        // 安卓：关/禁用时 alpha 0.4
+        try {
+            val icon = danmakuBtn.icon
+            if (icon is ImageIcon) {
+                // 通过 disabledIcon 实现变暗效果
+                danmakuBtn.isEnabled = on
+            }
+        } catch (_: Exception) { }
         danmakuBtn.isEnabled = true
+        // Swing 没有 alpha，用图标透明度模拟：这里保持可点
     }
 
     /** 弹幕菜单（1:1 安卓） */
@@ -138,21 +147,23 @@ class AwtToolbarPanel(
         val enabled = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
         val pos = try { getDanmakuPositionCb?.invoke() } catch (_: Exception) { null } ?: 0
         val posLabels = listOf("顶部", "半屏", "全屏")
+        val apiUrl = getDanmakuApiUrl()
+        val apiLabel = if (apiUrl.isBlank()) "API-1（未设置）" else "API-1（已设置）"
         val rows = listOf(
             FrostedPopup.Row(
                 label = "搜索弹幕",
                 iconName = "ic_pl_search",
-                action = { showTip("PC端暂不支持搜索弹幕") }
+                action = { showDanmakuSearch() }
             ),
             FrostedPopup.Row(
                 label = "本地导入",
                 iconName = "ic_pl_import",
-                action = { showTip("PC端暂不支持本地导入") }
+                action = { importDanmakuFile() }
             ),
             FrostedPopup.Row(
-                label = "＞ API设置",
+                label = "＞ $apiLabel",
                 iconName = "ic_pl_api",
-                action = { showTip("PC端暂不支持API设置") }
+                action = { showDanmakuApiList() }
             ),
             FrostedPopup.Row(
                 label = if (enabled) "禁用弹幕" else "启用弹幕",
@@ -170,10 +181,105 @@ class AwtToolbarPanel(
             FrostedPopup.Row(
                 label = "弹幕设置",
                 iconName = "ic_pl_setting",
-                action = { showTip("PC端弹幕设置暂未实现") }
+                action = { showDanmakuSettings() }
             )
         )
         FrostedPopup(owner, anchor).show(rows, width = 260)
+    }
+
+    // 弹幕 API URL 存储
+    private fun getDanmakuApiUrl(): String {
+        return try {
+            java.util.prefs.Preferences.userRoot().node("gome/danmaku").get("apiUrl", "")
+        } catch (_: Exception) { "" }
+    }
+
+    private fun setDanmakuApiUrl(url: String) {
+        try {
+            java.util.prefs.Preferences.userRoot().node("gome/danmaku").put("apiUrl", url)
+        } catch (_: Exception) { }
+    }
+
+    /** API 选择子菜单 */
+    private fun showDanmakuApiList() {
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        val anchor = danmakuBtn
+        val cur = getDanmakuApiUrl()
+        val rows = listOf(
+            FrostedPopup.Row(
+                label = if (cur.isBlank()) "API-1：未设置" else "API-1：已设置",
+                checked = cur.isNotBlank(),
+                showPrefix = false,
+                action = { showDanmakuApiInput() }
+            ),
+            FrostedPopup.Row(
+                label = "清除API",
+                iconName = "ic_pl_delete",
+                showPrefix = false,
+                action = {
+                    setDanmakuApiUrl("")
+                    showTip("API已清除")
+                }
+            )
+        )
+        FrostedPopup(owner, anchor).show(rows, width = 260)
+    }
+
+    /** API 输入对话框 */
+    private fun showDanmakuApiInput() {
+        val cur = getDanmakuApiUrl()
+        val input = JTextField(cur, 30)
+        val result = JOptionPane.showConfirmDialog(
+            this, input, "设置弹幕API",
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE
+        )
+        if (result == JOptionPane.OK_OPTION) {
+            val url = input.text.trim()
+            setDanmakuApiUrl(url)
+            showTip(if (url.isBlank()) "API已清除" else "API已设置")
+        }
+    }
+
+    /** 搜索弹幕：输入关键词 */
+    private fun showDanmakuSearch() {
+        val apiUrl = getDanmakuApiUrl()
+        if (apiUrl.isBlank()) {
+            showTip("请先在 API-1 中设置弹幕API")
+            showDanmakuApiInput()
+            return
+        }
+        val input = JTextField(30).apply {
+            // hint 效果
+        }
+        val result = JOptionPane.showConfirmDialog(
+            this, input, "搜索弹幕",
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE
+        )
+        if (result == JOptionPane.OK_OPTION) {
+            val kw = input.text.trim()
+            if (kw.isNotEmpty()) {
+                showTip("弹幕搜索功能开发中（需要弹幕后端支持）")
+                DebugLog.d("UI", "搜索弹幕: $kw")
+            }
+        }
+    }
+
+    /** 本地导入：文件选择器 */
+    private fun importDanmakuFile() {
+        val chooser = JFileChooser().apply {
+            dialogTitle = "选择弹幕文件"
+        }
+        val result = chooser.showOpenDialog(this)
+        if (result == JFileChooser.APPROVE_OPTION) {
+            val file = chooser.selectedFile
+            showTip("弹幕导入功能开发中（需要弹幕解析器支持）")
+            DebugLog.d("UI", "导入弹幕文件: ${file.absolutePath}")
+        }
+    }
+
+    /** 弹幕设置 */
+    private fun showDanmakuSettings() {
+        showTip("弹幕设置：可在弹幕位置子菜单中调整显示区域")
     }
 
     /** 弹幕位置子菜单 */
