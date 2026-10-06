@@ -421,11 +421,25 @@ fun PlayerScreen(
                                         } catch (e: Exception) {
                                             "失败: ${e.message}"
                                         }
-                                        // 回到主线程更新
                                         javax.swing.SwingUtilities.invokeLater {
                                             urlTestResult = result
                                         }
                                     }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                        Text(
+                            "测公网视频",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .background(Color(0xFF555555), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                .clickable {
+                                    // 用公网示例视频测试 mpv 本体
+                                    val testUrl = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4"
+                                    val err = player.play(testUrl)
+                                    urlTestResult = if (err != null) "公网测试 play 失败: $err" else "已发送公网视频，看 fileLoaded 变不变"
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         )
