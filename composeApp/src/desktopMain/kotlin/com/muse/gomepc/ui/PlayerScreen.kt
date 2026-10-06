@@ -383,7 +383,16 @@ fun PlayerScreen(
                             val toolbarPanel = AwtToolbarPanel(
                                 player = player,
                                 itemName = itemName,
-                                onBack = { onBack() },
+                                onBack = {
+                                    try {
+                                        toolbarWinRef.get()?.let {
+                                            it.isVisible = false
+                                            it.dispose()
+                                            toolbarWinRef.set(null)
+                                        }
+                                    } catch (_: Throwable) { }
+                                    onBack()
+                                },
                                 onFullscreen = { onFullscreen() },
                                 isVisibleState = { controlsVisibleState.value },
                                 getPaused = { paused },
