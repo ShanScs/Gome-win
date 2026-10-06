@@ -329,42 +329,45 @@ fun PlayerScreen(
         tryInitPlayer()
     }
 
+    // 稳定回调：remember 固定实例，防止父重构导致 Canvas 重建
+    val onCanvasReadyStable = remember {
+        { canvas: java.awt.Canvas ->
+            try {
+                val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
+                    ?: owner as? javax.swing.JFrame
+                if (root != null) {
+                    val videoRect = {
+                        if (canvas.isShowing) {
+                            try {
+                                val p = canvas.locationOnScreen
+                                val rp = root.locationOnScreen
+                                java.awt.Rectangle(p.x - rp.x, p.y - rp.y, canvas.width, canvas.height)
+                            } catch (_: Throwable) { null }
+                        } else null
+                    }
+                    val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
+                        javax.swing.SwingUtilities.invokeLater {
+                            if (!controlsVisibleState.value) {
+                                controlsVisibleState.value = true
+                            }
+                        }
+                    }
+                    root.glassPane = glass
+                    glass.isVisible = true
+                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
+                }
+            } catch (_: Throwable) { }
+            pendingCanvas = canvas
+            tryInitPlayer()
+        }
+    }
+
     // 视频全屏，顶栏/底栏浮在上面（工具栏显隐不改变视频尺寸）
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // 视频区独立组件：不受 controlsVisible 重构影响，防止 HWND 顶层压死 UI
         VideoCanvasArea(
             controlsVisibleState = controlsVisibleState,
-            onCanvasReadyOnce = { canvas ->
-                // 弹幕 GlassPane 设置（直接用 canvas 引用，不经过状态）
-                try {
-                    val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
-                        ?: owner as? javax.swing.JFrame
-                    if (root != null) {
-                        val videoRect = {
-                            if (canvas.isShowing) {
-                                try {
-                                    val p = canvas.locationOnScreen
-                                    val rp = root.locationOnScreen
-                                    java.awt.Rectangle(p.x - rp.x, p.y - rp.y, canvas.width, canvas.height)
-                                } catch (_: Throwable) { null }
-                            } else null
-                        }
-                        val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
-                            javax.swing.SwingUtilities.invokeLater {
-                                if (!controlsVisible) {
-                                    controlsVisible = true
-                                }
-                            }
-                        }
-                        root.glassPane = glass
-                        glass.isVisible = true
-                        com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
-                    }
-                } catch (_: Throwable) { }
-                // 保存 canvas，等 videoUrl 就绪后初始化（避免 videoUrl 为 null 时黑屏）
-                pendingCanvas = canvas
-                tryInitPlayer()
-            }
+            onCanvasReadyOnce = onCanvasReadyStable,
         )
 
         // 底控制条（M玻璃，可自动隐藏）— 浮在视频上
