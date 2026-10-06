@@ -46,6 +46,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.emby.Prefs
+import com.muse.gomepc.emby.YambyClient
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import com.muse.gomepc.emby.ServerEntry
 
 /** 导航目标 */
@@ -328,7 +331,8 @@ fun ItemCard(
 @Composable
 fun HomeScreen(
     onItemClick: (UiMediaItem) -> Unit,
-    onResumeMore: () -> Unit = {}
+    onResumeMore: () -> Unit = {},
+    onServerIconClick: () -> Unit = {}
 ) {
     var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
     var libItems by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
@@ -379,7 +383,7 @@ fun HomeScreen(
                             .size(44.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
                             .background(Color.White)
-                            .clickable { /* TODO: 服务器切换弹窗 */ },
+                            .clickable { onServerIconClick() },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -785,6 +789,8 @@ private fun ServerCardsGrid(
     modifier: Modifier = Modifier,
     onServerSelected: () -> Unit
 ) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var switching by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var servers by remember { mutableStateOf(Prefs.getServers()) }
     var showAddDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -900,9 +906,46 @@ private fun ServerCardsGrid(
                             lastUsed = stat.lastUsed,
                             isCurrent = isCurrent,
                             onClick = {
-                                Prefs.serverName = server.name
-                                Prefs.touchServerLastUsed(server.key())
-                                onServerSelected()
+                                if (switching) return@ServerCard
+                                // 同一服务器：直接返回首页
+                                val isSame = server.host == Prefs.host &&
+                                    server.port == Prefs.port &&
+                                    server.path == Prefs.path &&
+                                    server.username == Prefs.username
+                                if (isSame && Prefs.isLoggedIn()) {
+                                    onServerSelected()
+                                    return@ServerCard
+                                }
+                                switching = true
+                                scope.launch {
+                                    try {
+                                        // 对齐安卓 switchTo：更新连接信息、清登录态、重新登录
+                                        Prefs.protocol = server.protocol
+                                        Prefs.host = server.host
+                                        Prefs.port = server.port
+                                        Prefs.path = server.path
+                                        Prefs.username = server.username
+                                        Prefs.clearLogin()
+                                        YambyClient.login(server.username, server.password)
+                                        Prefs.rememberCurrentServer(server.password)
+                                        try {
+                                            val sn = YambyClient.getServerName()
+                                            if (sn.isNotEmpty()) {
+                                                Prefs.serverName = sn
+                                            } else {
+                                                Prefs.serverName = server.name
+                                            }
+                                        } catch (_: Exception) {
+                                            Prefs.serverName = server.name
+                                        }
+                                        Prefs.touchServerLastUsed(server.key())
+                                    } catch (_: Exception) {
+                                        Prefs.serverName = server.name
+                                    } finally {
+                                        switching = false
+                                        onServerSelected()
+                                    }
+                                }
                             },
                             onLongClick = {
                                 // TODO: 编辑服务器对话框

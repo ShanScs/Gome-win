@@ -119,7 +119,8 @@ fun GomeApp(
             when (val s = screen) {
                 is Screen.Home -> HomeScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },
-                    onResumeMore = { screen = Screen.ResumeList }
+                    onResumeMore = { screen = Screen.ResumeList },
+                    onServerIconClick = { screen = Screen.Grid }
                 )
                 is Screen.ResumeList -> ResumeListScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },

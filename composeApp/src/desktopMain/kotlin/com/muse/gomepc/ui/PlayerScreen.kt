@@ -133,6 +133,15 @@ fun PlayerScreen(
     var volume by remember { mutableStateOf(80f) }
     var dragging by remember { mutableStateOf(false) }
     var dragPos by remember { mutableStateOf(0f) }
+    // 控制条自动隐藏
+    var controlsVisible by remember { mutableStateOf(true) }
+    // 显示后3秒自动隐藏
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
+            kotlinx.coroutines.delay(3000)
+            controlsVisible = false
+        }
+    }
     val mpvLogs = remember { mutableStateListOf<String>() }
     var showLogs by remember { mutableStateOf(false) }
     var urlTestResult by remember { mutableStateOf<String?>(null) }
@@ -266,7 +275,8 @@ fun PlayerScreen(
     }
 
     Column(Modifier.fillMaxSize().background(Color.Black)) {
-        // 顶栏
+        // 顶栏（可自动隐藏）
+        if (controlsVisible) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -293,9 +303,14 @@ fun PlayerScreen(
                 Text("获取播放地址中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
             }
         }
+        } // if (controlsVisible) 顶栏
 
-        // 视频区
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        // 视频区（点击切换控制条）
+        Box(
+            Modifier.weight(1f).fillMaxWidth().clickable {
+                controlsVisible = !controlsVisible
+            }
+        ) {
             SwingPanel(
                 background = Color.Black,
                 factory = {
@@ -317,7 +332,8 @@ fun PlayerScreen(
             )
         }
 
-        // 底控制条（M玻璃）
+        // 底控制条（M玻璃，可自动隐藏）
+        if (controlsVisible) {
         Box(Modifier.fillMaxWidth().padding(12.dp)) {
             MGlassBox(Modifier.fillMaxWidth(), corner = 18.dp) {
                 Row(
@@ -372,6 +388,7 @@ fun PlayerScreen(
                 }
             }
         }
+        } // if (controlsVisible) 底控制条
         // mpv 日志浮层（诊断用）
         if (showLogs) {
             Box(
