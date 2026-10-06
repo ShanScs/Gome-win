@@ -46,27 +46,27 @@ jobs:
       - name: Build desktop jar
         run: ./gradlew.bat :composeApp:desktopJar "-Pkotlin.compiler.execution.strategy=in-process" --no-daemon
 
-      - name: Package Windows exe (jpackage)
-        run: ./gradlew.bat :composeApp:packageExe -PtargetFormat=Exe "-Pkotlin.compiler.execution.strategy=in-process" --no-daemon
+      - name: Package Windows portable (jpackage app-image)
+        run: ./gradlew.bat :composeApp:package "-Pkotlin.compiler.execution.strategy=in-process" --no-daemon
 
-      - name: Bundle libmpv-2.dll alongside exe
+      - name: Bundle libmpv-2.dll and zip portable
         shell: pwsh
         run: |
-          Write-Host "=== build output tree ==="
-          Get-ChildItem -Path "composeApp/build/compose" -Recurse -Depth 4 | Format-Table FullName
-          $exe = Get-ChildItem -Path "composeApp/build" -Recurse -Include "*.exe" | Select-Object -First 1
-          if (-not $exe) { throw "no exe found under composeApp/build" }
-          $exeDir = $exe.Directory
-          Write-Host "Exe dir: $($exeDir.FullName)"
-          Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $exeDir.FullName
+          $launcher = Get-ChildItem -Path "composeApp/build/compose/binaries/main/app" -Recurse -Filter "gome-pc.exe" | Select-Object -First 1
+          if (-not $launcher) { throw "gome-pc.exe launcher not found in app-image" }
+          $appDir = $launcher.Directory.FullName
+          Write-Host "App dir: $appDir"
+          Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $appDir
           # JNA 按以下顺序找 DLL：java.library.path → PATH → 当前目录。
           # exe 启动器的工作目录即 exe 所在目录，同目录放 DLL 即可加载。
-          Get-ChildItem $exeDir.FullName | Format-Table Name, Length
-          echo "EXE_DIR=$($exeDir.FullName)" >> $env:GITHUB_ENV
+          $zipPath = "composeApp/build/gome-pc-windows-1.0.0.zip"
+          Compress-Archive -Path "composeApp/build/compose/binaries/main/app/*" -DestinationPath $zipPath -Force
+          Write-Host "Zip: $zipPath ($([math]::Round((Get-Item $zipPath).Length/1MB,1)) MB)"
+          echo "ZIP_PATH=$zipPath" >> $env:GITHUB_ENV
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: gome-pc-windows-1.0.0
-          path: ${{ env.EXE_DIR }}
+          path: ${{ env.ZIP_PATH }}
           retention-days: 30
