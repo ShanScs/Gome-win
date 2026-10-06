@@ -36,7 +36,7 @@ object ToolbarWindowManager {
                         player = player,
                         itemName = itemName,
                         onBack = {
-                            hide()
+                            // 不在这里 hide，避免死锁；交给 DisposableEffect 统一隐藏
                             onBack()
                         },
                         onFullscreen = onFullscreen,
@@ -65,8 +65,24 @@ object ToolbarWindowManager {
                     }.apply { start() }
                     DebugLog.d("UI", "工具栏单例窗口已创建")
                 }
-                // 已存在：只更新位置+显示，不重建
+                // 已存在：只更新位置+显示，不重建；确保 Timer 在跑
                 val w = window ?: return@invokeLater
+                if (syncTimer == null) {
+                    syncTimer = javax.swing.Timer(200) {
+                        val ww = window ?: return@Timer
+                        val v = try { isVisibleState() } catch (_: Throwable) { false }
+                        if (ww.isVisible != v) {
+                            ww.isVisible = v
+                        }
+                        if (v) {
+                            try {
+                                val p = owner.locationOnScreen
+                                val b = java.awt.Rectangle(p.x, p.y, owner.width, owner.height)
+                                if (ww.bounds != b) ww.bounds = b
+                            } catch (_: Throwable) { }
+                        }
+                    }.apply { start() }
+                }
                 try {
                     val p = owner.locationOnScreen
                     w.bounds = java.awt.Rectangle(p.x, p.y, owner.width, owner.height)
@@ -80,6 +96,8 @@ object ToolbarWindowManager {
 
     @Synchronized
     fun hide() {
+        try { syncTimer?.stop() } catch (_: Throwable) { }
+        syncTimer = null
         try {
             window?.isVisible = false
         } catch (_: Throwable) { }
