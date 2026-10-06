@@ -345,16 +345,36 @@ fun PlayerScreen(
                             } catch (_: Throwable) { null }
                         } else null
                     }
-                    val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
+                    // GlassPane 容器：弹幕 + AWT 工具栏
+                    val container = javax.swing.JPanel(java.awt.BorderLayout()).apply { isOpaque = false }
+                    val danmakuPanel = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
                         javax.swing.SwingUtilities.invokeLater {
                             if (!controlsVisibleState.value) {
                                 controlsVisibleState.value = true
                             }
                         }
                     }
-                    root.glassPane = glass
-                    glass.isVisible = true
-                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
+                    val toolbarPanel = AwtToolbarPanel(
+                        player = player,
+                        itemName = itemName,
+                        onBack = { onBack() },
+                        onFullscreen = { onFullscreen() },
+                        isVisibleState = { controlsVisibleState.value },
+                        getPaused = { paused },
+                        getTimePos = { if (dragging) dragPos.toDouble() else timePos },
+                        getDuration = { duration },
+                        onSeek = { player.seek(it) }
+                    )
+                    container.add(danmakuPanel, java.awt.BorderLayout.CENTER)
+                    // 工具栏用 JLayeredPane 覆盖在上层
+                    val layered = javax.swing.JLayeredPane().apply { isOpaque = false }
+                    danmakuPanel.bounds = java.awt.Rectangle(0, 0, root.width, root.height)
+                    toolbarPanel.bounds = java.awt.Rectangle(0, 0, root.width, root.height)
+                    layered.add(danmakuPanel, Integer.valueOf(0))
+                    layered.add(toolbarPanel, Integer.valueOf(1))
+                    root.glassPane = layered
+                    layered.isVisible = true
+                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕+工具栏 GlassPane 已设置")
                 }
             } catch (_: Throwable) { }
             pendingCanvas = canvas
