@@ -376,6 +376,14 @@ fun PlayerScreen(
                     // 工具栏独立透明窗口（不干扰视频渲染）
                     javax.swing.SwingUtilities.invokeLater {
                         try {
+                            // 先销毁旧窗口（防 Canvas 重建导致泄漏）
+                            try {
+                                toolbarWinRef.get()?.let {
+                                    it.isVisible = false
+                                    it.dispose()
+                                }
+                                toolbarWinRef.set(null)
+                            } catch (_: Throwable) { }
                             val toolbarWin = javax.swing.JWindow(root).apply {
                                 isAlwaysOnTop = true
                                 background = java.awt.Color(0, 0, 0, 0)
