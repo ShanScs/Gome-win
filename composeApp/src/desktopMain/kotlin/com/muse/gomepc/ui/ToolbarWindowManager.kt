@@ -33,7 +33,8 @@ object ToolbarWindowManager {
             try {
                 if (window == null) {
                     val win = javax.swing.JWindow(owner).apply {
-                        isAlwaysOnTop = true
+                        // 不用系统级 alwaysOnTop（会盖住浏览器等其他应用），
+                        // JWindow 有 owner 会自然保持在主窗口之上
                         background = java.awt.Color(0, 0, 0, 0)
                     }
                     val panel = AwtToolbarPanel(

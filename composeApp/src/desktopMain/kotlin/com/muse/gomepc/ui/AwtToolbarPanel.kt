@@ -35,19 +35,9 @@ class AwtToolbarPanel(
     private val getNetSpeed: (() -> String)? = null
 ) : JPanel() {
 
-    private val drawableDir: File by lazy {
-        // 安卓图标资源目录（构建时拷贝或开发时引用）
-        val candidates = listOf(
-            File("composeApp/src/androidMain/res/drawable"),  // 预留
-            File(System.getProperty("user.home"), "workspace/gomes/app/src/main/res/drawable"),
-            File("/home/hatch/workspace/gomes/app/src/main/res/drawable")
-        )
-        candidates.firstOrNull { it.isDirectory } ?: File(".")
-    }
-
     private fun icon(name: String, size: Int): Icon {
         return try {
-            VectorIcon.get(name, size, drawableDir)
+            VectorIcon.get(name, size)
         } catch (_: Exception) {
             // 兜底：空图标
             object : Icon {

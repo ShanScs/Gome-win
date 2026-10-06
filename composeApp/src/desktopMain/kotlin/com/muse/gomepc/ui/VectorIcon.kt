@@ -3,14 +3,13 @@ package com.muse.gomepc.ui
 import java.awt.*
 import java.awt.geom.*
 import javax.swing.*
-import java.io.File
 
 /**
- * Android Vector Drawable 解析渲染为 Swing Icon。
- * 支持 stroke/fill 的 pathData (M/L/H/V/C/S/Q/T/A/Z 命令)。
+ * Android Vector Drawable parser/render for Swing Icon.
+ * Loads from classpath drawable resources (bundled in app).
  */
-class VectorIcon(
-    private val xmlFile: File,
+class VectorIcon private constructor(
+    private val xmlText: String,
     private val size: Int
 ) : Icon {
 
@@ -26,23 +25,19 @@ class VectorIcon(
     private val viewportH: Float
 
     init {
-        val text = xmlFile.readText()
-        viewportW = Regex("""viewportWidth="([\d.]+)"""").find(text)?.groupValues?.get(1)?.toFloat() ?: 24f
-        viewportH = Regex("""viewportHeight="([\d.]+)"""").find(text)?.groupValues?.get(1)?.toFloat() ?: 24f
+        val text = xmlText
+        viewportW = Regex("viewportWidth=\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toFloat() ?: 24f
+        viewportH = Regex("viewportHeight=\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toFloat() ?: 24f
         val pathList = mutableListOf<PathDef>()
-        // 匹配每个 <path ... /> 或 <path ...>
-        val pathRegex = Regex("""<path\s+([^>]*?)/?>""")
+        val pathRegex = Regex("<path\\s+([^>]*?)/?>")
         for (m in pathRegex.findAll(text)) {
             val attrs = m.groupValues[1]
             fun attr(name: String): String? =
-                Regex("""$name="([^"]*)"""").find(attrs)?.groupValues?.get(1)
-            val fillStr = attr("fillColor")
-            val strokeStr = attr("strokeColor")
-            val fill = fillStr?.let { parseColor(it) }
-            val stroke = strokeStr?.let { parseColor(it) }
+                Regex("$name=\"([^\"]*)\"").find(attrs)?.groupValues?.get(1)
+            val fill = attr("fillColor")?.let { parseColor(it) }
+            val stroke = attr("strokeColor")?.let { parseColor(it) }
             val sw = attr("strokeWidth")?.toFloatOrNull() ?: 0f
             val d = attr("pathData") ?: continue
-            // 跳过完全透明的 fill 且无 stroke 的路径
             if (fill != null && fill.alpha == 0 && stroke == null) continue
             pathList.add(PathDef(fill, stroke, sw, d))
         }
@@ -79,11 +74,6 @@ class VectorIcon(
             g2.translate(x.toDouble(), y.toDouble())
             val scale = size / maxOf(viewportW, viewportH)
             g2.scale(scale.toDouble(), scale.toDouble())
-            // 居中 viewport
-            val dx = (viewportW - minOf(viewportW, viewportH)) / 2
-            val dy = (viewportH - minOf(viewportW, viewportH)) / 2
-            g2.translate(-dx.toDouble(), -dy.toDouble())
-
             for (p in paths) {
                 val shape = parsePath(p.pathData) ?: continue
                 if (p.fillColor != null && p.fillColor.alpha > 0) {
@@ -101,21 +91,19 @@ class VectorIcon(
         }
     }
 
-    /** 简易 SVG path 解析器 */
     private fun parsePath(d: String): Shape? {
         return try {
             val path = Path2D.Float()
-            // 按命令切分
-            val tokens = Regex("""([MmLlHhVvCcSsQqTtAaZz])|(-?[\d.]+)""")
+            val tokens = Regex("([MmLlHhVvCcSsQqTtAaZz])|(-?[\\d.]+)")
                 .findAll(d).map { it.value }.toList()
             var i = 0
-            var cx = 0f; var cy = 0f
-            var sx = 0f; var sy = 0f
+            var cx = 0f
+            var cy = 0f
+            var sx = 0f
+            var sy = 0f
             fun num(): Float = tokens[i++].toFloat()
-
             while (i < tokens.size) {
-                val cmd = tokens[i++]
-                when (cmd) {
+                when (val cmd = tokens[i++]) {
                     "M" -> { cx = num(); cy = num(); path.moveTo(cx, cy); sx = cx; sy = cy }
                     "m" -> { cx += num(); cy += num(); path.moveTo(cx, cy); sx = cx; sy = cy }
                     "L" -> { cx = num(); cy = num(); path.lineTo(cx, cy) }
@@ -135,11 +123,6 @@ class VectorIcon(
                         cx += num(); cy += num()
                         path.curveTo(x1, y1, x2, y2, cx, cy)
                     }
-                    "S", "s" -> {
-                        // 简化为二次曲线
-                        val x2 = num(); val y2 = num(); cx = num(); cy = num()
-                        path.lineTo(cx, cy)
-                    }
                     "Q" -> {
                         val x1 = num(); val y1 = num(); cx = num(); cy = num()
                         path.quadTo(x1, y1, cx, cy)
@@ -148,50 +131,52 @@ class VectorIcon(
                         val x1 = cx + num(); val y1 = cy + num(); cx += num(); cy += num()
                         path.quadTo(x1, y1, cx, cy)
                     }
-                    "T", "t" -> { cx = num(); cy = num(); path.lineTo(cx, cy) }
                     "A", "a" -> {
-                        val rx = num(); val ry = num(); num() // x-axis-rotation
+                        val rx = num(); val ry = num(); num()
                         val largeArc = num() != 0f; val sweep = num() != 0f
-                        val x = num(); val y = num()
-                        val nx = if (cmd == "a") cx + x else x
-                        val ny = if (cmd == "a") cy + y else y
-                        // 用椭圆弧近似
-                        drawArc(path, cx, cy, nx, ny, rx, ry, largeArc, sweep)
+                        val ex = num(); val ey = num()
+                        val nx = if (cmd == "a") cx + ex else ex
+                        val ny = if (cmd == "a") cy + ey else ey
+                        arcTo(path, cx, cy, nx, ny, rx, ry, largeArc, sweep)
                         cx = nx; cy = ny
                     }
                     "Z", "z" -> { path.closePath(); cx = sx; cy = sy }
-                    else -> { /* 数字被命令隐含时忽略 */ }
+                    else -> { }
                 }
             }
             path
         } catch (_: Exception) { null }
     }
 
-    private fun drawArc(
+    private fun arcTo(
         path: Path2D.Float,
         x0: Float, y0: Float, x1: Float, y1: Float,
         rx: Float, ry: Float, largeArc: Boolean, sweep: Boolean
     ) {
-        // 简化：用二次贝塞尔近似圆弧
         if (rx <= 0 || ry <= 0) { path.lineTo(x1, y1); return }
-        val dx = x1 - x0; val dy = y1 - y0
-        val mx = (x0 + x1) / 2; val my = (y0 + y1) / 2
-        // 控制点偏移（简化处理）
+        val dx = x1 - x0
+        val dy = y1 - y0
         val len = kotlin.math.sqrt(dx * dx + dy * dy)
         if (len < 0.01f) { path.lineTo(x1, y1); return }
+        val mx = (x0 + x1) / 2
+        val my = (y0 + y1) / 2
         val k = if (largeArc) 1.2f else 0.55f
         val s = if (sweep) 1f else -1f
-        val cxp = mx - s * k * dy / len * len / 4
-        val cyp = my + s * k * dx / len * len / 4
-        path.quadTo(cxp, cyp, x1, y1)
+        val qx = mx - s * k * dy
+        val qy = my + s * k * dx
+        path.quadTo(qx, qy, x1, y1)
     }
 
     companion object {
         private val cache = mutableMapOf<String, VectorIcon>()
-        fun get(name: String, size: Int, drawableDir: File): VectorIcon {
+        @JvmStatic
+        fun get(name: String, size: Int): VectorIcon {
             val key = "$name@$size"
             return cache.getOrPut(key) {
-                VectorIcon(File(drawableDir, "$name.xml"), size)
+                val stream = VectorIcon::class.java.getResourceAsStream("/drawable/$name.xml")
+                    ?: throw IllegalArgumentException("icon not found: $name")
+                val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                VectorIcon(text, size)
             }
         }
     }
