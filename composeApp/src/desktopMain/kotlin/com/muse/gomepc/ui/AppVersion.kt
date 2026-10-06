@@ -2,6 +2,6 @@ package com.muse.gomepc.ui
 
 /** 应用版本（发版时同步更新） */
 object AppVersion {
-    const val NAME = "1.0.28"
+    const val NAME = "1.0.29"
     const val DISPLAY = "Gome PC $NAME（杜比视界兼容版）"
 }

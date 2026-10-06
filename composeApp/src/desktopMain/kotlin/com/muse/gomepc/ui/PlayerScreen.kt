@@ -215,6 +215,9 @@ fun PlayerScreen(
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
     var videoUrl by remember { mutableStateOf<String?>(null) }
     var urlError by remember { mutableStateOf<String?>(null) }
+    // 待初始化的 Canvas（非状态，避免重构）：等 videoUrl 就绪后触发播放
+    var pendingCanvas: java.awt.Canvas? = null
+    var mpvInitDone by remember { mutableStateOf(false) }
 
     // 取播放地址
     LaunchedEffect(episodeId) {
@@ -272,6 +275,60 @@ fun PlayerScreen(
         }
     }
 
+    // 尝试初始化播放器：canvas 和 videoUrl 都就绪且未初始化过才执行
+    fun tryInitPlayer() {
+        val canvas = pendingCanvas
+        val url = videoUrl
+        if (mpvInitDone || initializing || canvas == null || url == null) return
+        mpvInitDone = true
+        initializing = true
+        com.muse.gomepc.player.DebugLog.d("UI", "开始初始化播放器, url=$url")
+        Thread {
+            val wid = try {
+                Win32Util.nativeWindowId(canvas)
+            } catch (e: Throwable) {
+                SwingUtilities.invokeLater {
+                    initError = "wid: ${e.message}"
+                    initializing = false
+                }
+                return@Thread
+            }
+            val err = try {
+                player.init(wid, vo = vo, hwdec = hwdec)
+            } catch (e: Throwable) {
+                "init异常: ${e.message}"
+            }
+            SwingUtilities.invokeLater {
+                initializing = false
+                if (err != null) {
+                    initError = err
+                    com.muse.gomepc.player.DebugLog.d("UI", "播放器初始化失败: $err")
+                } else {
+                    inited = true
+                    player.setVolume(volume.toDouble())
+                    if (System.getProperty("ui.loop", "false") == "true") {
+                        player.setLoop(true)
+                    }
+                    val playErr = try {
+                        player.play(url)
+                    } catch (e: Throwable) {
+                        "play异常: ${e.message}"
+                    }
+                    if (playErr != null) {
+                        initError = "play: $playErr"
+                    } else {
+                        com.muse.gomepc.player.DebugLog.d("UI", "开始播放")
+                    }
+                }
+            }
+        }.start()
+    }
+
+    // videoUrl 就绪后尝试初始化（canvas 可能先就绪）
+    LaunchedEffect(videoUrl) {
+        tryInitPlayer()
+    }
+
     // 视频全屏，顶栏/底栏浮在上面（工具栏显隐不改变视频尺寸）
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // 视频区独立组件：不受 controlsVisible 重构影响，防止 HWND 顶层压死 UI
@@ -304,46 +361,9 @@ fun PlayerScreen(
                         com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
                     }
                 } catch (_: Throwable) { }
-                // 单次安全的异步初始化，不触发重构死循环
-                Thread {
-                    val wid = try {
-                        Win32Util.nativeWindowId(canvas)
-                    } catch (e: Throwable) {
-                        SwingUtilities.invokeLater {
-                            initError = "wid: ${e.message}"
-                            initializing = false
-                        }
-                        return@Thread
-                    }
-                    val err = try {
-                        player.init(wid, vo = vo, hwdec = hwdec)
-                    } catch (e: Throwable) {
-                        "init异常: ${e.message}"
-                    }
-                    SwingUtilities.invokeLater {
-                        initializing = false
-                        if (err != null) {
-                            initError = err
-                        } else {
-                            inited = true
-                            player.setVolume(volume.toDouble())
-                            if (System.getProperty("ui.loop", "false") == "true") {
-                                player.setLoop(true)
-                            }
-                            val url = videoUrl
-                            if (url != null) {
-                                val playErr = try {
-                                    player.play(url)
-                                } catch (e: Throwable) {
-                                    "play异常: ${e.message}"
-                                }
-                                if (playErr != null) {
-                                    initError = "play: $playErr"
-                                }
-                            }
-                        }
-                    }
-                }.start()
+                // 保存 canvas，等 videoUrl 就绪后初始化（避免 videoUrl 为 null 时黑屏）
+                pendingCanvas = canvas
+                tryInitPlayer()
             }
         )
 

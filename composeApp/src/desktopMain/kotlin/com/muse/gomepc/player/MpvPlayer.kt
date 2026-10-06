@@ -6,8 +6,9 @@ import com.sun.jna.Pointer
 /** 诊断日志：写文件供用户拖回分析 */
 object DebugLog {
     private val logFile by lazy {
-        val tmp = System.getProperty("java.io.tmpdir") ?: "."
-        java.io.File(tmp, "gome-debug.log").apply {
+        val home = System.getProperty("user.home") ?: "."
+        val dir = java.io.File(home, ".gome").apply { mkdirs() }
+        java.io.File(dir, "gome-debug.log").apply {
             if (exists()) delete()
             createNewFile()
         }
