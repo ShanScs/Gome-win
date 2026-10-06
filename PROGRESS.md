@@ -195,3 +195,50 @@
 - **Git 仓库**：已 `git init`，2 commits（main 分支），35 文件，干净状态
   - 未 push —— **需要用户提供 GitHub 仓库地址**（或授权创建）
 - `~/workspace/yamby-copy/` 未做任何修改（只读）
+
+## Step 10 — 全套 UI 移植 Android 横屏版 + 改名（2026-10-06）
+
+用户要求：安装版全套 UI 按 Gome Android 横屏版重做，包括 dock；app 本体叫 "Gome"，安装包文件名 "Gome-win"。
+
+### 改名
+- `composeApp/build.gradle.kts`：`packageName = "gome-pc"` → `"Gome"`（exe/窗口标题/开始菜单均为 Gome）
+- `.github/workflows/build-windows.yml`：launcher 搜索 `Gome.exe`；jpackage `--name "Gome"`；
+  构建后把 `Gome-1.0.0.msi` 重命名为 `Gome-win-1.0.0.msi` 再上传；artifact 名 `Gome-win-1.0.0-msi`
+
+### Dock 栏（新 DockBar.kt，对齐 Android activity_host.xml 毛玻璃版）
+- 底部悬浮居中，MGlassBox（圆角 30dp，blur 24，#55FFFFFF 底+顶部高光+#AAFFFFFF 描边）
+- 选中指示器：#DEDEDE 灰色 pill，68×56dp，24dp 圆角
+- 4 tab：资源库 / 主页 / 搜索 / 设置；每 tab 72×60dp，图标 30dp，文字 11sp
+- 选中 #000000，未选中 #8A8F9E
+- Main.kt：Row（左侧边栏）→ Box（内容全屏 + Dock 悬浮覆盖）；播放器页隐藏 Dock
+- 删除废弃 Sidebar
+
+### 首页
+- 继续观看：新 ResumeCard（对齐 item_resume.xml）— 200×112dp，14dp 圆角；
+  徽章 #DCE9FB 底/#2F6FED 字 11sp 左下角；底部 3dp 进度条；标题 14sp 居中；集数 12sp 居中
+- 媒体库横排：ItemCard 改为 120×170dp（对齐 item_poster_h.xml），标题 13sp，年份 11sp
+- 内容底部留白 110dp（避开 Dock）
+
+### 占位图 bug 修复
+- 根因：继续观看的剧集用单集 ID 取 Primary 海报，但单集通常没有自己的海报图 → 404 → 蓝色占位
+- 修复：UiModels.toUi() 中 Episode 用 seriesId 取海报；name 显示剧名；新增 badge（剩余时间）/ subtitle（第X集）字段
+
+### 设置页（对齐 activity_settings.xml：iOS 分组卡片）
+- 背景 #F2F1F6；标题 32sp bold；分组标题 13sp #8E8E93
+- 白色卡片 12dp 圆角；行高 52dp；29dp 彩色圆角图标；16sp 文字；右侧值 15sp #8E8E93；› 22sp #C7C7CC
+- 分隔线 #EFEFF4，左起 53dp
+
+### 搜索页（对齐 activity_search.xml）
+- 白底；搜索框 #F2F4F8 底 28dp 圆角 48dp 高；hint"搜索电影、剧集、演员"；回车触发搜索
+
+### 宫格页（对齐 item_library_card.xml）
+- 媒体库卡片 190×105dp，14dp 圆角，2×2 海报拼图，库名白色 20sp bold 左侧压图
+- 点击进入该库的条目网格（顶栏+返回）
+
+### 详情页
+- 海报头 300dp → 480dp（对齐 Android）；标题 28sp 左对齐 → 32sp 白色居中；元信息 13sp 居中
+- 内容底部留白 110dp
+
+### 验证
+- `:composeApp:compileKotlinDesktop` → BUILD SUCCESSFUL（本地 Linux）
+- 已 push 到 https://github.com/ShanScs/Gome-win（7 文件），Actions 自动构建 MSI

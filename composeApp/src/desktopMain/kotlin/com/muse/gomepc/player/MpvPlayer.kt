@@ -20,6 +20,7 @@ class MpvPlayer {
         fun onError(msg: String)
         fun onTimePos(sec: Double, duration: Double)
         fun onPause(paused: Boolean)
+        fun onLog(prefix: String, level: String, text: String) {}
     }
 
     var listener: Listener? = null
@@ -76,6 +77,8 @@ class MpvPlayer {
             destroy()
             return "mpv_initialize failed: ${lib.mpv_error_string(r)}"
         }
+        // 请求日志消息（诊断用，UI 可展示）
+        try { lib.mpv_request_log_messages(ctx, "warn") } catch (_: Throwable) { }
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
         lib.mpv_set_property_string(ctx, "osd-level", "0")
@@ -200,7 +203,17 @@ class MpvPlayer {
                         // 属性 data 解析失败，忽略
                     }
                 }
-                MpvEventId.LOG_MESSAGE -> { /* msg-level 已压到 warn，按需处理 */ }
+                MpvEventId.LOG_MESSAGE -> {
+                    try {
+                        val lm = MpvEventLogMessage(ev.data)
+                        lm.read()
+                        listener?.onLog(
+                            lm.prefix ?: "",
+                            lm.level ?: "",
+                            (lm.text ?: "").trim()
+                        )
+                    } catch (_: Throwable) { }
+                }
             }
         }
     }

@@ -4,11 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
@@ -18,6 +20,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.muse.gomepc.emby.Prefs
 import com.muse.gomepc.ui.DetailScreen
 import com.muse.gomepc.ui.DockBar
+import com.muse.gomepc.ui.DockBlurState
 import com.muse.gomepc.ui.GomeTheme
 import com.muse.gomepc.ui.GridScreen
 import com.muse.gomepc.ui.HomeScreen
@@ -27,6 +30,8 @@ import com.muse.gomepc.ui.Repo
 import com.muse.gomepc.ui.Screen
 import com.muse.gomepc.ui.SearchScreen
 import com.muse.gomepc.ui.SettingsScreen
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 fun main() = application {
     val state = rememberWindowState(
@@ -103,6 +108,11 @@ fun GomeApp(
     }
 
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
+    // M玻璃真模糊：定时抓取 dock 背后的屏幕区域做模糊
+    val dockBlur = remember { DockBlurState() }
+    // dock 在窗口内的位置（像素），用于换算屏幕坐标
+    var dockBoundsInWindow by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var windowPos by remember { mutableStateOf<androidx.compose.ui.unit.IntOffset?>(null) }
     Box(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
         Box(Modifier.fillMaxSize()) {
             when (val s = screen) {
@@ -142,8 +152,46 @@ fun GomeApp(
             DockBar(
                 current = screen,
                 onSelect = { screen = it },
+                blurredBackdrop = dockBlur.blurred,
                 modifier = Modifier.fillMaxSize()
+                    .onGloballyPositioned { coords ->
+                        // 记录 dock 在窗口内的位置（像素）
+                        val pos = coords.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
+                        val size = coords.size
+                        dockBoundsInWindow = androidx.compose.ui.geometry.Rect(
+                            pos.x, pos.y, pos.x + size.width, pos.y + size.height
+                        )
+                    }
             )
+        }
+
+        // 定时抓取 dock 背后的屏幕区域并模糊（真 M玻璃）
+        LaunchedEffect(screen, dockBoundsInWindow) {
+            val bounds = dockBoundsInWindow ?: return@LaunchedEffect
+            // 等内容渲染
+            delay(500)
+            while (true) {
+                try {
+                    // 窗口在屏幕上的位置 + dock 在窗口内的位置 = 屏幕坐标
+                    // 通过 owner window 获取屏幕位置
+                    val win = owner
+                    if (win != null) {
+                        val loc = win.locationOnScreen
+                        val density = win.let {
+                            // 从 bounds (dp) 转像素：bounds 已经是像素（boundsInWindow 返回像素）
+                            1f
+                        }
+                        val sx = (loc.x + bounds.left).toInt()
+                        val sy = (loc.y + bounds.top).toInt()
+                        val sw = bounds.width.toInt()
+                        val sh = bounds.height.toInt()
+                        if (sw > 0 && sh > 0) {
+                            dockBlur.captureAndBlur(sx, sy, sw, sh)
+                        }
+                    }
+                } catch (_: Exception) { }
+                delay(2000)
+            }
         }
     }
 }

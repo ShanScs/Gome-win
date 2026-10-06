@@ -63,6 +63,15 @@ open class MpvEventProperty(p: Pointer?) : Structure(p) {
         listOf("name", "format", "data")
 }
 
+/** struct mpv_event_log_message { const char *prefix; const char *level; const char *text; } */
+open class MpvEventLogMessage(p: Pointer?) : Structure(p) {
+    @JvmField var prefix: String? = null
+    @JvmField var level: String? = null
+    @JvmField var text: String? = null
+    override fun getFieldOrder(): List<String> =
+        listOf("prefix", "level", "text")
+}
+
 /**
  * libmpv JNA 绑定（手写，vlcj 模式，不依赖 vlcj 库）。
  * 函数签名对照 mpv/client.h。
@@ -95,6 +104,9 @@ interface LibMpv : Library {
 
     fun mpv_free(ptr: Pointer)
     fun mpv_error_string(error: Int): String
+
+    /** 启用日志消息事件（minLevel: "info"/"warn"/"error" 等） */
+    fun mpv_request_log_messages(ctx: Pointer, minLevel: String): Int
 
     companion object {
         val INSTANCE: LibMpv by lazy {

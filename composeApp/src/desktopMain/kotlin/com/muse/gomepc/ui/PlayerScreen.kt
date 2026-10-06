@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -132,6 +133,8 @@ fun PlayerScreen(
     var volume by remember { mutableStateOf(80f) }
     var dragging by remember { mutableStateOf(false) }
     var dragPos by remember { mutableStateOf(0f) }
+    val mpvLogs = remember { mutableStateListOf<String>() }
+    var showLogs by remember { mutableStateOf(false) }
     val danmakuOn = remember { mutableStateOf(true) }
     var overlayWin by remember { mutableStateOf<JWindow?>(null) }
     var overlayRetry by remember { mutableStateOf(0) }
@@ -226,6 +229,12 @@ fun PlayerScreen(
             }
             override fun onPause(p: Boolean) {
                 SwingUtilities.invokeLater { paused = p }
+            }
+            override fun onLog(prefix: String, level: String, text: String) {
+                SwingUtilities.invokeLater {
+                    mpvLogs.add("[$level][$prefix] $text")
+                    if (mpvLogs.size > 50) mpvLogs.removeAt(0)
+                }
             }
         }
         onDispose {
@@ -332,6 +341,34 @@ fun PlayerScreen(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable(onClick = onFullscreen).padding(8.dp)
                     )
+                    Text(
+                        "日志",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { showLogs = !showLogs }.padding(8.dp)
+                    )
+                }
+            }
+        }
+        // mpv 日志浮层（诊断用）
+        if (showLogs) {
+            Box(
+                Modifier.fillMaxSize().background(Color(0xCC000000)).clickable { showLogs = false }
+            ) {
+                Column(Modifier.fillMaxSize().padding(24.dp)) {
+                    Text("mpv 日志（点击关闭）", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
+                        items(mpvLogs.size) { i ->
+                            Text(
+                                mpvLogs[i],
+                                color = Color(0xFFCCCCCC),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

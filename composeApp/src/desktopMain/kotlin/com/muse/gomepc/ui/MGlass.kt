@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -35,12 +37,16 @@ object MGlass {
 }
 
 /**
- * M玻璃容器：圆角裁剪 + 半透明白底（模糊） + 顶部高光 + 白色描边，内容保持清晰。
+ * M玻璃容器：圆角裁剪 + 真实模糊 backdrop + 半透明白底 + 顶部高光 + 白色描边，内容保持清晰。
+ *
+ * @param blurredBackdrop 经过真实模糊的内容抓图（低分辨率），绘制在最底层；
+ * 为空时退化为纯色底（无真模糊）。
  */
 @Composable
 fun MGlassBox(
     modifier: Modifier = Modifier,
     corner: Dp = 16.dp,
+    blurredBackdrop: ImageBitmap? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(corner)
@@ -49,16 +55,25 @@ fun MGlassBox(
             .clip(shape)
             .border(1.dp, MGlass.Stroke, shape)
     ) {
-        // 背景层：底色 + blur（桌面近似）
+        // 最底层：真实模糊的 backdrop（内容抓图已做高斯模糊）
+        if (blurredBackdrop != null) {
+            androidx.compose.foundation.Image(
+                bitmap = blurredBackdrop,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
+        // 背景层：M玻璃底色（盖在模糊层之上）
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(MGlass.Tint)
-                .blur(MGlass.BlurRadius)
         )
         // 顶部高光渐变
         Box(
             modifier = Modifier
+                .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .height(28.dp)
                 .background(

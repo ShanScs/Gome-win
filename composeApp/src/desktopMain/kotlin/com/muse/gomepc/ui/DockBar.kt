@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +52,7 @@ private fun dockTabs(): List<DockTab> = listOf(
 fun DockBar(
     current: Screen,
     onSelect: (Screen) -> Unit,
+    blurredBackdrop: ImageBitmap? = null,
     modifier: Modifier = Modifier
 ) {
     val tabs = dockTabs()
@@ -65,7 +67,8 @@ fun DockBar(
     ) {
         MGlassBox(
             modifier = Modifier.padding(bottom = 12.dp),
-            corner = 30.dp
+            corner = 30.dp,
+            blurredBackdrop = blurredBackdrop
         ) {
             Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 // 选中指示器（灰色 pill，位于 tab 下层）

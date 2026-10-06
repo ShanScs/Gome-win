@@ -32,6 +32,11 @@ object Repo {
         return YambyClient.getResumeItems(20).map { it.toUi() }
     }
 
+    suspend fun latestItems(limit: Int = 8): List<UiMediaItem> {
+        if (demoMode) return mockResumeItems().take(limit).map { it.toUi() }
+        return YambyClient.getLatestItems(limit).map { it.toUi() }
+    }
+
     suspend fun search(query: String): List<UiMediaItem> {
         if (demoMode) {
             if (query.isBlank()) return emptyList()

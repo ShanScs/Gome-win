@@ -2,6 +2,7 @@ package com.muse.gomepc.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,11 +38,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.muse.gomepc.emby.Prefs
+import com.muse.gomepc.emby.ServerEntry
 
 /** 导航目标 */
 sealed interface Screen {
@@ -293,16 +297,18 @@ fun HomeScreen(onItemClick: (UiMediaItem) -> Unit) {
     var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
     var libItems by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
     var resume by remember { mutableStateOf<List<UiMediaItem>?>(null) }
+    var latest by remember { mutableStateOf<List<UiMediaItem>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(reloadKey) {
         try {
             error = null
-            libs = null; resume = null; libItems = emptyMap()
+            libs = null; resume = null; libItems = emptyMap(); latest = null
             val l = Repo.libraries()
             libs = l
             resume = Repo.resumeItems()
+            latest = try { Repo.latestItems(8) } catch (_: Exception) { emptyList() }
             val map = mutableMapOf<String, List<UiMediaItem>>()
             for (lib in l) {
                 try {
@@ -337,6 +343,12 @@ fun HomeScreen(onItemClick: (UiMediaItem) -> Unit) {
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
+                }
+            }
+            // 顶部轮播（最新入库）
+            if (!latest.isNullOrEmpty()) {
+                item {
+                    BannerCarousel(items = latest!!, onItemClick = onItemClick)
                 }
             }
             if (resume!!.isNotEmpty()) {
@@ -375,6 +387,76 @@ private fun SectionHeader(title: String, action: String) {
         Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
         Spacer(Modifier.weight(1f))
         Text(action, fontSize = 13.sp, color = GomeTheme.TextSecondary)
+    }
+}
+
+/**
+ * 顶部轮播（最新入库）：横向滚动大卡片，背景图+标题+类型|年份。
+ * 对齐 Android item_banner.xml。
+ */
+@Composable
+private fun BannerCarousel(
+    items: List<UiMediaItem>,
+    onItemClick: (UiMediaItem) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(items) { item ->
+            Box(
+                modifier = Modifier
+                    .width(320.dp)
+                    .height(180.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onItemClick(item) }
+            ) {
+                // 背景图（用海报，裁剪填充）
+                EmbyImage(
+                    url = item.imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                // 底部渐变
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color(0xB3000000)),
+                                startY = 0.5f
+                            )
+                        )
+                )
+                // 标题+元信息
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        item.name,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                    val meta = listOfNotNull(
+                        item.libName.takeIf { it.isNotBlank() },
+                        item.year.takeIf { it.isNotBlank() }
+                    ).joinToString(" | ")
+                    if (meta.isNotBlank()) {
+                        Text(
+                            meta,
+                            fontSize = 12.sp,
+                            color = Color(0xFFDDDDDD),
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -508,22 +590,228 @@ fun GridScreen(onItemClick: (UiMediaItem) -> Unit) {
                 }
             }
         }
-        else -> LazyVerticalGrid(
-            columns = GridCells.Adaptive(220.dp),
+        else -> ServerCardsGrid(
             modifier = Modifier.fillMaxSize().background(Color.White),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 110.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            onServerSelected = {
+                // 切换服务器后回到首页
+                reloadKey++
+            }
+        )
+    }
+}
+
+/**
+ * 资源库页：服务器卡片（对齐 Android）。
+ * 双列卡片，宽高比 1.84:1，24dp 圆角，无描边，1dp 柔和阴影；
+ * 背景为以右上图标为中心的霜化径向渐变（取图标色50%强度）→白色；
+ * 所有服务器头像为圆形；另有短剧卡片；"+" 可添加服务器。
+ */
+@Composable
+private fun ServerCardsGrid(
+    modifier: Modifier = Modifier,
+    onServerSelected: () -> Unit
+) {
+    var servers by remember { mutableStateOf(Prefs.getServers()) }
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    // 刷新服务器列表
+    fun refresh() { servers = Prefs.getServers() }
+
+    Column(modifier) {
+        Text(
+            "资源库",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = GomeTheme.TextPrimary,
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp)
+        )
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 110.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(libs!!) { lib ->
-                LibraryCard(
-                    lib,
-                    posters = collages[lib.id] ?: emptyList(),
-                    onClick = { selectedLib = lib }
+            items(servers, key = { server: ServerEntry -> server.key() }) { server ->
+                ServerCard(
+                    server = server,
+                    onClick = {
+                        // 切换为当前服务器
+                        Prefs.serverName = server.name
+                        // TODO: 实际切换 Repo 的 server 上下文
+                        onServerSelected()
+                    },
+                    onLongClick = {
+                        // 长按删除（简化版，Android 有图标选择器）
+                    }
                 )
+            }
+            // 短剧卡片
+            item {
+                ShortDramaCard(onClick = { /* TODO: 本地短剧 */ })
+            }
+            // 添加卡片
+            item {
+                AddServerCard(onClick = { showAddDialog = true })
             }
         }
     }
+
+    if (showAddDialog) {
+        AddServerDialog(
+            onDismiss = { showAddDialog = false },
+            onAdded = { refresh(); showAddDialog = false }
+        )
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun ServerCard(
+    server: ServerEntry,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    // 卡片宽高比 1.84:1，24dp 圆角
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1.84f)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                // 霜化径向渐变：右上图标色50% → 白色（简化版用浅蓝灰）
+                Brush.radialGradient(
+                    colors = listOf(Color(0xFFE8EEF5), Color.White),
+                    center = androidx.compose.ui.geometry.Offset(0.85f, 0.15f)
+                )
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(16.dp)
+    ) {
+        // 右上圆形图标
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(48.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(Color(0xFF5B8DEF)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                server.name.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        // 左下服务器名
+        Column(Modifier.align(Alignment.BottomStart)) {
+            Text(
+                server.name.ifBlank { server.host },
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = GomeTheme.TextPrimary
+            )
+            Text(
+                "${server.protocol}://${server.host}:${server.port}",
+                fontSize = 12.sp,
+                color = Color(0xFF8A8F9E)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShortDramaCard(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1.84f)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(Color(0xFFF5E8E8), Color.White),
+                    center = androidx.compose.ui.geometry.Offset(0.85f, 0.15f)
+                )
+            )
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("短剧", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
+    }
+}
+
+@Composable
+private fun AddServerCard(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1.84f)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xFFF2F4F8))
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("+", fontSize = 32.sp, color = Color(0xFF8A8F9E))
+    }
+}
+
+@Composable
+private fun AddServerDialog(
+    onDismiss: () -> Unit,
+    onAdded: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var host by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("8096") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var useHttps by remember { mutableStateOf(false) }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("添加服务器") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ServerField("名称", name) { name = it }
+                ServerField("地址", host) { host = it }
+                ServerField("端口", port) { port = it }
+                ServerField("用户名", username) { username = it }
+                ServerField("密码", password) { password = it }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                if (host.isNotBlank() && username.isNotBlank()) {
+                    Prefs.upsertServer(
+                        ServerEntry(
+                            name = name.ifBlank { host },
+                            protocol = if (useHttps) "https" else "http",
+                            host = host, port = port, path = "",
+                            username = username, password = password
+                        )
+                    )
+                    onAdded()
+                }
+            }) { Text("保存") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun ServerField(label: String, value: String, onChange: (String) -> Unit) {
+    androidx.compose.material3.OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
 }
 
 /** 搜索（对齐 Android activity_search.xml：白底，药丸+圆角搜索框） */
