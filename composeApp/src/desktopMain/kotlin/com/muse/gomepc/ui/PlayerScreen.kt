@@ -274,45 +274,11 @@ fun PlayerScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        // 顶栏（可自动隐藏）
-        if (controlsVisible) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "‹ 返回",
-                color = Color.White,
-                fontSize = 15.sp,
-                modifier = Modifier.clickable(onClick = onBack).padding(8.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "$itemName 第${episodeIndex}集",
-                color = Color.White,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.weight(1f))
-            if (urlError != null) {
-                Text(urlError!!, color = Color(0xFFFF5252), fontSize = 12.sp)
-            } else if (initError != null) {
-                Text("mpv: $initError", color = Color(0xFFFF5252), fontSize = 12.sp)
-            } else if (videoUrl == null) {
-                Text("获取播放地址中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
-            }
-        }
-        } // if (controlsVisible) 顶栏
-
-        // 视频区（点击切换控制条）
-        Box(
-            Modifier.weight(1f).fillMaxWidth().clickable {
-                controlsVisible = !controlsVisible
-            }
-        ) {
-            SwingPanel(
-                background = Color.Black,
+    // 视频全屏，顶栏/底栏浮在上面（工具栏显隐不改变视频尺寸）
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        // 视频区（点击切换控制条）— 始终全屏
+        SwingPanel(
+            background = Color.Black,
                 factory = {
                     java.awt.Canvas().apply {
                         background = java.awt.Color.BLACK
@@ -342,11 +308,10 @@ fun PlayerScreen(
                 update = { /* init 由 LaunchedEffect(canvasReady) 触发 */ },
                 modifier = Modifier.fillMaxSize()
             )
-        }
 
-        // 底控制条（M玻璃，可自动隐藏）
+        // 底控制条（M玻璃，可自动隐藏）— 浮在视频上
         if (controlsVisible) {
-        Box(Modifier.fillMaxWidth().padding(12.dp)) {
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)) {
             MGlassBox(Modifier.fillMaxWidth(), corner = 18.dp) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -401,6 +366,37 @@ fun PlayerScreen(
             }
         }
         } // if (controlsVisible) 底控制条
+
+        // 顶栏（可自动隐藏）— 浮在视频上
+        if (controlsVisible) {
+        Row(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "‹ 返回",
+                color = Color.White,
+                fontSize = 15.sp,
+                modifier = Modifier.clickable(onClick = onBack).padding(8.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "$itemName 第${episodeIndex}集",
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.weight(1f))
+            if (urlError != null) {
+                Text(urlError!!, color = Color(0xFFFF5252), fontSize = 12.sp)
+            } else if (initError != null) {
+                Text("mpv: $initError", color = Color(0xFFFF5252), fontSize = 12.sp)
+            } else if (videoUrl == null) {
+                Text("获取播放地址中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
+            }
+        }
+        } // if (controlsVisible) 顶栏
+
         // mpv 日志浮层（诊断用）
         if (showLogs) {
             Box(
