@@ -135,6 +135,7 @@ fun PlayerScreen(
     var dragPos by remember { mutableStateOf(0f) }
     val mpvLogs = remember { mutableStateListOf<String>() }
     var showLogs by remember { mutableStateOf(false) }
+    var urlTestResult by remember { mutableStateOf<String?>(null) }
     var fileLoaded by remember { mutableStateOf(false) }
     val danmakuOn = remember { mutableStateOf(true) }
     var overlayWin by remember { mutableStateOf<JWindow?>(null) }
@@ -392,6 +393,50 @@ fun PlayerScreen(
                             fontSize = 11.sp,
                             modifier = Modifier.padding(vertical = 2.dp)
                         )
+                    }
+                    // URL 连通性测试
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "测试URL连通",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            modifier = Modifier
+                                .background(Color(0xFF555555), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                .clickable {
+                                    urlTestResult = "测试中..."
+                                    val testUrl = videoUrl
+                                    kotlin.concurrent.thread {
+                                        val result = try {
+                                            if (testUrl == null) throw Exception("URL为空")
+                                            val conn = java.net.URL(testUrl).openConnection() as java.net.HttpURLConnection
+                                            conn.requestMethod = "HEAD"
+                                            conn.connectTimeout = 8000
+                                            conn.readTimeout = 8000
+                                            val code = conn.responseCode
+                                            val len = conn.getHeaderField("Content-Length") ?: "未知"
+                                            "HTTP $code, 长度: $len"
+                                        } catch (e: Exception) {
+                                            "失败: ${e.message}"
+                                        }
+                                        // 回到主线程更新
+                                        javax.swing.SwingUtilities.invokeLater {
+                                            urlTestResult = result
+                                        }
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                        if (urlTestResult != null) {
+                            Text(
+                                urlTestResult!!,
+                                color = Color(0xFF88CCFF),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
