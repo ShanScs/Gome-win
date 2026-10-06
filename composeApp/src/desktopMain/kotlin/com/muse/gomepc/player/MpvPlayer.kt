@@ -84,11 +84,12 @@ class MpvPlayer {
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
         lib.mpv_set_property_string(ctx, "osd-level", "0")
-        // 禁用 mpv 的鼠标事件拦截，让事件透传给父窗口（AWT Canvas）
+        // 禁用 mpv 的鼠标/键盘事件拦截，让事件透传给父窗口（AWT Canvas）
         // 这样我们的 MouseListener 才能收到点击/移动事件
         try { lib.mpv_set_property_string(ctx, "input-cursor", "no") } catch (_: Throwable) { }
         try { lib.mpv_set_property_string(ctx, "input-vo-keyboard", "no") } catch (_: Throwable) { }
         try { lib.mpv_set_property_string(ctx, "input-default-bindings", "no") } catch (_: Throwable) { }
+        try { lib.mpv_set_property_string(ctx, "osc", "no") } catch (_: Throwable) { }
 
         // 观察常用属性（userdata 仅用于区分，事件里直接读 name）
         lib.mpv_observe_property(ctx, 1L, "time-pos", MpvFormat.DOUBLE)

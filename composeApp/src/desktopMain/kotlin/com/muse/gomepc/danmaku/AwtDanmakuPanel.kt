@@ -17,6 +17,15 @@ class AwtDanmakuPanel(
     private val videoRectInParent: (() -> java.awt.Rectangle?)? = null
 ) : JPanel() {
 
+    /** 为 true 时面板拦截鼠标事件（用于呼出工具栏）；为 false 时事件穿透给下层按钮 */
+    @Volatile var captureMouse: Boolean = true
+
+    override fun contains(x: Int, y: Int): Boolean {
+        // 不拦截时让事件穿透，工具栏按钮才能点到
+        if (!captureMouse) return false
+        return super.contains(x, y)
+    }
+
     init {
         isOpaque = false
     }

@@ -219,6 +219,8 @@ fun PlayerScreen(
     }
 
     // 弹幕：主窗口 GlassPane AWT 直接绘制（盖住 heavyweight Canvas）
+    // 同时利用它做鼠标事件遮罩：工具栏隐藏时拦截鼠标呼出工具栏，显示时放行让按钮可点
+    var danmakuGlass by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
     LaunchedEffect(owner, canvasReady) {
         try {
             val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
@@ -236,10 +238,26 @@ fun PlayerScreen(
                 }
                 val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect)
                 glass.isOpaque = false
+                // 鼠标移动/点击 → 呼出工具栏（mpv 原生窗口吞事件，靠这层玻璃收）
+                glass.addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
+                    override fun mouseMoved(e: java.awt.event.MouseEvent) {
+                        javax.swing.SwingUtilities.invokeLater { controlsVisible = true }
+                    }
+                })
+                glass.addMouseListener(object : java.awt.event.MouseAdapter() {
+                    override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                        javax.swing.SwingUtilities.invokeLater { controlsVisible = true }
+                    }
+                })
                 root.glassPane = glass
                 glass.isVisible = true
+                danmakuGlass = glass
             }
         } catch (_: Throwable) { }
+    }
+    // 工具栏显示时玻璃不拦截鼠标（按钮要能点），隐藏时拦截（要能呼出）
+    LaunchedEffect(controlsVisible) {
+        danmakuGlass?.captureMouse = !controlsVisible
     }
 
     DisposableEffect(Unit) {
