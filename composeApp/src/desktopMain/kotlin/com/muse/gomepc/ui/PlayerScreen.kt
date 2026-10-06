@@ -280,6 +280,9 @@ fun PlayerScreen(
             override fun onPause(p: Boolean) {
                 SwingUtilities.invokeLater { paused = p }
             }
+            override fun onMouseMove() {
+                SwingUtilities.invokeLater { controlsVisible = true }
+            }
             override fun onLog(prefix: String, level: String, text: String) {
                 SwingUtilities.invokeLater {
                     mpvLogs.add("[$level][$prefix] $text")

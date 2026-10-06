@@ -20,6 +20,7 @@ class MpvPlayer {
         fun onError(msg: String)
         fun onTimePos(sec: Double, duration: Double)
         fun onPause(paused: Boolean)
+        fun onMouseMove() {} // 鼠标在视频上移动（用于呼出控制条）
         fun onLog(prefix: String, level: String, text: String) {}
     }
 
@@ -84,11 +85,15 @@ class MpvPlayer {
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
         lib.mpv_set_property_string(ctx, "osd-level", "0")
+        // 确保鼠标事件上报（mouse-pos 属性才能变化）
+        try { lib.mpv_set_property_string(ctx, "input-cursor", "yes") } catch (_: Throwable) { }
 
         // 观察常用属性（userdata 仅用于区分，事件里直接读 name）
         lib.mpv_observe_property(ctx, 1L, "time-pos", MpvFormat.DOUBLE)
         lib.mpv_observe_property(ctx, 2L, "duration", MpvFormat.DOUBLE)
         lib.mpv_observe_property(ctx, 3L, "pause", MpvFormat.FLAG)
+        // 观察鼠标位置：鼠标在视频上移动时呼出控制条
+        lib.mpv_observe_property(ctx, 4L, "mouse-pos", MpvFormat.STRING)
 
         running = true
         eventThread = Thread(::eventLoop, "mpv-event").apply {
@@ -199,6 +204,10 @@ class MpvPlayer {
                             "pause" -> {
                                 lastPaused = pdata.getInt(0) != 0
                                 listener?.onPause(lastPaused)
+                            }
+                            "mouse-pos" -> {
+                                // 鼠标位置变化，只通知不解析具体值
+                                listener?.onMouseMove()
                             }
                         }
                     } catch (e: Throwable) {
