@@ -242,26 +242,6 @@ fun PlayerScreen(
         } catch (_: Throwable) { }
     }
 
-    // 鼠标移动检测：用轮询代替事件监听（mpv 原生窗口可能绕过 AWT 事件队列）
-    // 每 200ms 检查一次鼠标位置，移动了就显示控制条
-    LaunchedEffect(Unit) {
-        var lastX = -1
-        var lastY = -1
-        while (true) {
-            kotlinx.coroutines.delay(200)
-            try {
-                val loc = java.awt.MouseInfo.getPointerInfo()?.location
-                if (loc != null) {
-                    if (lastX != -1 && (loc.x != lastX || loc.y != lastY)) {
-                        controlsVisible = true
-                    }
-                    lastX = loc.x
-                    lastY = loc.y
-                }
-            } catch (_: Exception) { }
-        }
-    }
-
     DisposableEffect(Unit) {
         player.listener = object : MpvPlayer.Listener {
             override fun onFileLoaded() {
@@ -279,9 +259,6 @@ fun PlayerScreen(
             }
             override fun onPause(p: Boolean) {
                 SwingUtilities.invokeLater { paused = p }
-            }
-            override fun onMouseMove() {
-                SwingUtilities.invokeLater { controlsVisible = true }
             }
             override fun onLog(prefix: String, level: String, text: String) {
                 SwingUtilities.invokeLater {
