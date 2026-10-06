@@ -168,7 +168,7 @@ compose.desktop {
                 // 默认：app-image 便携目录（Windows CI 用）
                 else -> targetFormats(TargetFormat.AppImage)
             }
-            packageName = "gome-pc"
+            packageName = "Gome"
             packageVersion = "1.0.0"
             description = "Gome PC — Emby client (Dolby Vision compatible)"
             copyright = "© 2026 Muse"
