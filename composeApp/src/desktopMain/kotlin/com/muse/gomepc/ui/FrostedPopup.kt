@@ -26,7 +26,6 @@ class FrostedPopup(
         val iconName: String? = null,
         val checked: Boolean = false,
         val enabled: Boolean = true,
-        val showPrefix: Boolean = true,
         val action: () -> Unit = {}
     )
 
@@ -80,15 +79,13 @@ class FrostedPopup(
                 alignmentX = Component.LEFT_ALIGNMENT
             }
 
-            // "›" 前缀
-            if (row.showPrefix) {
-                val prefix = JLabel("›").apply {
-                    font = Font(Font.SANS_SERIF, Font.PLAIN, PREFIX_SIZE)
-                    foreground = Color(0xB0, 0xB0, 0xB0)
-                    border = EmptyBorder(0, 0, 0, PREFIX_MARGIN)
-                }
-                rowPanel.add(prefix)
+            // "›" 前缀：安卓布局写死，每行都有
+            val prefix = JLabel("›").apply {
+                font = Font(Font.SANS_SERIF, Font.PLAIN, PREFIX_SIZE)
+                foreground = Color(0xB0, 0xB0, 0xB0)
+                border = EmptyBorder(0, 0, 0, PREFIX_MARGIN)
             }
+            rowPanel.add(prefix)
 
             // 文字 (weight=1, 居左)
             val textLabel = JLabel(row.label).apply {
@@ -103,24 +100,20 @@ class FrostedPopup(
             rowPanel.add(textWrapper)
             rowPanel.add(Box.createHorizontalGlue())
 
-            // 图标/选中勾
+            // 图标/选中勾：安卓用 ic_check vector，图标统一 #8E8E93 tint
             val iconLabel = JLabel().apply {
                 preferredSize = Dimension(ICON_SIZE, ICON_SIZE)
                 maximumSize = Dimension(ICON_SIZE, ICON_SIZE)
                 minimumSize = Dimension(ICON_SIZE, ICON_SIZE)
+                val tintColor = Color(0x8E, 0x8E, 0x93)
                 try {
                     icon = when {
-                        row.checked -> null // 用文字 ✓ 代替
-                        row.iconName != null -> VectorIcon.get(row.iconName, ICON_SIZE)
+                        row.checked -> VectorIcon.get("ic_check", ICON_SIZE, tintColor)
+                        row.iconName != null -> VectorIcon.get(row.iconName, ICON_SIZE, tintColor)
                         else -> null
                     }
                 } catch (_: Exception) { }
-                if (row.checked) {
-                    text = "✓"
-                    font = Font(Font.SANS_SERIF, Font.BOLD, 16)
-                    foreground = Color(0x8E, 0x8E, 0x93)
-                }
-                if (icon == null && text.isEmpty()) {
+                if (icon == null) {
                     isVisible = false
                 }
             }

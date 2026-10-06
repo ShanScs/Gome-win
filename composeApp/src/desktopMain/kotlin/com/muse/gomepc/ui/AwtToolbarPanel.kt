@@ -209,13 +209,11 @@ class AwtToolbarPanel(
             FrostedPopup.Row(
                 label = if (cur.isBlank()) "API-1：未设置" else "API-1：已设置",
                 checked = cur.isNotBlank(),
-                showPrefix = false,
                 action = { showDanmakuApiInput() }
             ),
             FrostedPopup.Row(
                 label = "清除API",
                 iconName = "ic_pl_delete",
-                showPrefix = false,
                 action = {
                     setDanmakuApiUrl("")
                     showTip("API已清除")

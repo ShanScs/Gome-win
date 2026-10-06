@@ -10,7 +10,8 @@ import javax.swing.*
  */
 class VectorIcon private constructor(
     private val xmlText: String,
-    private val size: Int
+    private val size: Int,
+    private val tint: Color? = null
 ) : Icon {
 
     private data class PathDef(
@@ -77,11 +78,11 @@ class VectorIcon private constructor(
             for (p in paths) {
                 val shape = parsePath(p.pathData) ?: continue
                 if (p.fillColor != null && p.fillColor.alpha > 0) {
-                    g2.color = p.fillColor
+                    g2.color = tint ?: p.fillColor
                     g2.fill(shape)
                 }
                 if (p.strokeColor != null && p.strokeWidth > 0) {
-                    g2.color = p.strokeColor
+                    g2.color = tint ?: p.strokeColor
                     g2.stroke = BasicStroke(p.strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
                     g2.draw(shape)
                 }
@@ -179,13 +180,13 @@ class VectorIcon private constructor(
     companion object {
         private val cache = mutableMapOf<String, VectorIcon>()
         @JvmStatic
-        fun get(name: String, size: Int): VectorIcon {
-            val key = "$name@$size"
+        fun get(name: String, size: Int, tint: Color? = null): VectorIcon {
+            val key = "$name@$size@${tint?.rgb ?: 0}"
             return cache.getOrPut(key) {
                 val stream = VectorIcon::class.java.getResourceAsStream("/drawable/$name.xml")
                     ?: throw IllegalArgumentException("icon not found: $name")
                 val text = stream.bufferedReader(Charsets.UTF_8).readText()
-                VectorIcon(text, size)
+                VectorIcon(text, size, tint)
             }
         }
     }
