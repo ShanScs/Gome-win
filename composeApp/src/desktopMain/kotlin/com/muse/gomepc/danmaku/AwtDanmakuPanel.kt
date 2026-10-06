@@ -15,30 +15,31 @@ import javax.swing.Timer
 class AwtDanmakuPanel(
     private val engine: DanmakuEngine,
     private val videoRectInParent: (() -> java.awt.Rectangle?)? = null,
-    private val onMouseActivity: (() -> Unit)? = null
+    private val onMouseActivity: () -> Unit
 ) : JPanel() {
 
-    /** 工具栏可见状态的线程安全镜像（AWT 线程不能直接读 Compose State） */
-    @Volatile var controlsVisibleMirror: Boolean = true
-
     override fun contains(x: Int, y: Int): Boolean {
-        // 工具栏可见时穿透（按钮要能点），隐藏时拦截（做鼠标哨兵唤醒工具栏）
-        if (controlsVisibleMirror) return false
         return super.contains(x, y)
     }
 
     init {
         isOpaque = false
-        // 鼠标活动 → 唤醒工具栏
-        if (onMouseActivity != null) {
-            val adapter = object : java.awt.event.MouseAdapter() {
-                override fun mouseMoved(e: java.awt.event.MouseEvent?) { onMouseActivity.invoke() }
-                override fun mouseDragged(e: java.awt.event.MouseEvent?) { onMouseActivity.invoke() }
-                override fun mouseClicked(e: java.awt.event.MouseEvent?) { onMouseActivity.invoke() }
+
+        val mouseAdapter = object : java.awt.event.MouseAdapter() {
+            override fun mouseMoved(e: java.awt.event.MouseEvent?) {
+                onMouseActivity()
             }
-            addMouseListener(adapter)
-            addMouseMotionListener(adapter)
+
+            override fun mouseDragged(e: java.awt.event.MouseEvent?) {
+                onMouseActivity()
+            }
+
+            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                onMouseActivity()
+            }
         }
+        addMouseListener(mouseAdapter)
+        addMouseMotionListener(mouseAdapter)
     }
 
     init {

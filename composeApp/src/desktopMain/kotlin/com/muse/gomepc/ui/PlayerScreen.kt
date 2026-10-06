@@ -219,8 +219,6 @@ fun PlayerScreen(
     }
 
     // 弹幕：主窗口 GlassPane AWT 直接绘制（盖住 heavyweight Canvas）
-    // 兼做鼠标哨兵：mpv 初始化顺序修正后事件会冒泡到这里，鼠标活动即唤醒工具栏
-    var danmakuGlass by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
     LaunchedEffect(owner, canvasReady) {
         try {
             val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
@@ -238,20 +236,15 @@ fun PlayerScreen(
                 }
                 val glass = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
                     javax.swing.SwingUtilities.invokeLater {
-                        if (!controlsVisible) controlsVisible = true
+                        if (!controlsVisible) {
+                            controlsVisible = true
+                        }
                     }
                 }
-                glass.isOpaque = false
-                glass.controlsVisibleMirror = controlsVisible
                 root.glassPane = glass
                 glass.isVisible = true
-                danmakuGlass = glass
             }
         } catch (_: Throwable) { }
-    }
-    // 同步工具栏状态到玻璃面板：可见时穿透（按钮可点），隐藏时拦截（哨兵唤醒）
-    LaunchedEffect(controlsVisible) {
-        danmakuGlass?.controlsVisibleMirror = controlsVisible
     }
 
     DisposableEffect(Unit) {
@@ -302,18 +295,25 @@ fun PlayerScreen(
                                 if (width > 0 && height > 0) canvasReady = true
                             }
                         })
-                        // AWT Canvas 会吞掉鼠标事件，Compose 的 clickable 收不到
-                        // 直接在 Canvas 上监听：点击切换控制条，移动鼠标显示控制条
-                        addMouseListener(object : java.awt.event.MouseAdapter() {
-                            override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                                SwingUtilities.invokeLater { controlsVisible = !controlsVisible }
+                        val playerMouseListener = object : java.awt.event.MouseAdapter() {
+                            private fun wakeUpControls() {
+                                SwingUtilities.invokeLater {
+                                    if (!controlsVisible) {
+                                        controlsVisible = true
+                                    }
+                                }
                             }
-                        })
-                        addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
-                            override fun mouseMoved(e: java.awt.event.MouseEvent) {
-                                SwingUtilities.invokeLater { controlsVisible = true }
+
+                            override fun mouseMoved(e: java.awt.event.MouseEvent?) {
+                                wakeUpControls()
                             }
-                        })
+
+                            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                                wakeUpControls()
+                            }
+                        }
+                        addMouseListener(playerMouseListener)
+                        addMouseMotionListener(playerMouseListener)
                         canvasRef = this
                     }
                 },
