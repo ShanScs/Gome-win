@@ -101,9 +101,9 @@ private fun PlayPauseButton(paused: Boolean, onClick: () -> Unit, modifier: Modi
 private fun isWindows(): Boolean =
     System.getProperty("os.name", "").lowercase().contains("win")
 
-/** 平台自适应默认 vo：Windows→gpu-next（HDR 直通），Linux→x11（Xvfb 测试）/真机可传参覆盖 */
+/** 平台自适应默认 vo：Windows→gpu（兼容性），Linux→x11（Xvfb 测试）/真机可传参覆盖 */
 private fun defaultVo(): String =
-    System.getProperty("ui.vo") ?: if (isWindows()) "gpu-next" else "x11"
+    System.getProperty("ui.vo") ?: if (isWindows()) "gpu" else "x11"
 
 /** 平台自适应默认 hwdec：Windows→d3d11va，Linux→no（Xvfb 无 GPU） */
 private fun defaultHwdec(): String =
@@ -163,23 +163,29 @@ fun PlayerScreen(
     }
 
     // canvas 有实际尺寸 + 拿到播放地址后才 init mpv（0x0 时无法渲染）
+    var initializing by remember { mutableStateOf(false) }
     LaunchedEffect(canvasReady, videoUrl) {
         val canvas = canvasRef
         val url = videoUrl
-        if (!inited && canvasReady && canvas != null && canvas.isDisplayable && url != null) {
-            inited = true
+        if (!inited && !initializing && canvasReady && canvas != null && canvas.isDisplayable && url != null) {
+            initializing = true
             Thread {
                 val wid = try {
                     Win32Util.nativeWindowId(canvas)
                 } catch (e: Throwable) {
-                    SwingUtilities.invokeLater { initError = "wid: ${e.message}" }
+                    SwingUtilities.invokeLater {
+                        initError = "wid: ${e.message}"
+                        initializing = false
+                    }
                     return@Thread
                 }
                 val err = player.init(wid, vo = vo, hwdec = hwdec)
                 SwingUtilities.invokeLater {
+                    initializing = false
                     if (err != null) {
                         initError = err
                     } else {
+                        inited = true
                         player.setVolume(volume.toDouble())
                         // 截图演示时循环，避免 5 秒测试片播完黑屏
                         if (System.getProperty("ui.loop", "false") == "true") {
