@@ -16,6 +16,7 @@ dependencyResolutionManagement {
         if (localManual.isDirectory) maven { url = uri(localManual) }
         val localRepo = file("/home/hatch/workspace/local-repo")
         if (localRepo.isDirectory) maven { url = uri(localRepo) }
+        google() // AndroidX lifecycle 等构件只在 Google Maven，不在 Central
         maven("https://repo.maven.apache.org/maven2/")
     }
 }
