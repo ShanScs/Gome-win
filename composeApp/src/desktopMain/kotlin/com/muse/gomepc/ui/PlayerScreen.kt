@@ -217,8 +217,6 @@ fun PlayerScreen(
     var urlError by remember { mutableStateOf<String?>(null) }
     // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
-    // 工具栏独立窗口引用，退出时销毁
-    val toolbarWinRef = remember { java.util.concurrent.atomic.AtomicReference<javax.swing.JWindow?>(null) }
     var mpvInitDone by remember { mutableStateOf(false) }
 
     // 取播放地址
@@ -331,15 +329,12 @@ fun PlayerScreen(
         tryInitPlayer()
     }
 
-    // 退出播放器时销毁工具栏窗口
+    // 退出播放器时隐藏工具栏（单例复用，不销毁）
     DisposableEffect(Unit) {
         onDispose {
             try {
-                toolbarWinRef.get()?.let {
-                    it.isVisible = false
-                    it.dispose()
-                    com.muse.gomepc.player.DebugLog.d("UI", "工具栏窗口已销毁")
-                }
+                ToolbarWindowManager.hide()
+                com.muse.gomepc.player.DebugLog.d("UI", "工具栏已隐藏")
             } catch (_: Throwable) { }
             try { player.destroy() } catch (_: Throwable) { }
         }
@@ -373,67 +368,19 @@ fun PlayerScreen(
                     danmakuPanel.isVisible = true
                     com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
 
-                    // 工具栏独立透明窗口（不干扰视频渲染）
-                    javax.swing.SwingUtilities.invokeLater {
-                        try {
-                            // 先销毁旧窗口（防 Canvas 重建导致泄漏）
-                            try {
-                                toolbarWinRef.get()?.let {
-                                    it.isVisible = false
-                                    it.dispose()
-                                }
-                                toolbarWinRef.set(null)
-                            } catch (_: Throwable) { }
-                            val toolbarWin = javax.swing.JWindow(root).apply {
-                                isAlwaysOnTop = true
-                                background = java.awt.Color(0, 0, 0, 0)
-                            }
-                            val toolbarPanel = AwtToolbarPanel(
-                                player = player,
-                                itemName = itemName,
-                                onBack = {
-                                    try {
-                                        toolbarWinRef.get()?.let {
-                                            it.isVisible = false
-                                            it.dispose()
-                                            toolbarWinRef.set(null)
-                                        }
-                                    } catch (_: Throwable) { }
-                                    onBack()
-                                },
-                                onFullscreen = { onFullscreen() },
-                                isVisibleState = { controlsVisibleState.value },
-                                getPaused = { paused },
-                                getTimePos = { if (dragging) dragPos.toDouble() else timePos },
-                                getDuration = { duration },
-                                onSeek = { player.seek(it) }
-                            )
-                            toolbarWin.contentPane.add(toolbarPanel)
-                            // 跟随主窗口位置大小
-                            fun syncBounds() {
-                                val p = root.locationOnScreen
-                                toolbarWin.bounds = java.awt.Rectangle(p.x, p.y, root.width, root.height)
-                            }
-                            syncBounds()
-                            root.addComponentListener(object : java.awt.event.ComponentAdapter() {
-                                override fun componentResized(e: java.awt.event.ComponentEvent) { syncBounds() }
-                                override fun componentMoved(e: java.awt.event.ComponentEvent) { syncBounds() }
-                            })
-                            // 定时同步可见性
-                            javax.swing.Timer(200) {
-                                val v = controlsVisibleState.value
-                                if (toolbarWin.isVisible != v) {
-                                    toolbarWin.isVisible = v
-                                    if (v) syncBounds()
-                                }
-                            }.start()
-                            toolbarWin.isVisible = controlsVisibleState.value
-                            toolbarWinRef.set(toolbarWin)
-                            com.muse.gomepc.player.DebugLog.d("UI", "工具栏独立窗口已创建")
-                        } catch (t: Throwable) {
-                            com.muse.gomepc.player.DebugLog.d("UI", "工具栏窗口创建失败: ${t.message}")
-                        }
-                    }
+                    // 工具栏：单例复用，只创建一次
+                    ToolbarWindowManager.show(
+                        owner = root,
+                        player = player,
+                        itemName = itemName,
+                        onBack = { onBack() },
+                        onFullscreen = { onFullscreen() },
+                        isVisibleState = { controlsVisibleState.value },
+                        getPaused = { paused },
+                        getTimePos = { if (dragging) dragPos.toDouble() else timePos },
+                        getDuration = { duration },
+                        onSeek = { player.seek(it) }
+                    )
                 }
             } catch (_: Throwable) { }
             pendingCanvas = canvas
