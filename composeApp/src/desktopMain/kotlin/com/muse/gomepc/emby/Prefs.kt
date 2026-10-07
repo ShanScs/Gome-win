@@ -354,4 +354,13 @@ object Prefs {
     var searchServerName: String
         get() = prefs.get("search_server_name", "聚合搜索")
         set(v) { prefs.put("search_server_name", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 服务器自定义图标 URL（手动选择），按 serverKey 存 */
+    fun getCustomIconUrl(serverKey: String): String =
+        prefs.get("server_icon_$serverKey", "")
+
+    fun setCustomIconUrl(serverKey: String, url: String) {
+        prefs.put("server_icon_$serverKey", url)
+        try { prefs.flush() } catch (_: Exception) {}
+    }
 }

@@ -101,4 +101,9 @@
 
 ### 编辑服务器弹窗（2026-10-07 16:58 用户："删除和图标功能啦？"）
 - [x] 加删除按钮（编辑模式左下角红色）
-- [ ] 更换图标：PC 端无图标系统，需搬安卓 ServerIconHelper（图标库下载+自动匹配+缓存+选择器）
+- [x] 更换图标：搬安卓 ServerIconHelper（图标库下载+自动匹配+缓存+选择器）
+  - Prefs 加 get/setCustomIconUrl
+  - ServerIconHelper.kt（桌面版）：OkHttp+Skia，~/.gome/server_icons 缓存
+  - IconPickerDialog：搜索+网格选择+清除自定义
+  - AddServerDialog：编辑模式顶部图标预览+更换图标
+  - ServerCard：头像显示自定义/自动匹配图标

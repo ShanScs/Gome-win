@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -1207,11 +1208,18 @@ private fun ServerCard(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    server.name.take(1).uppercase().ifEmpty { "服" },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2F6FED)
+                ServerIcon(
+                    serverName = server.name.ifEmpty { server.host },
+                    serverKey = server.key(),
+                    modifier = Modifier.size(32.dp),
+                    fallback = {
+                        Text(
+                            server.name.take(1).uppercase().ifEmpty { "服" },
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2F6FED)
+                        )
+                    }
                 )
             }
         }
@@ -1301,6 +1309,62 @@ private fun AddServerDialog(
         title = { Text(if (isEdit) "编辑服务器" else "添加服务器") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // 更换图标（仅编辑模式，对齐安卓）
+                if (isEdit && existing != null) {
+                    val serverKey = existing.key()
+                    var showIconPicker by remember { mutableStateOf(false) }
+                    var iconVersion by remember { mutableStateOf(0) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    ) {
+                        // 当前图标预览
+                        key(iconVersion) {
+                            ServerIcon(
+                                serverName = existing.name.ifEmpty { existing.host },
+                                serverKey = serverKey,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .clickable { showIconPicker = true },
+                                fallback = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(Color(0xFFF2F2F2)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            existing.name.take(1).uppercase().ifEmpty { "服" },
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2F6FED)
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                        Text(
+                            "更换图标",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2F6FED),
+                            modifier = Modifier
+                                .clickable { showIconPicker = true }
+                                .padding(12.dp, 8.dp, 12.dp, 8.dp)
+                        )
+                    }
+                    if (showIconPicker) {
+                        IconPickerDialog(
+                            serverKey = serverKey,
+                            onDismiss = { showIconPicker = false },
+                            onPicked = {
+                                iconVersion++
+                                showIconPicker = false
+                            }
+                        )
+                    }
+                }
                 // 服务器地址（对齐安卓）
                 ServerField("服务器地址", host) { host = it }
                 // 协议 + 端口同行（对齐安卓）
