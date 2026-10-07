@@ -713,9 +713,9 @@ class AwtToolbarPanel(
                 // 半透明背板：整个32×32都可点，不只线条
                 g2.color = Color(0, 0, 0, 1)
                 g2.fillOval(0, 0, width, height)
-                // 圆圈+字形同一坐标系一次画完
+                // 圆圈+字形同一坐标系一次画完（留2px边距防裁边）
                 try {
-                    VectorIcon.get(iconName, 32).paintIcon(this, g2, 0, 0)
+                    VectorIcon.get(iconName, 28).paintIcon(this, g2, 2, 2)
                 } catch (_: Exception) { }
             } finally {
                 g2.dispose()
