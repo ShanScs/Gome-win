@@ -54,9 +54,6 @@ fun MGlassBox(
         modifier = modifier
             .clip(shape)
             .border(1.dp, MGlass.Stroke, shape)
-            // M玻璃：半透明白底（#55FFFFFF 叠在白色页面上≈白）+ 高光 + 描边
-            // 不用抓屏真模糊（Robot 抓到的是黑的），直接按安卓参数画
-            .background(Color.White.copy(alpha = 0.85f))
     ) {
         // M玻璃底色 #55FFFFFF（半透明白）
         Box(

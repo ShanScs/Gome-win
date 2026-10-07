@@ -1370,7 +1370,30 @@ private fun AddServerDialog(
             ) { Text(if (isEdit) "保存" else "连接", color = Color.White) }
         },
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 删除按钮（仅编辑模式）：红色文字
+                if (isEdit) {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            Prefs.removeServer(existing.key())
+                            onAdded()
+                        }
+                    ) {
+                        Text("删除", color = Color(0xFFFF3B30))
+                    }
+                } else {
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(1.dp))
+                }
+                Row {
+                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                    // 保存/连接按钮由 confirmButton 提供，这里占位
+                }
+            }
         }
     )
 }
