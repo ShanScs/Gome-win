@@ -121,3 +121,17 @@
   - IconPickerDialog：搜索+网格选择+清除自定义
   - AddServerDialog：编辑模式顶部图标预览+更换图标
   - ServerCard：头像显示自定义/自动匹配图标
+
+### 主页只加载一次（2026-10-07 用户："主页的信息只有第一次启动的时候后台刷新，其它时候不要刷新"）
+- [x] HomeDataCache 单例：libs/libItems/resume/latest 只在第一次启动时后台加载一次
+- [x] HomeScreen 改用缓存，切回主页不再触发刷新
+- [x] 出错时可手动重试
+
+### 资源库砍掉多余刷新（2026-10-07 用户："把资源库的刷新砍了"）
+- [x] GridScreen 删除 LaunchedEffect（拉媒体库列表+每库4张图，但页面显示的是服务器卡片，数据从没用上）
+- [x] GridScreen 简化为直接显示 ServerCardsGrid（本地数据，无网络请求）
+- [x] 用户确认：资源库页只需要点击服务器跳转到主页
+
+### 轮播图顶到窗口最上沿（2026-10-07 用户："顶部还留一段空白区域干嘛"）
+- [x] LazyColumn 去掉顶部和水平 contentPadding，轮播图全宽置顶
+- [x] 继续观看/媒体库/各库分区各自加 20dp 水平内边距

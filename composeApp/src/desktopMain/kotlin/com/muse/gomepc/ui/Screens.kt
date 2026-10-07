@@ -392,7 +392,7 @@ fun HomeScreen(
         libs == null || resume == null -> LoadingBox()
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().background(Color.White),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 110.dp),
+            contentPadding = PaddingValues(bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState()
         ) {
@@ -452,10 +452,12 @@ fun HomeScreen(
             // 继续观看（放媒体库上面）
             if (resume!!.isNotEmpty()) {
                 item {
-                    SectionHeader("继续观看", "更多", onAction = onResumeMore)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(resume!!) { item ->
-                            ResumeCard(item, onClick = { onItemClick(item) })
+                    Column(Modifier.padding(horizontal = 20.dp)) {
+                        SectionHeader("继续观看", "更多", onAction = onResumeMore)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(resume!!) { item ->
+                                ResumeCard(item, onClick = { onItemClick(item) })
+                            }
                         }
                     }
                 }
@@ -463,24 +465,26 @@ fun HomeScreen(
             // 媒体库横排（对齐 Android：tvLibTitle + rvLibs）
             if (libs!!.isNotEmpty()) {
                 item {
-                    Text(
-                        "媒体库",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GomeTheme.TextPrimary,
-                        modifier = Modifier.padding(start = 16.dp, top = 18.dp)
-                    )
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(top = 8.dp),
-                        contentPadding = PaddingValues(end = 12.dp)
-                    ) {
-                        items(libs!!) { lib ->
-                            LibraryCard(
-                                lib = lib,
-                                posters = (libItems[lib.id] ?: emptyList()).take(4),
-                                onClick = { onLibraryClick(lib) }
-                            )
+                    Column(Modifier.padding(horizontal = 20.dp)) {
+                        Text(
+                            "媒体库",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GomeTheme.TextPrimary,
+                            modifier = Modifier.padding(top = 18.dp)
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(top = 8.dp),
+                            contentPadding = PaddingValues(end = 12.dp)
+                        ) {
+                            items(libs!!) { lib ->
+                                LibraryCard(
+                                    lib = lib,
+                                    posters = (libItems[lib.id] ?: emptyList()).take(4),
+                                    onClick = { onLibraryClick(lib) }
+                                )
+                            }
                         }
                     }
                 }
@@ -489,10 +493,12 @@ fun HomeScreen(
                 val items = libItems[lib.id] ?: emptyList()
                 if (items.isNotEmpty()) {
                     item {
-                        SectionHeader(lib.name, "更多", onAction = { onLibraryClick(lib) })
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(items) { item ->
-                                ItemCard(item, onClick = { onItemClick(item) })
+                        Column(Modifier.padding(horizontal = 20.dp)) {
+                            SectionHeader(lib.name, "更多", onAction = { onLibraryClick(lib) })
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(items) { item ->
+                                    ItemCard(item, onClick = { onItemClick(item) })
+                                }
                             }
                         }
                     }
