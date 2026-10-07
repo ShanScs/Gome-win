@@ -61,7 +61,6 @@ class AwtToolbarPanel(
     private lateinit var seekBar: SeekBar
 
     private lateinit var playBtn: PlButton
-    private lateinit var lockBtn: PlButton
     private var isLocked = false
     private val speedOptions = listOf(0.5, 1.0, 1.5, 2.0)
     private var speedIndex = 1
@@ -400,14 +399,21 @@ class AwtToolbarPanel(
             border = EmptyBorder(4, 0, 0, 0)
         }
 
-        // 左组：投屏 / 缩放 / 旋转 / 锁 / 倍速
+        // 左组：全屏 + 音量（用户要求）
         val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply { isOpaque = false }
-        leftGroup.add(toolButton("ic_pl_cast", "投屏") { showCastDialog() })
-        leftGroup.add(toolButton("ic_pl_aspect", "画面比例") { cycleAspect() })
-        leftGroup.add(toolButton("ic_pl_rotate", "旋转") { cycleRotate() })
-        lockBtn = toolButton("ic_pl_lock", "锁定", isLockButton = true) { toggleLock() }
-        leftGroup.add(lockBtn)
-        leftGroup.add(toolButton("ic_pl_speed", "倍速") { cycleSpeed() })
+        leftGroup.add(toolButton("ic_pl_fullscreen", "全屏") { onFullscreen() })
+        // 音量条
+        val volumeSlider = JSlider(0, 100, 100).apply {
+            preferredSize = Dimension(100, 28)
+            maximumSize = Dimension(100, 28)
+            isOpaque = false
+            addChangeListener {
+                if (!valueIsAdjusting) {
+                    player.setProperty("volume", value.toString())
+                }
+            }
+        }
+        leftGroup.add(volumeSlider)
 
         // 中组：上一集 / 播放暂停 / 下一集
         val centerGroup = JPanel(FlowLayout(FlowLayout.CENTER, 8, 0)).apply { isOpaque = false }
