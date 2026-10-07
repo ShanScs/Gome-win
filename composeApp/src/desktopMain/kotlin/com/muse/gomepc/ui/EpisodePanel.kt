@@ -1,6 +1,10 @@
 package com.muse.gomepc.ui
 
 import java.awt.*
+import java.awt.event.AWTEventListener
+import java.awt.event.ActionEvent
+import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import javax.swing.*
@@ -34,6 +38,7 @@ class EpisodePanel(
     )
 
     private var dialog: JDialog? = null
+    private var outsideClickListener: AWTEventListener? = null
 
     // dp = px
     private val THUMB_W = 110
@@ -70,14 +75,29 @@ class EpisodePanel(
         }
         content.isOpaque = false
 
-        // 标题
-        val titleLabel = JLabel("剧集").apply {
-            font = Font(Font.SANS_SERIF, Font.BOLD, 17)
-            foreground = Color(0x1A, 0x1A, 0x1A)
+        // 标题栏：标题左 + X 关闭按钮右
+        val headerPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
             border = EmptyBorder(20, 20, 12, 20)
             alignmentX = Component.LEFT_ALIGNMENT
         }
-        content.add(titleLabel)
+        val titleLabel = JLabel("剧集").apply {
+            font = Font(Font.SANS_SERIF, Font.BOLD, 17)
+            foreground = Color(0x1A, 0x1A, 0x1A)
+        }
+        val closeButton = JButton("✕").apply {
+            font = Font(Font.SANS_SERIF, Font.PLAIN, 18)
+            foreground = Color(0x8E, 0x8E, 0x93)
+            isContentAreaFilled = false
+            isBorderPainted = false
+            isFocusPainted = false
+            isOpaque = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addActionListener { dismiss() }
+        }
+        headerPanel.add(titleLabel, BorderLayout.WEST)
+        headerPanel.add(closeButton, BorderLayout.EAST)
+        content.add(headerPanel)
 
         // 剧集列表
         val listPanel = JPanel().apply {
@@ -110,6 +130,28 @@ class EpisodePanel(
         } catch (_: Throwable) {
             dlg.setLocationRelativeTo(owner)
         }
+
+        // ESC 关闭面板
+        dlg.rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+            .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closePanel")
+        dlg.rootPane.actionMap.put("closePanel", object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) { dismiss() }
+        })
+
+        // 点击面板外部关闭（对齐安卓底部弹窗点外部关闭）
+        outsideClickListener = AWTEventListener { event ->
+            if (event is MouseEvent && event.id == MouseEvent.MOUSE_PRESSED) {
+                val d = dialog
+                if (d != null && d.isVisible) {
+                    try {
+                        if (!d.bounds.contains(event.locationOnScreen)) {
+                            SwingUtilities.invokeLater { dismiss() }
+                        }
+                    } catch (_: Throwable) { }
+                }
+            }
+        }
+        Toolkit.getDefaultToolkit().addAWTEventListener(outsideClickListener, AWTEvent.MOUSE_EVENT_MASK)
 
         dialog = dlg
         dlg.isVisible = true
@@ -227,6 +269,10 @@ class EpisodePanel(
     }
 
     fun dismiss() {
+        try {
+            outsideClickListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
+        } catch (_: Throwable) { }
+        outsideClickListener = null
         try { dialog?.isVisible = false } catch (_: Throwable) { }
         try { dialog?.dispose() } catch (_: Throwable) { }
         dialog = null
