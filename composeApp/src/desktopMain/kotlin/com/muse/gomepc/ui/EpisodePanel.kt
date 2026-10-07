@@ -75,29 +75,14 @@ class EpisodePanel(
         }
         content.isOpaque = false
 
-        // 标题栏：标题左 + X 关闭按钮右
-        val headerPanel = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            border = EmptyBorder(20, 20, 12, 20)
-            alignmentX = Component.LEFT_ALIGNMENT
-        }
+        // 标题
         val titleLabel = JLabel("剧集").apply {
             font = Font(Font.SANS_SERIF, Font.BOLD, 17)
             foreground = Color(0x1A, 0x1A, 0x1A)
+            border = EmptyBorder(20, 20, 12, 20)
+            alignmentX = Component.LEFT_ALIGNMENT
         }
-        val closeButton = JButton("✕").apply {
-            font = Font(Font.SANS_SERIF, Font.PLAIN, 18)
-            foreground = Color(0x8E, 0x8E, 0x93)
-            isContentAreaFilled = false
-            isBorderPainted = false
-            isFocusPainted = false
-            isOpaque = false
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            addActionListener { dismiss() }
-        }
-        headerPanel.add(titleLabel, BorderLayout.WEST)
-        headerPanel.add(closeButton, BorderLayout.EAST)
-        content.add(headerPanel)
+        content.add(titleLabel)
 
         // 剧集列表
         val listPanel = JPanel().apply {
