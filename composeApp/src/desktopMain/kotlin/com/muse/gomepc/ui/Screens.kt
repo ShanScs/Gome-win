@@ -389,7 +389,7 @@ fun HomeScreen(
 
     when {
         error != null -> ErrorBox(error!!, onRetry = { HomeDataCache.retry() })
-        libs == null || resume == null -> LoadingBox()
+        libs == null -> LoadingBox()
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().background(Color.White),
             contentPadding = PaddingValues(bottom = 110.dp),
