@@ -108,6 +108,10 @@
   - 修：DockBlurState 改用 Window.paint() 抓窗口内容（不用 Robot 抓屏），
     MGlassBox 补上 blurredBackdrop 绘制，Dock 换回标准 #55FFFFFF 底，
     Main.kt 加 500ms 定时更新模糊背景
+  - 2026-10-07 18:01 用户 1.0.72"没有任何改变"，"高斯模糊去哪里了"
+  - 根因：window.paint() 抓不到 Compose Skia 渲染的内容，模糊没生效
+  - 修：改回 Robot，用 window.locationOnScreen 换算正确屏幕坐标，
+    加全黑检测（抓失败时不更新）
 
 ### 编辑服务器弹窗（2026-10-07 16:58 用户："删除和图标功能啦？"）
 - [x] 加删除按钮（编辑模式左下角红色）

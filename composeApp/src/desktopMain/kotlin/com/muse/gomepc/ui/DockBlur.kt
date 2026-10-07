@@ -5,54 +5,66 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import java.awt.MouseInfo
+import java.awt.Rectangle
+import java.awt.Robot
 import java.awt.Window
 import java.awt.image.BufferedImage
 import java.awt.image.ConvolveOp
 import java.awt.image.Kernel
 
 /**
- * Dock 真模糊（PC 版）：用 Window.paint() 把窗口内容渲染到 BufferedImage，
- * 裁出 dock 区域做高斯模糊。M玻璃标准要求真实模糊，不能拿透明度冒充。
+ * Dock 真模糊（PC 版）：用 Robot 抓取 dock 背后的屏幕区域，做高斯模糊。
+ * M玻璃标准要求真实模糊，不能拿透明度冒充。
  *
- * 不用 Robot 抓屏（之前抓到黑色导致 dock 发黑）。
+ * 坐标：window.locationOnScreen + dock 在窗口内的 bounds = 屏幕坐标。
  */
 class DockBlurState {
     /** 模糊后的 backdrop，由调用方定时更新 */
     var blurred: ImageBitmap? by mutableStateOf(null)
 
+    private val robot: Robot? by lazy {
+        try { Robot() } catch (_: Exception) { null }
+    }
+
     /**
-     * 抓取窗口内指定区域并模糊。
-     * @param window 应用窗口
-     * @param x 区域左上角的窗口内 X 坐标（像素）
-     * @param y 区域左上角的窗口内 Y 坐标（像素）
-     * @param width 区域宽度（像素）
-     * @param height 区域高度（像素）
+     * 抓取 dock 背后的屏幕区域并模糊。
+     * @param window 应用窗口（用于换算屏幕坐标）
+     * @param x dock 在窗口内的 X（像素）
+     * @param y dock 在窗口内的 Y（像素）
+     * @param width dock 宽度（像素）
+     * @param height dock 高度（像素）
      */
     fun captureAndBlur(window: Window?, x: Int, y: Int, width: Int, height: Int) {
+        val r = robot ?: return
         if (window == null) return
         if (width <= 0 || height <= 0) return
-        if (x < 0 || y < 0) return
         try {
-            // 把整个窗口渲染到 BufferedImage
-            val full = BufferedImage(
-                window.width.coerceAtLeast(1),
-                window.height.coerceAtLeast(1),
-                BufferedImage.TYPE_INT_ARGB
-            )
-            val g = full.createGraphics()
-            try {
-                window.paint(g)
-            } finally {
-                g.dispose()
-            }
-            // 裁出 dock 区域
-            val cx = x.coerceIn(0, full.width - 1)
-            val cy = y.coerceIn(0, full.height - 1)
-            val cw = width.coerceAtMost(full.width - cx).coerceAtLeast(1)
-            val ch = height.coerceAtMost(full.height - cy).coerceAtLeast(1)
-            val cropped = full.getSubimage(cx, cy, cw, ch)
-            blurred = blurBuffered(cropped)
+            val winPos = window.locationOnScreen ?: return
+            val sx = winPos.x + x
+            val sy = winPos.y + y
+            if (sx < 0 || sy < 0) return
+            val capture = r.createScreenCapture(Rectangle(sx, sy, width, height))
+            // 检查是否全黑（抓失败），全黑则不更新
+            if (isAllBlack(capture)) return
+            blurred = blurBuffered(capture)
         } catch (_: Exception) { }
+    }
+
+    /** 检测是否全黑（抓图失败时 Robot 可能返回黑色） */
+    private fun isAllBlack(img: BufferedImage): Boolean {
+        val w = img.width
+        val h = img.height
+        // 采样 20 个点
+        var nonBlack = 0
+        var i = 0
+        while (i < 20) {
+            val px = img.getRGB((i * 97 % w), (i * 57 % h))
+            // 忽略 alpha，看 RGB
+            if ((px and 0x00FFFFFF) != 0) nonBlack++
+            i++
+        }
+        return nonBlack == 0
     }
 
     private fun blurBuffered(src: BufferedImage): ImageBitmap {
