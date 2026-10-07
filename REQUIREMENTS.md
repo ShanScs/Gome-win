@@ -139,3 +139,6 @@
 ### 主页缓存按服务器隔离（2026-10-07 用户："是你播放器的问题"——主页卡加载）
 - [x] HomeDataCache 记录 serverKey（协议+host+端口+路径+用户名），服务器变了自动清空重载
 - [x] retry() 同步 serverKey，避免 loading 卡死
+
+### 图片加载换 HttpURLConnection（2026-10-07 用户："下面的信息都加载不出来"——海报灰框）
+- [x] EmbyImageLoader 改用 HttpURLConnection（OkHttp 在部分服务器 unexpected end of stream，数据接口早已换，图片漏了）

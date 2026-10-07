@@ -14,22 +14,16 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.jetbrains.skia.Image as SkiaImage
-import java.util.concurrent.TimeUnit
 
 /**
  * Emby 图片加载器（桌面版）。
- * 用 OkHttp 拉取（imageUrl 已带 token 查询参数，无需额外 header），
+ * 用 HttpURLConnection 拉取（imageUrl 已带 token 查询参数，无需额外 header），
  * ImageIO/Skia 解码，内存 LRU 缓存。
  * 不引入 Coil/Kamel（避免新依赖的仓库解析问题）。
+ * 注意：不用 OkHttp——部分服务器上 OkHttp 会 unexpected end of stream。
  */
 object EmbyImageLoader {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
 
     private const val MAX_CACHE = 120
     private val cache = object : LinkedHashMap<String, ImageBitmap>(MAX_CACHE, 0.75f, true) {
@@ -48,16 +42,23 @@ object EmbyImageLoader {
         getCached(url)?.let { return it }
         return try {
             withContext(Dispatchers.IO) {
-                val req = Request.Builder().url(url).build()
-                client.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@withContext null
-                    val bytes = resp.body?.bytes() ?: return@withContext null
+                // 用 HttpURLConnection（OkHttp 在部分服务器上 unexpected end of stream）
+                val c = (java.net.URL(url).openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10000
+                    readTimeout = 20000
+                }
+                try {
+                    if (c.responseCode !in 200..299) return@withContext null
+                    val bytes = c.inputStream.readBytes()
                     if (bytes.isEmpty()) return@withContext null
                     val bmp = try {
                         SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
                     } catch (_: Exception) { null }
                     if (bmp != null) putCached(url, bmp)
                     bmp
+                } finally {
+                    c.disconnect()
                 }
             }
         } catch (_: Exception) {
