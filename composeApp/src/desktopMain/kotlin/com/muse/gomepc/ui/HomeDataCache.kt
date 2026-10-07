@@ -29,35 +29,61 @@ object HomeDataCache {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loading = false
+    private var serverKey = ""
 
-    /** 第一次调用时后台加载一次；已加载过则直接返回缓存 */
+    private fun currentServerKey(): String {
+        val p = com.muse.gomepc.emby.Prefs
+        return "${p.protocol}://${p.host}:${p.port}${p.path}|${p.username}"
+    }
+
+    /** 第一次调用时后台加载一次；已加载过则直接返回缓存；服务器变了则重载 */
     fun ensureLoaded() {
+        val key = currentServerKey()
+        if (key != serverKey) {
+            // 服务器变了，清空重载
+            serverKey = key
+            loaded = false
+            loading = false
+            error = null
+            libs = null
+            resume = null
+            latest = null
+            libItems = emptyMap()
+        }
         if (loaded || loading) return
         loading = true
         scope.launch {
             try {
                 error = null
-                // 第一批并行：libraries + resume + latest（各 10 秒超时）
-                val libsDef = async { withTimeoutOrNull(10000) { Repo.libraries() } ?: emptyList() }
-                val resumeDef = async { withTimeoutOrNull(10000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
-                val latestDef = async { withTimeoutOrNull(10000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
-                val l = libsDef.await()
-                libs = l
-                resume = resumeDef.await()
-                latest = latestDef.await()
-                // 第二批并行：每个媒体库的 items（各 10 秒超时）
-                val itemsDefs = l.map { lib ->
-                    lib.id to async {
-                        withTimeoutOrNull(10000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
+                // 总超时 30 秒，防止卡死
+                val ok = withTimeoutOrNull(30000) {
+                    // 第一批并行：libraries + resume + latest（各 10 秒超时）
+                    val libsDef = async { withTimeoutOrNull(10000) { Repo.libraries() } ?: emptyList() }
+                    val resumeDef = async { withTimeoutOrNull(10000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
+                    val latestDef = async { withTimeoutOrNull(10000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
+                    val l = libsDef.await()
+                    libs = l
+                    resume = resumeDef.await()
+                    latest = latestDef.await()
+                    // 第二批并行：每个媒体库的 items（各 10 秒超时）
+                    val itemsDefs = l.map { lib ->
+                        lib.id to async {
+                            withTimeoutOrNull(10000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
+                        }
                     }
+                    val map = mutableMapOf<String, List<UiMediaItem>>()
+                    for ((id, def) in itemsDefs) {
+                        map[id] = def.await()
+                        // 增量更新：每回来一个库就刷新 UI，不用等全部
+                        libItems = map.toMap()
+                    }
+                    true
                 }
-                val map = mutableMapOf<String, List<UiMediaItem>>()
-                for ((id, def) in itemsDefs) {
-                    map[id] = def.await()
-                    // 增量更新：每回来一个库就刷新 UI，不用等全部
-                    libItems = map.toMap()
+                if (ok == true) {
+                    loaded = true
+                } else {
+                    error = "加载超时，请重试"
                 }
-                loaded = true
             } catch (e: Exception) {
                 error = e.message ?: "未知错误"
             } finally {
@@ -68,7 +94,9 @@ object HomeDataCache {
 
     /** 手动重试（仅出错时用） */
     fun retry() {
+        serverKey = currentServerKey()
         loaded = false
+        loading = false
         error = null
         libs = null
         resume = null
