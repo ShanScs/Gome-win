@@ -203,13 +203,17 @@ fun GomeApp(
 
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
     // 真 backdrop 模糊（自研双渲染）：背景内容 lambda 供 dock 模糊层复用
+    // 滚动状态提升到这里，两遍渲染共享，保证模糊层与主内容滚动同步
+    val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val backgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
                 is Screen.Home -> HomeScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },
                     onResumeMore = { screen = Screen.ResumeList },
                     onServerIconClick = { screen = Screen.Grid },
-                    onLibraryClick = { lib -> screen = Screen.Library(lib.id, lib.name) }
+                    onLibraryClick = { lib -> screen = Screen.Library(lib.id, lib.name) },
+                    listState = homeListState
                 )
                 is Screen.ResumeList -> ResumeListScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },
@@ -219,7 +223,8 @@ fun GomeApp(
                     libId = s.libId,
                     libName = s.libName,
                     onItemClick = { screen = Screen.Detail(it.id) },
-                    onBack = { screen = Screen.Home }
+                    onBack = { screen = Screen.Home },
+                    gridState = libraryGridState
                 )
                 is Screen.Grid -> GridScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },

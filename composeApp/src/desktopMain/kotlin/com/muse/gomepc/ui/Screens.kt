@@ -375,7 +375,8 @@ fun HomeScreen(
     onItemClick: (UiMediaItem) -> Unit,
     onResumeMore: () -> Unit = {},
     onServerIconClick: () -> Unit = {},
-    onLibraryClick: (UiLibrary) -> Unit = {}
+    onLibraryClick: (UiLibrary) -> Unit = {},
+    listState: androidx.compose.foundation.lazy.LazyListState? = null
 ) {
     var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
     var libItems by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
@@ -419,7 +420,8 @@ fun HomeScreen(
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().background(Color.White),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 110.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState()
         ) {
             item {
                 // 顶栏：左服务器图标（可点切换）/ 中服务器名 / 右收藏按钮
@@ -750,7 +752,8 @@ fun LibraryScreen(
     libId: String,
     libName: String,
     onItemClick: (UiMediaItem) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState? = null
 ) {
     var libItems by remember { mutableStateOf<List<UiMediaItem>?>(null) }
 
@@ -788,7 +791,8 @@ fun LibraryScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 110.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                state = gridState ?: androidx.compose.foundation.lazy.grid.rememberLazyGridState()
             ) {
                 items(libItems!!) { item ->
                     ItemCard(item, onClick = { onItemClick(item) })
