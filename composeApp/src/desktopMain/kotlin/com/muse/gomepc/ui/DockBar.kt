@@ -75,16 +75,15 @@ fun DockBar(
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
             // 真 backdrop 模糊背景（自研双渲染）
-            // 用 scrollVersion 做 key，滚动时强制重绘模糊层
-            androidx.compose.runtime.key(scrollVersion) {
-                TrueBlurDockBackground(
-                    backgroundContent = backgroundContent,
-                    screenW = screenW,
-                    screenH = screenH,
-                    modifier = Modifier.matchParentSize(),
-                    corner = 30.dp
-                )
-            }
+            // scrollVersion 变化时重组（轻量，不销毁）
+            TrueBlurDockBackground(
+                backgroundContent = backgroundContent,
+                screenW = screenW,
+                screenH = screenH,
+                modifier = Modifier.matchParentSize(),
+                corner = 30.dp,
+                scrollVersion = scrollVersion
+            )
             // 图标内容
             Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 // 选中指示器（灰色 pill，位于 tab 下层）

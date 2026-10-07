@@ -33,8 +33,12 @@ fun TrueBlurDockBackground(
     screenW: androidx.compose.ui.unit.Dp,
     screenH: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
-    corner: androidx.compose.ui.unit.Dp = 30.dp
+    corner: androidx.compose.ui.unit.Dp = 30.dp,
+    scrollVersion: Int = 0
 ) {
+    // 读取 scrollVersion 以在滚动时触发轻量重组（不销毁 composition，避免透明和滚轮失效）
+    @Suppress("UNUSED_EXPRESSION")
+    scrollVersion
     val shape = RoundedCornerShape(corner)
 
     // 模糊背景层：全屏渲染 + blur + 底部对齐 + 圆角裁剪
