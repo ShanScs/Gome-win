@@ -203,7 +203,7 @@ fun GomeApp(
 
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
     // 真 backdrop 模糊（自研双渲染）：背景内容 lambda 供 dock 模糊层复用
-    // 滚动状态提升到这里，两遍渲染共享，保证模糊层与主内容滚动同步
+    // 注意：dock 模糊层用独立的滚动状态，不与主内容共享（共享会导致滚轮冲突）
     val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     // 滚动版本号：滚动时递增，触发 dock 模糊层重组（实时同步）
@@ -272,6 +272,26 @@ fun GomeApp(
                 else -> {}
             }
     }
+    // Dock 模糊层专用背景（不共享滚动状态，避免滚轮冲突）
+    val dockBackgroundContent: @Composable () -> Unit = {
+        when (val s = screen) {
+            is Screen.Home -> HomeScreen(
+                onItemClick = {},
+                onResumeMore = {},
+                onServerIconClick = {},
+                onLibraryClick = {},
+                listState = null  // 独立状态，不交互
+            )
+            is Screen.Library -> LibraryScreen(
+                libId = s.libId,
+                libName = s.libName,
+                onItemClick = {},
+                onBack = {},
+                gridState = null  // 独立状态
+            )
+            else -> backgroundContent()
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
         Box(Modifier.fillMaxSize()) {
             backgroundContent()
@@ -281,7 +301,7 @@ fun GomeApp(
             DockBar(
                 current = screen,
                 onSelect = { screen = it },
-                backgroundContent = backgroundContent,
+                backgroundContent = dockBackgroundContent,
                 screenW = maxWidth,
                 screenH = maxHeight,
                 modifier = Modifier.fillMaxSize(),

@@ -49,7 +49,16 @@ object Repo {
 
     suspend fun latestItems(limit: Int = 8): List<UiMediaItem> {
         if (demoMode) return mockResumeItems().take(limit).map { it.toUi() }
-        return YambyClient.getLatestItems(limit).map { it.toUi() }
+        val latest = YambyClient.getLatestItems(limit).map { it.toUi() }
+        if (latest.isNotEmpty()) return latest
+        // 兜底：取第一个媒体库按创建日期倒序
+        return try {
+            val libs = YambyClient.getLibraries()
+            if (libs.isNotEmpty()) {
+                YambyClient.getItems(libs[0].id, limit = limit, sortBy = "DateCreated", sortOrder = "Descending")
+                    .map { it.toUi() }
+            } else emptyList()
+        } catch (_: Exception) { emptyList() }
     }
 
     suspend fun search(query: String): List<UiMediaItem> {
