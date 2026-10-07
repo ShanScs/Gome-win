@@ -377,8 +377,7 @@ fun HomeScreen(
     onResumeMore: () -> Unit = {},
     onServerIconClick: () -> Unit = {},
     onLibraryClick: (UiLibrary) -> Unit = {},
-    listState: androidx.compose.foundation.lazy.LazyListState? = null,
-    userScrollEnabled: Boolean = true
+    listState: androidx.compose.foundation.lazy.LazyListState? = null
 ) {
     var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
     var libItems by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
@@ -423,111 +422,55 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize().background(Color.White),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
-            state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState(),
-            userScrollEnabled = userScrollEnabled
+            state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState()
         ) {
             // 顶部轮播（最新入库）：latest 为空时用第一个媒体库的数据兜底
-            // 轮播图置顶全宽，顶栏悬浮在轮播图上方（不对轮播图造成遮挡）
+            // 轮播图置顶全宽，顶栏悬浮在轮播图上方
             val bannerItems = if (!latest.isNullOrEmpty()) latest!!
                 else libs?.firstOrNull()?.let { libItems[it.id]?.take(8) } ?: emptyList()
             if (bannerItems.isNotEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         BannerCarousel(items = bannerItems, onItemClick = onItemClick)
-                        // 顶栏悬浮在轮播图上方：左服务器图标 / 中服务器名 / 右收藏
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp)
-                                .align(Alignment.TopCenter),
+                            modifier = Modifier.fillMaxWidth().padding(12.dp).align(Alignment.TopCenter),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
-                                modifier = Modifier
-                                    .align(Alignment.CenterStart)
-                                    .size(44.dp)
+                                modifier = Modifier.align(Alignment.CenterStart).size(44.dp)
                                     .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(Color(0x80FFFFFF))
-                                    .clickable { onServerIconClick() },
+                                    .background(Color(0x80FFFFFF)).clickable { onServerIconClick() },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF2F6FED)
-                                )
+                                Text(Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
+                                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2F6FED))
                             }
-                            Text(
-                                Prefs.serverName.ifEmpty { "影音" },
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            MGlassBox(
-                                modifier = Modifier.align(Alignment.CenterEnd).size(33.dp),
-                                corner = 17.dp
-                            ) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
+                            Text(Prefs.serverName.ifEmpty { "影音" },
+                                fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            MGlassBox(modifier = Modifier.align(Alignment.CenterEnd).size(33.dp), corner = 17.dp) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     HeartIcon(modifier = Modifier.size(22.dp))
                                 }
                             }
                         }
-                        if (Repo.demoMode) {
-                            Text(
-                                "演示模式",
-                                fontSize = 11.sp,
-                                color = Color.White,
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 64.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF9E9E9E))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
                     }
                 }
             } else {
-                // 无轮播图时显示独立顶栏
                 item {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
                         Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .size(44.dp)
+                            modifier = Modifier.align(Alignment.CenterStart).size(44.dp)
                                 .clip(androidx.compose.foundation.shape.CircleShape)
-                                .background(Color.White)
-                                .clickable { onServerIconClick() },
+                                .background(Color.White).clickable { onServerIconClick() },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF2F6FED)
-                            )
+                            Text(Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
+                                fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2F6FED))
                         }
-                        Text(
-                            Prefs.serverName.ifEmpty { "影音" },
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GomeTheme.TextPrimary
-                        )
-                        MGlassBox(
-                            modifier = Modifier.align(Alignment.CenterEnd).size(33.dp),
-                            corner = 17.dp
-                        ) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
+                        Text(Prefs.serverName.ifEmpty { "影音" },
+                            fontSize = 20.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
+                        MGlassBox(modifier = Modifier.align(Alignment.CenterEnd).size(33.dp), corner = 17.dp) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 HeartIcon(modifier = Modifier.size(22.dp))
                             }
                         }
@@ -898,8 +841,7 @@ fun LibraryScreen(
     libName: String,
     onItemClick: (UiMediaItem) -> Unit,
     onBack: () -> Unit,
-    gridState: androidx.compose.foundation.lazy.grid.LazyGridState? = null,
-    userScrollEnabled: Boolean = true
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState? = null
 ) {
     var libItems by remember { mutableStateOf<List<UiMediaItem>?>(null) }
 
@@ -938,8 +880,7 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
-                state = gridState ?: androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
-                userScrollEnabled = userScrollEnabled
+                state = gridState ?: androidx.compose.foundation.lazy.grid.rememberLazyGridState()
             ) {
                 items(libItems!!) { item ->
                     ItemCard(item, onClick = { onItemClick(item) })
