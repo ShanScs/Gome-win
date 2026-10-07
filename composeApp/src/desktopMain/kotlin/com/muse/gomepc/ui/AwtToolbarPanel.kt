@@ -403,18 +403,11 @@ class AwtToolbarPanel(
         // 左组：全屏 + 音量（用户要求）
         val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply { isOpaque = false }
         leftGroup.add(toolButton("ic_pl_fullscreen", "全屏") { onFullscreen() })
-        // 音量条
-        val volumeSlider = JSlider(0, 100, 100).apply {
-            preferredSize = Dimension(100, 28)
-            maximumSize = Dimension(100, 28)
-            isOpaque = false
-            addChangeListener {
-                if (!valueIsAdjusting) {
-                    player.setProperty("volume", value.toString())
-                }
-            }
+        // 音量条（样式同进度条）
+        val volumeBar = VolumeBar { vol ->
+            player.setProperty("volume", vol.toString())
         }
-        leftGroup.add(volumeSlider)
+        leftGroup.add(volumeBar)
 
         // 中组：上一集 / 播放暂停 / 下一集
         val centerGroup = JPanel(FlowLayout(FlowLayout.CENTER, 8, 0)).apply { isOpaque = false }
@@ -808,6 +801,79 @@ class AwtToolbarPanel(
             } finally {
                 g2.dispose()
             }
+        }
+    }
+
+    /** 音量条：样式同 SeekBar（6dp轨道+14dp白圆），拖动调音量 */
+    private inner class VolumeBar(
+        private val onVolume: (Int) -> Unit
+    ) : JComponent() {
+        private val pad = 8
+        var volFrac: Float = 1f
+        private var dragging = false
+        private var dragFraction: Float = 1f
+
+        init {
+            preferredSize = Dimension(100, 28)
+            maximumSize = Dimension(100, 28)
+            alignmentY = Component.CENTER_ALIGNMENT
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            isOpaque = false
+            val adapter = object : MouseAdapter() {
+                private fun fracAt(x: Int): Float =
+                    ((x - pad).toFloat() / (width - pad * 2).coerceAtLeast(1)).coerceIn(0f, 1f)
+                override fun mousePressed(e: MouseEvent) {
+                    dragging = true
+                    dragFraction = fracAt(e.x)
+                    volFrac = dragFraction
+                    repaint()
+                }
+                override fun mouseDragged(e: MouseEvent) {
+                    if (!dragging) return
+                    dragFraction = fracAt(e.x)
+                    volFrac = dragFraction
+                    repaint()
+                }
+                override fun mouseReleased(e: MouseEvent) {
+                    if (!dragging) return
+                    dragging = false
+                    dragFraction = fracAt(e.x)
+                    volFrac = dragFraction
+                    onVolume((volFrac * 100).toInt())
+                    repaint()
+                }
+            }
+            addMouseListener(adapter)
+            addMouseMotionListener(adapter)
+        }
+
+        override fun paintComponent(g: Graphics) {
+            val g2 = g.create() as Graphics2D
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                val trackH = 6
+                val cy = height / 2f
+                val y = (cy - trackH / 2f).toInt()
+                val x0 = pad
+                val w = (width - pad * 2).coerceAtLeast(1)
+                val frac = if (dragging) dragFraction else volFrac
+                g2.color = Color(255, 255, 255, 128)
+                g2.fillRoundRect(x0, y, w, trackH, trackH, trackH)
+                val pw = (w * frac).toInt()
+                if (pw > 2) {
+                    g2.color = Color.WHITE
+                    g2.fillRoundRect(x0, y, pw, trackH, trackH, trackH)
+                }
+                val tx = x0 + w * frac
+                g2.color = Color.WHITE
+                g2.fillOval((tx - 7).toInt(), (cy - 7).toInt(), 14, 14)
+            } finally {
+                g2.dispose()
+            }
+        }
+
+        override fun contains(x: Int, y: Int): Boolean {
+            return x in 0..width && y in 0..height
         }
     }
 
