@@ -46,6 +46,7 @@ private fun dockTabs(): List<DockTab> = listOf(
     DockTab("资源库", NavKind.GRID, Screen.Grid),
     DockTab("主页", NavKind.HOME, Screen.Home),
     DockTab("搜索", NavKind.SEARCH, Screen.Search),
+    DockTab("收藏", NavKind.FAVORITE, Screen.Favorites),
     DockTab("设置", NavKind.SETTINGS, Screen.Settings),
 )
 

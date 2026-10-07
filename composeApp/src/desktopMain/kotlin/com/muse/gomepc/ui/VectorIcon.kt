@@ -160,9 +160,9 @@ class VectorIcon private constructor(
         val len = kotlin.math.sqrt(dx * dx + dy * dy)
         // 整圆：起点终点重合且 largeArc=1，用椭圆直接画
         if (len < 0.01f && largeArc) {
-            // 圆心在起点下方 rx 处（SVG 弧线整圆的常见画法）
+            // 起点是圆的顶部（如 M20 3a17 17...），圆心在起点正下方 ry 处
             path.append(
-                java.awt.geom.Ellipse2D.Float(x0 - rx, y0 - ry, rx * 2, ry * 2),
+                java.awt.geom.Ellipse2D.Float(x0 - rx, y0, rx * 2, ry * 2),
                 false
             )
             return

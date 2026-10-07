@@ -154,10 +154,7 @@ class EpisodePanel(
                     SwingUtilities.invokeLater { thumbLabel.icon = ImageIcon(rounded) }
                 }
             } catch (_: Exception) {
-                SwingUtilities.invokeLater {
-                    thumbLabel.text = "🎬"
-                    thumbLabel.font = Font(Font.SANS_SERIF, Font.PLAIN, 20)
-                }
+                // 加载失败：保持空白，不显示占位符
             }
         }.start()
 

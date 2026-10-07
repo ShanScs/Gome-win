@@ -21,9 +21,11 @@ import com.muse.gomepc.emby.Prefs
 import com.muse.gomepc.ui.DetailScreen
 import com.muse.gomepc.ui.DockBar
 import com.muse.gomepc.ui.DockBlurState
+import com.muse.gomepc.ui.FavoritesScreen
 import com.muse.gomepc.ui.GomeTheme
 import com.muse.gomepc.ui.GridScreen
 import com.muse.gomepc.ui.HomeScreen
+import com.muse.gomepc.ui.LibraryScreen
 import com.muse.gomepc.ui.LoginScreen
 import com.muse.gomepc.ui.PlayerScreen
 import com.muse.gomepc.ui.Repo
@@ -123,14 +125,22 @@ fun GomeApp(
                 is Screen.Home -> HomeScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },
                     onResumeMore = { screen = Screen.ResumeList },
-                    onServerIconClick = { screen = Screen.Grid }
+                    onServerIconClick = { screen = Screen.Grid },
+                    onLibraryClick = { lib -> screen = Screen.Library(lib.id, lib.name) }
                 )
                 is Screen.ResumeList -> ResumeListScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },
                     onBack = { screen = Screen.Home }
                 )
+                is Screen.Library -> LibraryScreen(
+                    libId = s.libId,
+                    libName = s.libName,
+                    onItemClick = { screen = Screen.Detail(it.id) },
+                    onBack = { screen = Screen.Home }
+                )
                 is Screen.Grid -> GridScreen(onItemClick = { screen = Screen.Detail(it.id) })
                 is Screen.Search -> SearchScreen(onItemClick = { screen = Screen.Detail(it.id) })
+                is Screen.Favorites -> FavoritesScreen(onItemClick = { screen = Screen.Detail(it.id) })
                 is Screen.Settings -> SettingsScreen(
                     onLogout = {
                         loggedIn = false

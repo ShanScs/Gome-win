@@ -1,6 +1,7 @@
 package com.muse.gomepc.ui
 
 import java.awt.*
+import java.awt.event.AWTEventListener
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
@@ -164,22 +165,52 @@ class FrostedPopup(
         dlg.contentPane = content
         dlg.pack()
         dlg.size = Dimension(width, dlg.height)
+        dlg.validate()
 
-        // 定位：锚定按钮上方，右对齐
+        // 定位：优先锚点下方，上方空间不足时放下方，屏幕钳制（安卓小圆角弹窗的桌面实现）
         try {
+            val gd = GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
+            val bounds = gd.defaultConfiguration.bounds
             val anchorLoc = anchor.locationOnScreen
-            val x = anchorLoc.x + anchor.width - width
-            val y = anchorLoc.y - dlg.height - 8
-            dlg.setLocation(x.coerceAtLeast(0), y.coerceAtLeast(0))
+            var x = (anchorLoc.x + anchor.width - width)
+                .coerceIn(bounds.x, (bounds.x + bounds.width - width).coerceAtLeast(bounds.x))
+            var y = anchorLoc.y - dlg.height - 8
+            if (y < bounds.y) {
+                // 上方放不下：放锚点下方
+                y = anchorLoc.y + anchor.height + 8
+            }
+            y = y.coerceAtMost((bounds.y + bounds.height - dlg.height).coerceAtLeast(bounds.y))
+            dlg.setLocation(x, y)
         } catch (_: Throwable) {
             dlg.setLocationRelativeTo(owner)
         }
 
         dialog = dlg
+        // 点外消失（AWTEventListener 全局监听按下）
+        val listener = AWTEventListener { e ->
+            if (e is MouseEvent && e.id == MouseEvent.MOUSE_PRESSED) {
+                val ev = e
+                SwingUtilities.invokeLater {
+                    try {
+                        if (dialog != null && !dialog!!.bounds.contains(ev.locationOnScreen)) {
+                            dismiss()
+                        }
+                    } catch (_: Throwable) { }
+                }
+            }
+        }
+        outsideListener = listener
+        Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.MOUSE_EVENT_MASK)
         dlg.isVisible = true
     }
 
+    private var outsideListener: AWTEventListener? = null
+
     fun dismiss() {
+        try {
+            outsideListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
+            outsideListener = null
+        } catch (_: Throwable) { }
         try { dialog?.isVisible = false } catch (_: Throwable) { }
         try { dialog?.dispose() } catch (_: Throwable) { }
         dialog = null

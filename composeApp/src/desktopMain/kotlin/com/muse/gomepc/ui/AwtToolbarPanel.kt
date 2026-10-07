@@ -1,6 +1,8 @@
 package com.muse.gomepc.ui
 
 import java.awt.*
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.*
 import javax.swing.border.EmptyBorder
@@ -52,31 +54,21 @@ class AwtToolbarPanel(
         }
     }
 
-    private val titleLabel = JLabel(itemName).apply {
-        foreground = Color.WHITE
-        font = Font(Font.SANS_SERIF, Font.BOLD, 20)
-        horizontalAlignment = SwingConstants.CENTER
-    }
-    private val speedLabel = JLabel("").apply {
-        foreground = Color.WHITE
-        font = Font(Font.SANS_SERIF, Font.BOLD, 15)
-    }
-    private val posLabel = JLabel("00:00").apply {
-        foreground = Color.WHITE
-        font = Font(Font.SANS_SERIF, Font.PLAIN, 12)
-    }
-    private val durLabel = JLabel("-00:00").apply {
-        foreground = Color.WHITE
-        font = Font(Font.SANS_SERIF, Font.PLAIN, 12)
-    }
-    private val seekBar = JSlider(0, 1000, 0)
-    private var dragging = false
+    private lateinit var titleLabel: ShadowLabel
+    private lateinit var speedLabel: ShadowLabel
+    private lateinit var posLabel: ShadowLabel
+    private lateinit var durLabel: ShadowLabel
+    private lateinit var seekBar: SeekBar
 
-    private lateinit var playBtn: JButton
-    private lateinit var lockBtn: JButton
+    private lateinit var playBtn: PlButton
+    private lateinit var lockBtn: PlButton
     private var isLocked = false
     private val speedOptions = listOf(0.5, 1.0, 1.5, 2.0)
     private var speedIndex = 1
+    private val aspectModes = listOf("-1" to "自适应", "16:9" to "16:9", "4:3" to "4:3")
+    private var aspectIndex = 0
+    private val rotateModes = listOf(0, 90, 180, 270)
+    private var rotateIndex = 0
 
     // 可更新的回调（单例复用时更新）
     private var onPrevCb: (() -> Unit)? = onPrev
@@ -84,9 +76,9 @@ class AwtToolbarPanel(
     private var onPlaylistCb: (() -> Unit)? = onPlaylist
     private var getNetSpeedCb: (() -> String)? = getNetSpeed
 
-    private lateinit var prevBtn: JButton
-    private lateinit var nextBtn: JButton
-    private lateinit var playlistBtn: JButton
+    private lateinit var prevBtn: PlButton
+    private lateinit var nextBtn: PlButton
+    private lateinit var playlistBtn: PlButton
 
     /** 单例复用时更新剧集导航回调 */
     fun updateEpisodeCallbacks(
@@ -97,9 +89,12 @@ class AwtToolbarPanel(
         onPrevCb = onPrev
         onNextCb = onNext
         onPlaylistCb = onPlaylist
-        prevBtn.isEnabled = onPrev != null
-        nextBtn.isEnabled = onNext != null
-        playlistBtn.isEnabled = onPlaylist != null
+        if (::prevBtn.isInitialized) {
+            prevBtn.putClientProperty("baseEnabled", onPrev != null)
+            nextBtn.putClientProperty("baseEnabled", onNext != null)
+            playlistBtn.putClientProperty("baseEnabled", onPlaylist != null)
+            applyEnabledStates()
+        }
     }
 
     fun updateNetSpeedCallback(getNetSpeed: (() -> String)?) {
@@ -110,7 +105,7 @@ class AwtToolbarPanel(
     private var isDanmakuEnabledCb: (() -> Boolean)? = isDanmakuEnabled
     private var onDanmakuPositionCb: ((Int) -> Unit)? = onDanmakuPosition
     private var getDanmakuPositionCb: (() -> Int)? = getDanmakuPosition
-    private lateinit var danmakuBtn: JButton
+    private lateinit var danmakuBtn: PlButton
 
     fun updateDanmakuCallbacks(
         onToggleDanmaku: (() -> Unit)?,
@@ -128,16 +123,9 @@ class AwtToolbarPanel(
     private fun updateDanmakuBtnState() {
         if (!::danmakuBtn.isInitialized) return
         val on = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
-        // 安卓：关/禁用时 alpha 0.4
-        try {
-            val icon = danmakuBtn.icon
-            if (icon is ImageIcon) {
-                // 通过 disabledIcon 实现变暗效果
-                danmakuBtn.isEnabled = on
-            }
-        } catch (_: Exception) { }
-        danmakuBtn.isEnabled = true
-        // Swing 没有 alpha，用图标透明度模拟：这里保持可点
+        // 安卓：D 按钮关闭时 dim (alpha 0.4)，仍可点击
+        danmakuBtn.dimmed = !on
+        danmakuBtn.repaint()
     }
 
     /** 弹幕菜单（1:1 安卓） */
@@ -331,23 +319,13 @@ class AwtToolbarPanel(
         }.start()
     }
 
-    private fun toolButton(iconName: String, tooltip: String, onClick: (() -> Unit)?): JButton {
-        return JButton(icon(iconName, 32)).apply {
-            isOpaque = false
-            isContentAreaFilled = false
-            isBorderPainted = false
-            isFocusPainted = false
-            preferredSize = Dimension(40, 40)
-            minimumSize = Dimension(40, 40)
-            maximumSize = Dimension(40, 40)
-            toolTipText = tooltip
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            if (onClick != null) {
-                addActionListener { onClick() }
-            } else {
-                isEnabled = false
-            }
-        }
+    private fun toolButton(
+        iconName: String,
+        tooltip: String,
+        isLockButton: Boolean = false,
+        onClick: (() -> Unit)?
+    ): PlButton {
+        return PlButton(iconName, tooltip, onClick, isLockButton)
     }
 
     private fun buildTopBar() {
@@ -356,23 +334,30 @@ class AwtToolbarPanel(
             border = EmptyBorder(8, 8, 8, 8)
         }
 
-        // 左：返回
-        val backBtn = toolButton("ic_pl_close", "退出", onBack)
+        // 左：关闭 32dp（ic_pl_close 无圆圈，borderless）
+        val backBtn = toolButton("ic_pl_close", "关闭", onClick = onBack)
         val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
             isOpaque = false
             add(backBtn)
         }
 
-        // 中：标题居中
+        // 中：标题 20sp 白加粗居中，maxWidth 280dp，阴影
+        titleLabel = ShadowLabel(itemName, 20, bold = true).apply {
+            horizontalAlignment = SwingConstants.CENTER
+            preferredSize = Dimension(280, 36)
+            maximumSize = Dimension(280, 36)
+        }
         val centerPanel = JPanel(FlowLayout(FlowLayout.CENTER, 0, 0)).apply {
             isOpaque = false
             add(titleLabel)
         }
 
-        // 右：网速
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply {
+        // 右：网速 15sp 白加粗 + 电池（白框+白电量，阴影）
+        speedLabel = ShadowLabel("", 15, bold = true)
+        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
             isOpaque = false
             add(speedLabel)
+            add(BatteryIcon())
         }
 
         topBar.add(leftPanel, BorderLayout.WEST)
@@ -388,97 +373,59 @@ class AwtToolbarPanel(
             border = EmptyBorder(8, 12, 12, 12)
         }
 
-        // 进度行：信息图标 + 当前时间 + SeekBar + 总时长
+        // 进度行：18dp info图标 + 12sp当前时间 + SeekBar(6dp三色轨道) + 12sp时长
+        posLabel = ShadowLabel("00:00", 12, bold = false)
+        durLabel = ShadowLabel("-00:00", 12, bold = false)
         val progressRow = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
         }
         val infoIcon = JLabel(icon("ic_pl_info", 18))
         infoIcon.border = EmptyBorder(0, 0, 0, 6)
+        infoIcon.alignmentY = Component.CENTER_ALIGNMENT
         progressRow.add(infoIcon)
         progressRow.add(posLabel)
 
-        seekBar.apply {
-            isOpaque = false
-            preferredSize = Dimension(100, 24)
-            maximumSize = Dimension(Int.MAX_VALUE, 24)
-            addChangeListener {
-                if (!dragging && valueIsAdjusting) {
-                    dragging = true
-                }
-                if (!valueIsAdjusting && dragging) {
-                    dragging = false
-                    val dur = getDuration().coerceAtLeast(1.0)
-                    onSeek(value / 1000.0 * dur)
-                }
-            }
+        seekBar = SeekBar { frac ->
+            val dur = getDuration().coerceAtLeast(1.0)
+            onSeek(frac.toDouble() * dur)
         }
-        val seekWrapper = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            border = EmptyBorder(0, 8, 0, 8)
-            add(seekBar, BorderLayout.CENTER)
-        }
-        progressRow.add(seekWrapper)
+        progressRow.add(seekBar)
         progressRow.add(durLabel)
 
-        // 控制行：左5 / 中3 / 右5
+        // 控制行：左5 / 中3 / 右5，全部 32×32dp 自定义绘制按钮
         val controlRow = JPanel(BorderLayout()).apply {
             isOpaque = false
             border = EmptyBorder(4, 0, 0, 0)
         }
 
-        // 左组：全屏 / 锁 / 倍速（PC 不需要视频缩放，缩放改为全屏）
-        val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply { isOpaque = false }
-        // 全屏
-        leftGroup.add(toolButton("ic_pl_aspect", "全屏") {
-            onFullscreen()
-        })
-        // 锁
-        lockBtn = toolButton("ic_pl_lock", "锁定", null).apply {
-            addActionListener {
-                isLocked = !isLocked
-                isEnabled = !isLocked
-            }
-        }
+        // 左组：投屏 / 缩放 / 旋转 / 锁 / 倍速
+        val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply { isOpaque = false }
+        leftGroup.add(toolButton("ic_pl_cast", "投屏") { showCastDialog() })
+        leftGroup.add(toolButton("ic_pl_aspect", "画面比例") { cycleAspect() })
+        leftGroup.add(toolButton("ic_pl_rotate", "旋转") { cycleRotate() })
+        lockBtn = toolButton("ic_pl_lock", "锁定", isLockButton = true) { toggleLock() }
         leftGroup.add(lockBtn)
-        // 倍速：0.5x / 1.0x / 1.5x / 2.0x 循环
-        leftGroup.add(toolButton("ic_pl_speed", "倍速") {
-            speedIndex = (speedIndex + 1) % speedOptions.size
-            val s = speedOptions[speedIndex]
-            player.setProperty("speed", s.toString())
-            DebugLog.d("UI", "倍速切换: ${s}x")
-        })
+        leftGroup.add(toolButton("ic_pl_speed", "倍速") { cycleSpeed() })
 
         // 中组：上一集 / 播放暂停 / 下一集
-        val centerGroup = JPanel(FlowLayout(FlowLayout.CENTER, 4, 0)).apply { isOpaque = false }
-        prevBtn = toolButton("ic_pl_prev", "上一集", null).apply {
-            addActionListener { onPrevCb?.invoke() }
-            isEnabled = onPrevCb != null
-        }
+        val centerGroup = JPanel(FlowLayout(FlowLayout.CENTER, 8, 0)).apply { isOpaque = false }
+        prevBtn = toolButton("ic_pl_prev", "上一集") { onPrevCb?.invoke() }
         centerGroup.add(prevBtn)
-        playBtn = toolButton("ic_pl_play", "播放/暂停", null).apply {
-            addActionListener { player.togglePause() }
-        }
+        playBtn = toolButton("ic_pl_play", "播放/暂停") { player.togglePause() }
         centerGroup.add(playBtn)
-        nextBtn = toolButton("ic_pl_next", "下一集", null).apply {
-            addActionListener { onNextCb?.invoke() }
-            isEnabled = onNextCb != null
-        }
+        nextBtn = toolButton("ic_pl_next", "下一集") { onNextCb?.invoke() }
         centerGroup.add(nextBtn)
 
-        // 右组：音频 / 字幕 / 清晰度(弹幕菜单) / 更多 / 剧集列表
-        val rightGroup = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply { isOpaque = false }
+        // 右组：音频 / 字幕 / 弹幕(D) / 更多 / 剧集列表
+        val rightGroup = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply { isOpaque = false }
         rightGroup.add(toolButton("ic_pl_audio", "音频") { showAudioDialog() })
         rightGroup.add(toolButton("ic_pl_subtitle", "字幕") { showSubtitleDialog() })
-        danmakuBtn = toolButton("ic_pl_definition", "弹幕") {
-            showDanmakuMenu()
-        }
+        danmakuBtn = toolButton("ic_pl_definition", "弹幕") { showDanmakuMenu() }
         rightGroup.add(danmakuBtn)
         rightGroup.add(toolButton("ic_pl_more", "更多") { showMoreMenu() })
-        playlistBtn = toolButton("ic_pl_playlist", "剧集列表", null).apply {
-            addActionListener { onPlaylistCb?.invoke() }
-            isEnabled = onPlaylistCb != null
-        }
+        playlistBtn = toolButton("ic_pl_playlist", "剧集列表") { onPlaylistCb?.invoke() }
         rightGroup.add(playlistBtn)
 
         controlRow.add(leftGroup, BorderLayout.WEST)
@@ -488,6 +435,9 @@ class AwtToolbarPanel(
         bottomBar.add(progressRow)
         bottomBar.add(controlRow)
         add(bottomBar, BorderLayout.SOUTH)
+
+        applyEnabledStates()
+        updateDanmakuBtnState()
     }
 
     private fun refresh() {
@@ -495,38 +445,43 @@ class AwtToolbarPanel(
         isVisible = visible
         if (!visible) return
 
-        // 播放/暂停图标
+        // 播放/暂停图标（一体绘制，直接换 icon 重画）
         try {
-            val iconName = if (getPaused()) "ic_pl_play" else "ic_pl_pause"
-            playBtn.icon = icon(iconName, 32)
+            playBtn.setIcon(if (getPaused()) "ic_pl_play" else "ic_pl_pause")
         } catch (_: Exception) { }
 
-        // 时间
+        // 时间 + 进度（6dp 三色轨道：已播白 / 缓冲黄 / 未播半透明白）
         val pos = getTimePos()
         val dur = getDuration().coerceAtLeast(1.0)
-        posLabel.text = formatTime(pos)
-        durLabel.text = "-${formatTime((dur - pos).coerceAtLeast(0.0))}"
-        if (!dragging) {
-            seekBar.value = (pos / dur * 1000).toInt().coerceIn(0, 1000)
+        val dispPos = if (seekBar.dragging) seekBar.dragFraction.toDouble() * dur else pos
+        posLabel.text = formatTime(dispPos)
+        durLabel.text = "-${formatTime((dur - dispPos).coerceAtLeast(0.0))}"
+        if (!seekBar.dragging) {
+            seekBar.posFrac = (pos / dur).toFloat().coerceIn(0f, 1f)
         }
+        try {
+            val cacheDur = player.getPropertyDouble("demuxer-cache-duration") ?: 0.0
+            val bufEnd = (pos + cacheDur).coerceIn(0.0, dur)
+            seekBar.bufFrac = (bufEnd / dur).toFloat().coerceIn(0f, 1f)
+        } catch (_: Exception) { }
+        seekBar.repaint()
+
+        // 标题（280dp 截断省略）
+        try {
+            val fm = titleLabel.getFontMetrics(titleLabel.font)
+            var t = itemName
+            if (fm.stringWidth(t) > 280) {
+                while (t.isNotEmpty() && fm.stringWidth("$t…") > 280) t = t.dropLast(1)
+                t += "…"
+            }
+            if (titleLabel.text != t) titleLabel.text = t
+        } catch (_: Exception) { }
 
         // 网速
         try {
-            speedLabel.text = getNetSpeedCb?.invoke() ?: ""
+            val s = getNetSpeedCb?.invoke() ?: ""
+            if (speedLabel.text != s) speedLabel.text = s
         } catch (_: Exception) { }
-
-        // 缓存进度：用 demuxer-cache-duration 显示缓冲条
-        try {
-            val cacheDur = player.getPropertyDouble("demuxer-cache-duration") ?: 0.0
-            if (cacheDur > 0 && dur > 0) {
-                val bufferedEnd = (pos + cacheDur).coerceAtMost(dur)
-                // JSlider 不直接支持次进度，用 ToolTip 显示
-                seekBar.toolTipText = "已缓冲: ${formatTime(bufferedEnd)}"
-            }
-        } catch (_: Exception) { }
-
-        // 锁定时隐藏控制按钮（安卓行为）
-        // 注：PC 端简化，暂不实现锁定隐藏
     }
 
     private fun formatTime(sec: Double): String {
@@ -597,8 +552,7 @@ class AwtToolbarPanel(
                 )
             )
         }
-        // 分隔：字幕大小
-        rows.add(FrostedPopup.Row(label = "—— 字幕大小 ——", enabled = false))
+        // 字幕大小（安卓原版：直接跟在轨道后面，无标题行）
         val sizes = listOf("小" to 36, "中" to 48, "大" to 60, "特大" to 72)
         val currentSize = player.getPropertyDouble("sub-font-size")?.toInt() ?: 48
         sizes.forEach { (label, size) ->
@@ -616,18 +570,44 @@ class AwtToolbarPanel(
         FrostedPopup(owner, anchor).show(rows, width = 260)
     }
 
-    private fun findButtonByTooltip(tooltip: String): JButton? {
-        return components.flatMap {
-            when (it) {
-                is JButton -> listOf(it)
-                is Container -> it.components.filterIsInstance<JButton>()
-                else -> emptyList()
+    private fun findButtonByTooltip(tooltip: String): PlButton? {
+        fun search(c: Container): PlButton? {
+            for (child in c.components) {
+                if (child is PlButton && child.toolTipText == tooltip) return child
+                if (child is Container) {
+                    val f = search(child)
+                    if (f != null) return f
+                }
             }
-        }.firstOrNull { it.toolTipText == tooltip }
+            return null
+        }
+        return search(this)
     }
 
-    private fun showTip(msg: String) {
-        JOptionPane.showMessageDialog(this, msg, "提示", JOptionPane.INFORMATION_MESSAGE)
+    private var tipPopup: FrostedPopup? = null
+
+    /** 轻提示（安卓 Toast 行为）：160dp 宽，1.5 秒自动消失，点外也消失 */
+    private fun showTip(msg: String, anchorTooltip: String? = null) {
+        try {
+            val owner = SwingUtilities.getWindowAncestor(this) ?: return
+            tipPopup?.dismiss()
+            tipPopup = null
+            val anchor = anchorTooltip?.let { findButtonByTooltip(it) } ?: this
+            val popup = FrostedPopup(owner, anchor)
+            popup.show(listOf(FrostedPopup.Row(label = msg, enabled = false)), width = 160)
+            tipPopup = popup
+            Timer(1500) {
+                try {
+                    if (tipPopup === popup) {
+                        popup.dismiss()
+                        tipPopup = null
+                    }
+                } catch (_: Exception) { }
+            }.apply {
+                isRepeats = false
+                start()
+            }
+        } catch (_: Exception) { }
     }
 
     /** 更多菜单（磨砂风格，1:1 安卓） */
@@ -674,20 +654,275 @@ class AwtToolbarPanel(
     }
 
     override fun paintComponent(g: Graphics) {
-        // 安卓：无阴影背景（注释写"无阴影"），直接透明
-        // 保留轻微渐变以保证可读性
-        val g2 = g as Graphics2D
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        // 顶栏：顶部渐变黑
-        val topH = 64
-        val topGrad = GradientPaint(0f, 0f, Color(0, 0, 0, 140), 0f, topH.toFloat(), Color(0, 0, 0, 0))
-        g2.paint = topGrad
-        g2.fillRect(0, 0, width, topH)
-        // 底栏：底部渐变黑
-        val botH = 110
-        val botGrad = GradientPaint(0f, (height - botH).toFloat(), Color(0, 0, 0, 0), 0f, height.toFloat(), Color(0, 0, 0, 140))
-        g2.paint = botGrad
-        g2.fillRect(0, height - botH, width, botH)
+        // 规格 7.3：控制栏无背景阴影，直接压视频上，保持透明（文字自带阴影保证可读）
         super.paintComponent(g)
+    }
+
+    // ================= 自定义绘制组件（圆圈+图标一体绘制） =================
+
+    /** 32×32dp 播放器按钮：圆圈与图标在一次 paintComponent 内画完，不可能错位 */
+    private inner class PlButton(
+        private var iconName: String,
+        tooltip: String,
+        private val onClick: (() -> Unit)?,
+        val isLockButton: Boolean = false
+    ) : JComponent() {
+        var dimmed: Boolean = false
+        private var pressed = false
+
+        init {
+            preferredSize = Dimension(32, 32)
+            minimumSize = Dimension(32, 32)
+            maximumSize = Dimension(32, 32)
+            alignmentY = Component.CENTER_ALIGNMENT
+            toolTipText = tooltip
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            isOpaque = false
+            putClientProperty("baseEnabled", onClick != null)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    if (!isEnabled) return
+                    if (isLocked && !isLockButton) return
+                    onClick?.invoke()
+                }
+                override fun mousePressed(e: MouseEvent) {
+                    pressed = true
+                    repaint()
+                }
+                override fun mouseReleased(e: MouseEvent) {
+                    pressed = false
+                    repaint()
+                }
+            })
+        }
+
+        fun setIcon(name: String) {
+            if (iconName != name) {
+                iconName = name
+                repaint()
+            }
+        }
+
+        override fun paintComponent(g: Graphics) {
+            val g2 = g.create() as Graphics2D
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                var alpha = 1f
+                if (!isEnabled || dimmed) alpha = 0.4f
+                if (pressed) alpha *= 0.65f
+                g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
+                // 圆圈+字形同一坐标系一次画完
+                try {
+                    VectorIcon.get(iconName, 32).paintIcon(this, g2, 0, 0)
+                } catch (_: Exception) { }
+            } finally {
+                g2.dispose()
+            }
+        }
+    }
+
+    /** 6dp 三色进度条：未播 #80FFFFFF / 缓冲 #FFD600 / 已播 #FFFFFF + 14dp 白圆 thumb */
+    private inner class SeekBar(
+        private val onSeekFrac: (Float) -> Unit
+    ) : JComponent() {
+        private val pad = 8
+        var posFrac: Float = 0f
+        var bufFrac: Float = 0f
+        var dragging = false
+        var dragFraction: Float = 0f
+            private set
+
+        init {
+            preferredSize = Dimension(120, 28)
+            maximumSize = Dimension(Int.MAX_VALUE, 28)
+            alignmentY = Component.CENTER_ALIGNMENT
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            isOpaque = false
+            val adapter = object : MouseAdapter() {
+                private fun fracAt(x: Int): Float =
+                    ((x - pad).toFloat() / (width - pad * 2).coerceAtLeast(1)).coerceIn(0f, 1f)
+                override fun mousePressed(e: MouseEvent) {
+                    if (!isEnabled) return
+                    dragging = true
+                    dragFraction = fracAt(e.x)
+                    repaint()
+                }
+                override fun mouseDragged(e: MouseEvent) {
+                    if (!dragging) return
+                    dragFraction = fracAt(e.x)
+                    repaint()
+                }
+                override fun mouseReleased(e: MouseEvent) {
+                    if (!dragging) return
+                    dragging = false
+                    dragFraction = fracAt(e.x)
+                    onSeekFrac(dragFraction)
+                    repaint()
+                }
+            }
+            addMouseListener(adapter)
+            addMouseMotionListener(adapter)
+        }
+
+        override fun paintComponent(g: Graphics) {
+            val g2 = g.create() as Graphics2D
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                val trackH = 6
+                val cy = height / 2f
+                val y = (cy - trackH / 2f).toInt()
+                val x0 = pad
+                val w = (width - pad * 2).coerceAtLeast(1)
+                val frac = if (dragging) dragFraction else posFrac
+                // 未播 #80FFFFFF
+                g2.color = Color(255, 255, 255, 128)
+                g2.fillRoundRect(x0, y, w, trackH, trackH, trackH)
+                // 缓冲 #FFD600
+                val bw = (w * bufFrac).toInt()
+                if (bw > 2) {
+                    g2.color = Color(255, 214, 0)
+                    g2.fillRoundRect(x0, y, bw, trackH, trackH, trackH)
+                }
+                // 已播 #FFFFFF
+                val pw = (w * frac).toInt()
+                if (pw > 2) {
+                    g2.color = Color.WHITE
+                    g2.fillRoundRect(x0, y, pw, trackH, trackH, trackH)
+                }
+                // thumb 14dp 白圆
+                val tx = x0 + w * frac
+                g2.color = if (isEnabled) Color.WHITE else Color(160, 160, 160)
+                g2.fillOval((tx - 7).toInt(), (cy - 7).toInt(), 14, 14)
+            } finally {
+                g2.dispose()
+            }
+        }
+    }
+
+    /** 带阴影文字（#CC000000 dy1）：顶栏/时间文字全部加阴影 */
+    private class ShadowLabel(text: String, size: Int, bold: Boolean) : JLabel(text) {
+        init {
+            foreground = Color.WHITE
+            font = Font(Font.SANS_SERIF, if (bold) Font.BOLD else Font.PLAIN, size)
+            isOpaque = false
+            alignmentY = Component.CENTER_ALIGNMENT
+        }
+
+        override fun paintComponent(g: Graphics) {
+            val g2 = g.create() as Graphics2D
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+                g2.font = font
+                val fm = g2.fontMetrics
+                val t = text ?: ""
+                val tw = fm.stringWidth(t)
+                val x = when (horizontalAlignment) {
+                    SwingConstants.CENTER -> (width - tw) / 2
+                    SwingConstants.RIGHT -> width - tw - 2
+                    else -> 2
+                }
+                val y = (height - fm.height) / 2 + fm.ascent
+                g2.color = Color(0, 0, 0, 204)
+                g2.drawString(t, x, y + 1)
+                g2.color = foreground
+                g2.drawString(t, x, y)
+            } finally {
+                g2.dispose()
+            }
+        }
+    }
+
+    /** 电池图标：白框 + 白电量（桌面无电池，按满格画，带阴影） */
+    private class BatteryIcon : JComponent() {
+        init {
+            preferredSize = Dimension(30, 14)
+            minimumSize = Dimension(30, 14)
+            maximumSize = Dimension(30, 14)
+            alignmentY = Component.CENTER_ALIGNMENT
+            isOpaque = false
+        }
+
+        override fun paintComponent(g: Graphics) {
+            val g2 = g.create() as Graphics2D
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                fun draw(col: Color, dx: Int, dy: Int) {
+                    g2.color = col
+                    g2.stroke = BasicStroke(1.6f)
+                    g2.drawRoundRect(1 + dx, 2 + dy, 22, 9, 3, 3)
+                    g2.fillRoundRect(3 + dx, 4 + dy, 18, 5, 2, 2)
+                    g2.fillRect(24 + dx, 5 + dy, 3, 4)
+                }
+                draw(Color(0, 0, 0, 204), 0, 1)
+                draw(Color.WHITE, 0, 0)
+            } finally {
+                g2.dispose()
+            }
+        }
+    }
+
+    // ================= 按钮行为 =================
+
+    private fun forEachPlButton(action: (PlButton) -> Unit) {
+        fun search(c: Container) {
+            for (child in c.components) {
+                if (child is PlButton) action(child)
+                if (child is Container) search(child)
+            }
+        }
+        search(this)
+    }
+
+    /** 按锁定状态 + 各按钮自身可用状态刷新 enable */
+    private fun applyEnabledStates() {
+        forEachPlButton { btn ->
+            val base = (btn.getClientProperty("baseEnabled") as? Boolean) ?: true
+            btn.isEnabled = if (btn.isLockButton) true else (base && !isLocked)
+            btn.repaint()
+        }
+        if (::seekBar.isInitialized) {
+            seekBar.isEnabled = !isLocked
+            seekBar.repaint()
+        }
+    }
+
+    private fun toggleLock() {
+        isLocked = !isLocked
+        applyEnabledStates()
+        showTip(if (isLocked) "已锁定" else "已解锁", "锁定")
+    }
+
+    private fun cycleSpeed() {
+        speedIndex = (speedIndex + 1) % speedOptions.size
+        val s = speedOptions[speedIndex]
+        player.setProperty("speed", s.toString())
+        showTip("倍速：${s}x", "倍速")
+    }
+
+    private fun cycleAspect() {
+        aspectIndex = (aspectIndex + 1) % aspectModes.size
+        val (v, label) = aspectModes[aspectIndex]
+        player.setProperty("video-aspect-override", v)
+        showTip("画面比例：$label", "画面比例")
+    }
+
+    private fun cycleRotate() {
+        rotateIndex = (rotateIndex + 1) % rotateModes.size
+        player.setProperty("video-rotate", rotateModes[rotateIndex].toString())
+        showTip("旋转：${rotateModes[rotateIndex]}°", "旋转")
+    }
+
+    private fun showCastDialog() {
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        val anchor = findButtonByTooltip("投屏") ?: this
+        val rows = listOf(
+            FrostedPopup.Row(label = "正在搜索设备…", enabled = false),
+            FrostedPopup.Row(
+                label = "重新搜索",
+                iconName = "ic_pl_search",
+                action = { showTip("正在搜索投屏设备…", "投屏") }
+            )
+        )
+        FrostedPopup(owner, anchor).show(rows, width = 250)
     }
 }

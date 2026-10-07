@@ -62,6 +62,13 @@ object Repo {
         return YambyClient.searchItems(query).map { it.toUi() }
     }
 
+    suspend fun favorites(): List<UiMediaItem> {
+        if (demoMode) return mockLibraries.flatMap { mockItems(it, 8) }
+            .filterIndexed { i, _ -> i % 3 == 0 }
+            .map { it.toUi() }
+        return YambyClient.getFavoriteItems().map { it.toUi() }
+    }
+
     // ---------- 详情 ----------
 
     suspend fun itemDetail(id: String): UiMediaItem {
@@ -111,7 +118,8 @@ object Repo {
                             UiEpisode(
                                 it.id, it.episodeIdx, it.epLabel(),
                                 width = it.width, height = it.height,
-                                runTicks = it.runTicks, sizeBytes = it.sizeBytes
+                                runTicks = it.runTicks, sizeBytes = it.sizeBytes,
+                                played = it.played
                             )
                         }
                         EpisodeData(
@@ -135,7 +143,8 @@ object Repo {
             UiEpisode(
                 it.id, it.episodeIdx, it.epLabel(),
                 width = it.width, height = it.height,
-                runTicks = it.runTicks, sizeBytes = it.sizeBytes
+                runTicks = it.runTicks, sizeBytes = it.sizeBytes,
+                played = it.played
             )
         }
     }

@@ -14,6 +14,13 @@ data class UiLibrary(
     val hue: Float = 210f
 )
 
+/** 演职人员 */
+data class UiPerson(
+    val id: String,
+    val name: String,
+    val role: String
+)
+
 /** 媒体条目（电影/剧集） */
 data class UiMediaItem(
     val id: String,
@@ -35,8 +42,14 @@ data class UiMediaItem(
     val episodeCount: Int = 0,
     /** 是否已收藏（显示左上角红心） */
     val isFavorite: Boolean = false,
+    /** 类型（Movie/Series/Episode，对齐 YambyClient.Item.type） */
+    val type: String = "",
+    /** 是否已看（电影管自己） */
+    val played: Boolean = false,
     /** 类型（如 ["剧情", "爱情"]） */
-    val genres: List<String> = emptyList()
+    val genres: List<String> = emptyList(),
+    /** 演职人员 */
+    val people: List<UiPerson> = emptyList()
 )
 
 /** 选集 */
@@ -47,7 +60,8 @@ data class UiEpisode(
     val width: Int = 0,
     val height: Int = 0,
     val runTicks: Long = 0L,
-    val sizeBytes: Long = 0L
+    val sizeBytes: Long = 0L,
+    val played: Boolean = false
 )
 
 /** YambyClient.Item → UiMediaItem */
@@ -74,7 +88,10 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
         subtitle = if (isEp) epLabel() else "",
         episodeCount = episodeCount,
         isFavorite = isFavorite,
-        genres = genres
+        type = type,
+        played = played,
+        genres = genres,
+        people = people.map { UiPerson(it.id, it.name, it.role) }
     )
 }
 

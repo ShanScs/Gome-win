@@ -298,4 +298,60 @@ object Prefs {
     fun clearSearchHistory() {
         put(KEY_SEARCH_HISTORY, "")
     }
+
+    // ===== 播放/界面设置（1:1 Android 1.22.75）=====
+    /** 解码方式: mediacodec-copy(HW+) / mediacodec(HW) / no(SW) / auto */
+    var decodeMode: String
+        get() = get("decode_mode", "mediacodec-copy")
+        set(v) = put("decode_mode", v)
+
+    /** 缓存开关，默认开 */
+    var cacheEnabled: Boolean
+        get() = prefs.getBoolean("cache_enabled", true)
+        set(v) { prefs.putBoolean("cache_enabled", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 缓存大小（GB）：1 / 2 / 3，默认 1 */
+    var cacheSizeGb: Int
+        get() = prefs.getInt("cache_size_gb", 1).let { if (it in 1..3) it else 1 }
+        set(v) { prefs.putInt("cache_size_gb", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕开关，默认开 */
+    var danmakuEnabled: Boolean
+        get() = prefs.getBoolean("danmaku_enabled", true)
+        set(v) { prefs.putBoolean("danmaku_enabled", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕 API 地址 */
+    var danmakuApiUrl: String
+        get() = get("danmaku_api_url", "")
+        set(v) = put("danmaku_api_url", v)
+
+    /** Dock 样式：0=M玻璃 1=原玻璃，默认0 */
+    var dockStyle: Int
+        get() = prefs.getInt("dock_style", 0).let { if (it in 0..1) it else 0 }
+        set(v) { prefs.putInt("dock_style", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 飞回动画模式：0=严格 1=标准 2=宽松，默认1 */
+    var flybackMode: Int
+        get() = prefs.getInt("flyback_mode", 1).let { if (it in 0..2) it else 1 }
+        set(v) { prefs.putInt("flyback_mode", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 缩放动画速度：1/2/3，默认2 */
+    var zoomSpeed: Int
+        get() = prefs.getInt("zoom_speed", 2).let { if (it in 1..3) it else 2 }
+        set(v) { prefs.putInt("zoom_speed", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 应用锁 PIN（空=未设置） */
+    var appLockPin: String
+        get() = prefs.get("app_lock_pin", "")
+        set(v) { prefs.put("app_lock_pin", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 搜索页选中的服务器 key（空=聚合搜索） */
+    var searchServerKey: String
+        get() = prefs.get("search_server_key", "")
+        set(v) { prefs.put("search_server_key", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 搜索页选中的服务器显示名 */
+    var searchServerName: String
+        get() = prefs.get("search_server_name", "聚合搜索")
+        set(v) { prefs.put("search_server_name", v); try { prefs.flush() } catch (_: Exception) {} }
 }
