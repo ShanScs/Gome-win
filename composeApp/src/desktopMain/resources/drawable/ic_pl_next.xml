@@ -4,6 +4,6 @@
     <path android:strokeColor="#FFFFFF" android:strokeWidth="2.4"
         android:fillColor="#00000000"
         android:pathData="M20 3a17 17 0 1 0 0.001 0z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M10.5 12l12 8-12 8z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M24.8 12h4.2v16h-4.2z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M10.5 12 L22.5 20 L10.5 28 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M24.8 12 H29.0 V28 H24.8 Z" />
 </vector>
