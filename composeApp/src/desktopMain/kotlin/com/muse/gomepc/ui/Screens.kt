@@ -450,7 +450,7 @@ fun HomeScreen(
                 }
             }
             // 继续观看（放媒体库上面）
-            if (resume!!.isNotEmpty()) {
+            if (!resume.isNullOrEmpty()) {
                 item {
                     Column(Modifier.padding(horizontal = 20.dp)) {
                         SectionHeader("继续观看", "更多", onAction = onResumeMore)
