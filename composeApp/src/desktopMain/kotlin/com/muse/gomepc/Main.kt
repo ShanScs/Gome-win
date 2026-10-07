@@ -206,6 +206,18 @@ fun GomeApp(
     // 滚动状态提升到这里，两遍渲染共享，保证模糊层与主内容滚动同步
     val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    // 滚动版本号：滚动时递增，触发 dock 模糊层重组（实时同步）
+    var scrollVersion by remember { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(homeListState, libraryGridState) {
+        kotlinx.coroutines.flow.combine(
+            androidx.compose.runtime.snapshotFlow {
+                homeListState.firstVisibleItemIndex * 100000 + homeListState.firstVisibleItemScrollOffset / 50
+            },
+            androidx.compose.runtime.snapshotFlow {
+                libraryGridState.firstVisibleItemIndex * 100000 + libraryGridState.firstVisibleItemScrollOffset / 50
+            }
+        ) { a, b -> a + b }.collect { scrollVersion++ }
+    }
     val backgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
                 is Screen.Home -> HomeScreen(
@@ -272,7 +284,8 @@ fun GomeApp(
                 backgroundContent = backgroundContent,
                 screenW = maxWidth,
                 screenH = maxHeight,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                scrollVersion = scrollVersion
             )
         }
     }
