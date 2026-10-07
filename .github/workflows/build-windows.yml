@@ -59,20 +59,25 @@ jobs:
           Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $appDir
           # JNA 按以下顺序找 DLL：java.library.path → PATH → 当前目录。
           # 安装后 exe 所在目录即程序目录，同目录放 DLL 即可加载。
+          # 从 build.gradle.kts 读取 packageVersion，保证 MSI 版本号跟代码一致
+          $ver = (Select-String -Path "composeApp/build.gradle.kts" -Pattern 'packageVersion\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          Write-Host "Package version: $ver"
           # 用 jpackage 把 app-image 打成 MSI 安装包
+          # --win-upgrade-uuid 固定，保证新版 MSI 能覆盖安装旧版
           $jpackage = Join-Path $env:JAVA_HOME "bin\jpackage.exe"
-          & $jpackage --type msi --app-image "$appDir" --name "Gome" --app-version "1.0.62" --vendor "Muse" --description "Gome PC - Emby client (Dolby Vision compatible)" --dest "composeApp/build/msi" --win-menu --win-shortcut
+          & $jpackage --type msi --app-image "$appDir" --name "Gome" --app-version "$ver" --vendor "Muse" --description "Gome PC - Emby client (Dolby Vision compatible)" --dest "composeApp/build/msi" --win-menu --win-shortcut --win-upgrade-uuid "f4df22d3-f181-42b3-a665-7384a90455a0"
           $msi = Get-ChildItem -Path "composeApp/build/msi" -Filter "*.msi" | Select-Object -First 1
           if (-not $msi) { throw "MSI not created" }
           # 安装包文件名改为 Gome-win（跟仓库名一致），app 本体仍叫 Gome
-          $msiFinal = Join-Path "composeApp/build/msi" "Gome-win-1.0.62.msi"
+          $msiFinal = Join-Path "composeApp/build/msi" "Gome-win-$ver.msi"
           Move-Item $msi.FullName $msiFinal -Force
           Write-Host "MSI: $msiFinal ($([math]::Round((Get-Item $msiFinal).Length/1MB,1)) MB)"
           echo "MSI_PATH=$msiFinal" >> $env:GITHUB_ENV
+          echo "PKG_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Gome-win-1.0.62.msi
+          name: Gome-win-${{ env.PKG_VERSION }}.msi
           path: ${{ env.MSI_PATH }}
           retention-days: 30
