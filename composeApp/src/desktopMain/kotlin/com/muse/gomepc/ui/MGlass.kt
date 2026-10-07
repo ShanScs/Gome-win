@@ -54,25 +54,17 @@ fun MGlassBox(
         modifier = modifier
             .clip(shape)
             .border(1.dp, MGlass.Stroke, shape)
-            // 兜底：无 blur 图时用浅灰实底，避免黑色
-            .background(if (blurredBackdrop == null) Color(0xFFE8E8E8) else Color.Transparent)
+            // M玻璃：半透明白底（#55FFFFFF 叠在白色页面上≈白）+ 高光 + 描边
+            // 不用抓屏真模糊（Robot 抓到的是黑的），直接按安卓参数画
+            .background(Color.White.copy(alpha = 0.85f))
     ) {
-        // 最底层：真实模糊的 backdrop（内容抓图已做高斯模糊）
-        if (blurredBackdrop != null) {
-            androidx.compose.foundation.Image(
-                bitmap = blurredBackdrop,
-                contentDescription = null,
-                modifier = Modifier.matchParentSize(),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-            )
-        }
-        // 背景层：M玻璃底色（盖在模糊层之上）
+        // M玻璃底色 #55FFFFFF（半透明白）
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(MGlass.Tint)
         )
-        // 顶部高光渐变（28dp 高，用 color stops 截断）
+        // 顶部高光渐变（#99FFFFFF→#00FFFFFF）
         Box(
             modifier = Modifier
                 .matchParentSize()

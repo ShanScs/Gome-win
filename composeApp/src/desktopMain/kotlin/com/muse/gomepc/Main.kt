@@ -267,33 +267,7 @@ fun GomeApp(
             )
         }
 
-        // 定时抓取 dock 背后的屏幕区域并模糊（真 M玻璃）
-        LaunchedEffect(screen, dockBoundsInWindow) {
-            val bounds = dockBoundsInWindow ?: return@LaunchedEffect
-            // 等内容渲染
-            delay(500)
-            while (true) {
-                try {
-                    // 窗口在屏幕上的位置 + dock 在窗口内的位置 = 屏幕坐标
-                    // 通过 owner window 获取屏幕位置
-                    val win = owner
-                    if (win != null) {
-                        val loc = win.locationOnScreen
-                        val density = win.let {
-                            // 从 bounds (dp) 转像素：bounds 已经是像素（boundsInWindow 返回像素）
-                            1f
-                        }
-                        val sx = (loc.x + bounds.left).toInt()
-                        val sy = (loc.y + bounds.top).toInt()
-                        val sw = bounds.width.toInt()
-                        val sh = bounds.height.toInt()
-                        if (sw > 0 && sh > 0) {
-                            dockBlur.captureAndBlur(sx, sy, sw, sh)
-                        }
-                    }
-                } catch (_: Exception) { }
-                delay(2000)
-            }
-        }
+        // Dock 抓屏真模糊已停用：Robot 抓到的是黑色，dock 发黑
+        // 直接按安卓 M玻璃 参数画（#55FFFFFF 底 + 高光 + 描边），见 MGlass.kt
     }
 }

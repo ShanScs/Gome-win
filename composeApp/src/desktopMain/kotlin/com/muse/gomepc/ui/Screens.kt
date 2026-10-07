@@ -873,7 +873,7 @@ private fun ServerCardsGrid(
 
     Box(modifier) {
         Column(Modifier.fillMaxSize()) {
-            // 顶栏：标题 + 右侧图标
+            // 顶栏：标题（右上角锁/更多图标已删，用户要求）
             Row(
                 modifier = Modifier.fillMaxWidth()
                     .padding(start = 20.dp, top = 12.dp, end = 12.dp, bottom = 8.dp),
@@ -886,25 +886,6 @@ private fun ServerCardsGrid(
                     color = GomeTheme.TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                // 应用锁：44dp，ic_pl_lock，tint #2E7CF6（对齐安卓 activity_resource.xml）
-                Box(
-                    modifier = Modifier.size(44.dp)
-                        .clickable {
-                            if (Prefs.appLockPin.isEmpty()) showSetPin = true
-                            else showVerifyPin = true
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    LockIcon(tint = Color(0xFF2E7CF6), iconSize = 24.dp)
-                }
-                // 更多：44dp，ic_more_dots，tint #2E7CF6（对齐安卓）
-                Box(
-                    modifier = Modifier.size(44.dp)
-                        .clickable { showDeleteServer = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    MoreDotsIcon(tint = Color(0xFF2E7CF6), iconSize = 24.dp)
-                }
             }
             // 搜索框：48dp 高，bg_search_box 圆角 28dp（对齐安卓）
             Row(
@@ -1020,6 +1001,9 @@ private fun ServerCardsGrid(
                                 }
                             },
                             onLongClick = {
+                                serverToEdit = server
+                            },
+                            onAvatarClick = {
                                 serverToEdit = server
                             }
                         )
@@ -1160,7 +1144,8 @@ private fun ServerCard(
     lastUsed: Long,
     isCurrent: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    onAvatarClick: () -> Unit
 ) {
     // 卡片背景：对齐安卓 CardTintHelper——图标色（柔和浅色）为中心向四周的径向渐变→白色
     // PC 图标为字母，按服务器名哈希取色，再与白色混合（82.5%白）
@@ -1208,13 +1193,14 @@ private fun ServerCard(
                         if (isCurrent) Color(0xFF34C759) else Color(0xFFCCCCCC)
                     )
             )
-            // 服务器图标 32dp 圆形
+            // 服务器图标 32dp 圆形：点击进编辑
             Box(
                 modifier = Modifier
                     .padding(start = 8.dp)
                     .size(32.dp)
                     .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(Color.White),
+                    .background(Color.White)
+                    .clickable { onAvatarClick() },
                 contentAlignment = Alignment.Center
             ) {
                 Text(

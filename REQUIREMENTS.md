@@ -84,3 +84,11 @@
 ### 播放器顶栏（2026-10-07 16:35 用户："把电池图标删掉"）
 - [x] 删除顶栏右上角电池图标（PC 无电池，画满格无意义）
   - AwtToolbarPanel：rightPanel 去掉 BatteryIcon，类一并删除
+
+### 资源库页（2026-10-07 16:41 用户三条）
+- [x] 删掉资源页右上角两个图标（锁 / 更多）
+- [x] 点服务器卡片进主页，点服务器头像进编辑
+  - ServerCard 加 onAvatarClick，头像 Box 单独 clickable
+- [x] Dock 修好：太黑，拿安卓 M玻璃 参数
+  - 根因：Robot 抓屏模糊抓到黑色，dock 发黑
+  - 修：停用抓屏，直接按安卓参数画（#55FFFFFF 底 + #99FFFFFF→#00FFFFFF 高光 + #AAFFFFFF 描边）
