@@ -379,44 +379,16 @@ fun HomeScreen(
     onLibraryClick: (UiLibrary) -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState? = null
 ) {
-    var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
-    var libItems by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
-    var resume by remember { mutableStateOf<List<UiMediaItem>?>(null) }
-    var latest by remember { mutableStateOf<List<UiMediaItem>?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var reloadKey by remember { mutableStateOf(0) }
-
-    LaunchedEffect(reloadKey) {
-        try {
-            error = null
-            libs = null; resume = null; libItems = emptyMap(); latest = null
-            // 第一批并行：libraries + resume + latest（各 10 秒超时）
-            val libsDef = async { withTimeoutOrNull(10000) { Repo.libraries() } ?: emptyList() }
-            val resumeDef = async { withTimeoutOrNull(10000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
-            val latestDef = async { withTimeoutOrNull(10000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
-            val l = libsDef.await()
-            libs = l
-            resume = resumeDef.await()
-            latest = latestDef.await()
-            // 第二批并行：每个媒体库的 items（各 10 秒超时）
-            val itemsDefs = l.map { lib ->
-                lib.id to async {
-                    withTimeoutOrNull(10000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
-                }
-            }
-            val map = mutableMapOf<String, List<UiMediaItem>>()
-            for ((id, def) in itemsDefs) {
-                map[id] = def.await()
-                // 增量更新：每回来一个库就刷新 UI，不用等全部
-                libItems = map.toMap()
-            }
-        } catch (e: Exception) {
-            error = e.message ?: "未知错误"
-        }
-    }
+    // 主页数据只在第一次启动时后台加载一次，之后切回直接用缓存
+    LaunchedEffect(Unit) { HomeDataCache.ensureLoaded() }
+    val libs = HomeDataCache.libs
+    val libItems = HomeDataCache.libItems
+    val resume = HomeDataCache.resume
+    val latest = HomeDataCache.latest
+    val error = HomeDataCache.error
 
     when {
-        error != null -> ErrorBox(error!!, onRetry = { reloadKey++ })
+        error != null -> ErrorBox(error!!, onRetry = { HomeDataCache.retry() })
         libs == null || resume == null -> LoadingBox()
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().background(Color.White),
@@ -896,46 +868,11 @@ fun GridScreen(
     onItemClick: (UiMediaItem) -> Unit,
     onServerSelected: () -> Unit = {}
 ) {
-    var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
-    var collages by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
-    var selectedLib by remember { mutableStateOf<UiLibrary?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var reloadKey by remember { mutableStateOf(0) }
-
-    LaunchedEffect(reloadKey) {
-        try {
-            error = null; libs = null
-            val l = Repo.libraries()
-            libs = l
-            val map = mutableMapOf<String, List<UiMediaItem>>()
-            for (lib in l) {
-                try { map[lib.id] = Repo.items(lib.id, 4) } catch (_: Exception) { }
-            }
-            collages = map
-        } catch (e: Exception) {
-            error = e.message ?: "未知错误"
-        }
-    }
-
-    val sel = selectedLib
-    when {
-        error != null -> ErrorBox(error!!, onRetry = { reloadKey++ })
-        libs == null -> LoadingBox()
-        sel != null -> LibraryScreen(
-            libId = sel.id,
-            libName = sel.name,
-            onItemClick = onItemClick,
-            onBack = { selectedLib = null }
-        )
-        else -> ServerCardsGrid(
-            modifier = Modifier.fillMaxSize().background(Color.White),
-            onServerSelected = {
-                // 切换服务器后回到首页
-                reloadKey++
-                onServerSelected()
-            }
-        )
-    }
+    // 资源库页就是服务器选择器：本地数据，无网络刷新，点击服务器进主页
+    ServerCardsGrid(
+        modifier = Modifier.fillMaxSize().background(Color.White),
+        onServerSelected = onServerSelected
+    )
 }
 
 /**
