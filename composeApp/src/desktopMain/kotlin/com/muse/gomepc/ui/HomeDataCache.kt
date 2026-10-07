@@ -51,37 +51,77 @@ object HomeDataCache {
             libItems = emptyMap()
         }
         if (loaded || loading) return
+        // 先试磁盘缓存：有就秒开，后台再刷新（照抄安卓 DataCache 思路）
+        val cachedLibs = HomeDiskCache.loadLibraries(key)
+        if (cachedLibs != null) {
+            libs = cachedLibs
+            resume = HomeDiskCache.loadResume(key) ?: emptyList()
+            latest = HomeDiskCache.loadLatest(key) ?: emptyList()
+            val map = mutableMapOf<String, List<UiMediaItem>>()
+            for (lib in cachedLibs) {
+                HomeDiskCache.loadLibItems(key, lib.id)?.let { map[lib.id] = it }
+            }
+            libItems = map
+            loaded = true
+            // 后台刷新，不阻塞 UI
+            refreshInBackground(key)
+            return
+        }
+        // 无缓存，走网络首载
         loading = true
         scope.launch {
-            try {
-                error = null
-                // 第一批：libraries + resume + latest（各 15 秒超时，并行）
-                val libsDef = async { withTimeoutOrNull(15000) { Repo.libraries() } ?: emptyList() }
-                val resumeDef = async { withTimeoutOrNull(15000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
-                val latestDef = async { withTimeoutOrNull(15000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
-                val l = libsDef.await()
+            loadFromNetwork(key)
+        }
+    }
+
+    /** 后台刷新：拉新数据，更新 UI 并覆写磁盘缓存 */
+    private fun refreshInBackground(key: String) {
+        scope.launch {
+            loadFromNetwork(key, isRefresh = true)
+        }
+    }
+
+    private suspend fun loadFromNetwork(key: String, isRefresh: Boolean = false) {
+        try {
+            if (!isRefresh) error = null
+            // 第一批：libraries + resume + latest（各 15 秒超时，并行）
+            val libsDef = scope.async { withTimeoutOrNull(15000) { Repo.libraries() } ?: emptyList() }
+            val resumeDef = scope.async { withTimeoutOrNull(15000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
+            val latestDef = scope.async { withTimeoutOrNull(15000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
+            val l = libsDef.await()
+            if (l.isNotEmpty()) {
                 libs = l
-                resume = resumeDef.await()
-                latest = latestDef.await()
-                // 库列表出来就标记完成，UI 先显示；剧集后台并行填
-                loaded = true
-                // 第二批：每个媒体库的 items（各 15 秒超时，并行，增量更新 UI）
-                val itemsDefs = l.map { lib ->
-                    lib.id to async {
-                        withTimeoutOrNull(15000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
-                    }
+                HomeDiskCache.saveLibraries(key, l)
+            }
+            val r = resumeDef.await()
+            resume = r
+            HomeDiskCache.saveResume(key, r)
+            val lat = latestDef.await()
+            latest = lat
+            HomeDiskCache.saveLatest(key, lat)
+            // 库列表出来就标记完成，UI 先显示；剧集后台并行填
+            loaded = true
+            if (!isRefresh) loading = false
+            // 第二批：每个媒体库的 items（各 15 秒超时，并行，增量更新 UI）
+            val itemsDefs = l.map { lib ->
+                lib.id to scope.async {
+                    withTimeoutOrNull(15000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
                 }
-                val map = mutableMapOf<String, List<UiMediaItem>>()
-                for ((id, def) in itemsDefs) {
-                    map[id] = def.await()
+            }
+            val map = (libItems as? MutableMap<String, List<UiMediaItem>>)?.toMutableMap() ?: mutableMapOf()
+            for ((id, def) in itemsDefs) {
+                val items = def.await()
+                if (items.isNotEmpty()) {
+                    map[id] = items
                     // 增量更新：每回来一个库就刷新 UI，不用等全部
                     libItems = map.toMap()
+                    HomeDiskCache.saveLibItems(key, id, items)
                 }
-            } catch (e: Exception) {
-                error = e.message ?: "未知错误"
-            } finally {
-                loading = false
             }
+        } catch (e: Exception) {
+            if (!isRefresh) error = e.message ?: "未知错误"
+        } finally {
+            if (!isRefresh) loading = false
         }
     }
 
