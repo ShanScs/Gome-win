@@ -485,6 +485,17 @@ fun HomeScreen(
                     BannerCarousel(items = latest!!, onItemClick = onItemClick)
                 }
             }
+            // 继续观看（放媒体库上面）
+            if (resume!!.isNotEmpty()) {
+                item {
+                    SectionHeader("继续观看", "更多", onAction = onResumeMore)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(resume!!) { item ->
+                            ResumeCard(item, onClick = { onItemClick(item) })
+                        }
+                    }
+                }
+            }
             // 媒体库横排（对齐 Android：tvLibTitle + rvLibs）
             if (libs!!.isNotEmpty()) {
                 item {
@@ -506,16 +517,6 @@ fun HomeScreen(
                                 posters = (libItems[lib.id] ?: emptyList()).take(4),
                                 onClick = { onLibraryClick(lib) }
                             )
-                        }
-                    }
-                }
-            }
-            if (resume!!.isNotEmpty()) {
-                item {
-                    SectionHeader("继续观看", "更多", onAction = onResumeMore)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(resume!!) { item ->
-                            ResumeCard(item, onClick = { onItemClick(item) })
                         }
                     }
                 }
