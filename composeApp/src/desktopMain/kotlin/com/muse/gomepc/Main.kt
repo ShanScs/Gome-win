@@ -18,9 +18,12 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.muse.gomepc.emby.Prefs
-import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
+import com.sun.jna.platform.win32.BaseTSD
+import com.sun.jna.platform.win32.User32
+import com.sun.jna.platform.win32.WinDef
+import com.sun.jna.platform.win32.WinUser
 import com.muse.gomepc.ui.DetailScreen
 import com.muse.gomepc.ui.DockBar
 import com.muse.gomepc.ui.DockBlurState
@@ -40,44 +43,34 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Windows下去掉标题栏但不重建HWND（避免MPV崩） */
-private interface User32Ext : Library {
-    fun GetWindowLongPtr(hWnd: Pointer, nIndex: Int): Long
-    fun SetWindowLongPtr(hWnd: Pointer, nIndex: Int, dwNewLong: Long): Long
-    fun SetWindowPos(hWnd: Pointer, hWndInsertAfter: Pointer?, x: Int, y: Int, cx: Int, cy: Int, uFlags: Int): Boolean
-}
-
 private var savedWindowStyle: Long = 0L
 private var savedWindowBounds: java.awt.Rectangle? = null
 
 private fun setWindowBorderless(hwnd: Long, borderless: Boolean) {
     try {
-        val user32 = Native.load("user32", User32Ext::class.java)
-        val hWnd = Pointer(hwnd)
+        val user32 = User32.INSTANCE
+        val hWnd = WinDef.HWND(Pointer(hwnd))
         val GWL_STYLE = -16
         val WS_CAPTION = 0x00C00000
         val WS_THICKFRAME = 0x00040000
-        val SWP_NOMOVE = 0x0002
-        val SWP_NOSIZE = 0x0001
-        val SWP_NOZORDER = 0x0004
-        val SWP_FRAMECHANGED = 0x0020
         if (borderless) {
             // 保存原始样式，进入无边框
-            savedWindowStyle = user32.GetWindowLongPtr(hWnd, GWL_STYLE)
+            savedWindowStyle = user32.GetWindowLongPtr(hWnd, GWL_STYLE).toLong()
             com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "保存原始style: 0x${savedWindowStyle.toString(16)}, hwnd=$hwnd")
             val newStyle = (savedWindowStyle.toInt() and WS_CAPTION.inv() and WS_THICKFRAME.inv()).toLong()
-            user32.SetWindowLongPtr(hWnd, GWL_STYLE, newStyle)
+            user32.SetWindowLongPtr(hWnd, GWL_STYLE, BaseTSD.LONG_PTR(newStyle).toPointer())
             com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "设置无边框style: 0x${newStyle.toString(16)}")
         } else {
             // 恢复原始样式
             if (savedWindowStyle != 0L) {
-                user32.SetWindowLongPtr(hWnd, GWL_STYLE, savedWindowStyle)
+                user32.SetWindowLongPtr(hWnd, GWL_STYLE, BaseTSD.LONG_PTR(savedWindowStyle).toPointer())
                 com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复原始style: 0x${savedWindowStyle.toString(16)}")
             }
         }
         // 刷新窗口
         user32.SetWindowPos(
             hWnd, null, 0, 0, 0, 0,
-            SWP_NOMOVE or SWP_NOSIZE or SWP_NOZORDER or SWP_FRAMECHANGED
+            WinUser.SWP_NOMOVE or WinUser.SWP_NOSIZE or WinUser.SWP_NOZORDER or WinUser.SWP_FRAMECHANGED
         )
     } catch (e: Throwable) {
         com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "setWindowBorderless失败: ${e.message}")
@@ -87,13 +80,11 @@ private fun setWindowBorderless(hwnd: Long, borderless: Boolean) {
 
 private fun getHwnd(window: java.awt.Window): Long {
     return try {
-        val peerField = java.awt.Component::class.java.getDeclaredField("peer")
-        peerField.isAccessible = true
-        val peer = peerField.get(window)
-        val hwndField = peer.javaClass.getDeclaredField("hwnd")
-        hwndField.isAccessible = true
-        hwndField.getLong(peer)
+        // JNA 的 Native.getWindowPointer 取 HWND（不用反射，JDK 17 模块限制反射 peer 字段）
+        val p = Native.getWindowPointer(window)
+        Pointer.nativeValue(p)
     } catch (e: Throwable) {
+        com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "取HWND失败: ${e.message}")
         0L
     }
 }

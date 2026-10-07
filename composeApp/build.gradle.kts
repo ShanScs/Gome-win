@@ -46,6 +46,7 @@ kotlin {
                 implementation("org.json:json:20240303")
                 // JNA（libmpv 绑定用）
                 implementation("net.java.dev.jna:jna:5.14.0")
+                implementation("net.java.dev.jna:jna-platform:5.6.0")
                 // Coroutines
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.1")
@@ -169,7 +170,7 @@ compose.desktop {
                 else -> targetFormats(TargetFormat.AppImage)
             }
             packageName = "Gome"
-            packageVersion = "1.0.63"
+            packageVersion = "1.0.64"
             description = "Gome PC — Emby client (Dolby Vision compatible)"
             copyright = "© 2026 Muse"
             linux {
