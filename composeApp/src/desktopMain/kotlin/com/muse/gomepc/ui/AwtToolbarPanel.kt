@@ -351,12 +351,11 @@ class AwtToolbarPanel(
             add(titleLabel)
         }
 
-        // 右：网速 15sp 白加粗 + 电池（白框+白电量，阴影）
+        // 右：网速 15sp 白加粗（电池图标已删）
         speedLabel = ShadowLabel("", 15, bold = true)
         val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
             isOpaque = false
             add(speedLabel)
-            add(BatteryIcon())
         }
 
         topBar.add(leftPanel, BorderLayout.WEST)
@@ -906,35 +905,6 @@ class AwtToolbarPanel(
                 g2.drawString(t, x, y + 1)
                 g2.color = foreground
                 g2.drawString(t, x, y)
-            } finally {
-                g2.dispose()
-            }
-        }
-    }
-
-    /** 电池图标：白框 + 白电量（桌面无电池，按满格画，带阴影） */
-    private class BatteryIcon : JComponent() {
-        init {
-            preferredSize = Dimension(30, 14)
-            minimumSize = Dimension(30, 14)
-            maximumSize = Dimension(30, 14)
-            alignmentY = Component.CENTER_ALIGNMENT
-            isOpaque = false
-        }
-
-        override fun paintComponent(g: Graphics) {
-            val g2 = g.create() as Graphics2D
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                fun draw(col: Color, dx: Int, dy: Int) {
-                    g2.color = col
-                    g2.stroke = BasicStroke(1.6f)
-                    g2.drawRoundRect(1 + dx, 2 + dy, 22, 9, 3, 3)
-                    g2.fillRoundRect(3 + dx, 4 + dy, 18, 5, 2, 2)
-                    g2.fillRect(24 + dx, 5 + dy, 3, 4)
-                }
-                draw(Color(0, 0, 0, 204), 0, 1)
-                draw(Color.WHITE, 0, 0)
             } finally {
                 g2.dispose()
             }
