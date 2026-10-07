@@ -479,10 +479,12 @@ fun HomeScreen(
                     )
                 }
             }
-            // 顶部轮播（最新入库）
-            if (!latest.isNullOrEmpty()) {
+            // 顶部轮播（最新入库）：latest 为空时用第一个媒体库的数据兜底
+            val bannerItems = if (!latest.isNullOrEmpty()) latest!!
+                else libs?.firstOrNull()?.let { libItems[it.id]?.take(8) } ?: emptyList()
+            if (bannerItems.isNotEmpty()) {
                 item {
-                    BannerCarousel(items = latest!!, onItemClick = onItemClick)
+                    BannerCarousel(items = bannerItems, onItemClick = onItemClick)
                 }
             }
             // 继续观看（放媒体库上面）

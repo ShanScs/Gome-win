@@ -203,9 +203,26 @@ fun GomeApp(
 
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
     // 真 backdrop 模糊（自研双渲染）：背景内容 lambda 供 dock 模糊层复用
-    // 注意：dock 模糊层用独立的滚动状态，不与主内容共享（共享会导致滚轮冲突）
+    // 注意：dock 模糊层用独立的滚动状态，手动同步位置（共享状态对象会导致滚轮冲突）
     val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val dockHomeListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val dockLibraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    // 滚动时把主内容的位置同步到 dock 模糊层（手动，不共享对象）
+    androidx.compose.runtime.LaunchedEffect(homeListState) {
+        androidx.compose.runtime.snapshotFlow {
+            homeListState.firstVisibleItemIndex to homeListState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            try { dockHomeListState.scrollToItem(index, offset) } catch (_: Exception) {}
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(libraryGridState) {
+        androidx.compose.runtime.snapshotFlow {
+            libraryGridState.firstVisibleItemIndex to libraryGridState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            try { dockLibraryGridState.scrollToItem(index, offset) } catch (_: Exception) {}
+        }
+    }
     // 滚动版本号：滚动时递增，触发 dock 模糊层重组（实时同步）
     var scrollVersion by remember { mutableStateOf(0) }
     androidx.compose.runtime.LaunchedEffect(homeListState, libraryGridState) {
@@ -280,14 +297,14 @@ fun GomeApp(
                 onResumeMore = {},
                 onServerIconClick = {},
                 onLibraryClick = {},
-                listState = null  // 独立状态，不交互
+                listState = dockHomeListState  // 独立状态，手动同步位置
             )
             is Screen.Library -> LibraryScreen(
                 libId = s.libId,
                 libName = s.libName,
                 onItemClick = {},
                 onBack = {},
-                gridState = null  // 独立状态
+                gridState = dockLibraryGridState  // 独立状态，手动同步位置
             )
             else -> backgroundContent()
         }
