@@ -53,7 +53,7 @@
 - [x] 全屏模式工具栏无法呼出（2026-10-07 13:56 用户："点击全屏进入全屏模式后工具栏无法呼出"）
   - 改用AWT真全屏（GraphicsDevice.fullScreenWindow），标题栏去掉后鼠标事件正常
 - [x] 全屏模式顶部白条没去掉（2026-10-07 13:56 用户："顶部的白条还在，把它去掉"）
-  - 改用AWT真全屏替代Compose的WindowPlacement.Fullscreen
+  - 改用undecorated真全屏：Window加undecorated=isFullscreen参数（1.0.61）
 - [x] 上下集和选集切换无效（2026-10-07 13:59 用户："点击上下集和选集卡片里面切换剧集无效"）
   - 根因：player用remember缓存，换集时还是旧player
   - 修复：remember(episodeId)，换集时销毁旧player建新player
