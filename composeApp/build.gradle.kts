@@ -169,7 +169,7 @@ compose.desktop {
                 else -> targetFormats(TargetFormat.AppImage)
             }
             packageName = "Gome"
-            packageVersion = "1.0.49"
+            packageVersion = "1.0.50"
             description = "Gome PC — Emby client (Dolby Vision compatible)"
             copyright = "© 2026 Muse"
             linux {
