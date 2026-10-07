@@ -92,12 +92,18 @@
   - 2026-10-07 17:05 用户：点击服务器无效，不能进入主页
   - 根因：头像的 clickable 跟卡片的 combinedClickable 冲突
   - 修：头像改用 pointerInput + detectTapGestures
+  - 2026-10-07 17:28 用户 1.0.70 仍无效
+  - 根因：onServerSelected 只 reloadKey++，没跳 Screen.Home
+  - 修：GridScreen 加 onServerSelected 参数，Main.kt 传 { screen = Screen.Home }
 - [x] Dock 修好：太黑，拿安卓 M玻璃 参数
   - 根因：Robot 抓屏模糊抓到黑色，dock 发黑
   - 修：停用抓屏，直接按安卓参数画（#55FFFFFF 底 + #99FFFFFF→#00FFFFFF 高光 + #AAFFFFFF 描边）
   - 2026-10-07 17:03 用户：dock 太透，"又是你自己调的吗"
   - 根因：我多加了一层 Color.White(alpha=0.85f) 的底
   - 修：删掉自加的白底，只用 M玻璃 三件套
+  - 2026-10-07 17:28 用户 1.0.70 仍不满意
+  - 根因：M玻璃#55FFFFFF 是配 BlurView 真模糊的，PC 无真模糊时纯色太透
+  - 修：Dock 用 DockTintNoBlur(#BFFFFFFF) 模拟毛玻璃糊感，高光描边不变
 
 ### 编辑服务器弹窗（2026-10-07 16:58 用户："删除和图标功能啦？"）
 - [x] 加删除按钮（编辑模式左下角红色）

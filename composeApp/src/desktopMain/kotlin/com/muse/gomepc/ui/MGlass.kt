@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
  */
 object MGlass {
     val Tint = Color(0x55FFFFFF)
+    // PC 专用：无真模糊时模拟毛玻璃糊感的不透明度（M玻璃的#55是配BlurView真模糊的）
+    val DockTintNoBlur = Color(0xBFFFFFFF)
     val Stroke = Color(0xAAFFFFFF)
     val HighlightTop = Color(0x99FFFFFF)
     val HighlightBottom = Color(0x00FFFFFF)
@@ -47,6 +49,7 @@ fun MGlassBox(
     modifier: Modifier = Modifier,
     corner: Dp = 16.dp,
     blurredBackdrop: ImageBitmap? = null,
+    tint: Color = MGlass.Tint,
     content: @Composable BoxScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(corner)
@@ -55,11 +58,11 @@ fun MGlassBox(
             .clip(shape)
             .border(1.dp, MGlass.Stroke, shape)
     ) {
-        // M玻璃底色 #55FFFFFF（半透明白）
+        // M玻璃底色（默认#55FFFFFF）
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .background(MGlass.Tint)
+                .background(tint)
         )
         // 顶部高光渐变（#99FFFFFF→#00FFFFFF）
         Box(

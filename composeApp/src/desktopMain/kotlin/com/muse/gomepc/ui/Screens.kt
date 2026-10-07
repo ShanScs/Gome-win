@@ -800,7 +800,10 @@ fun LibraryScreen(
 
 /** 宫格：媒体库卡片，点击进入该库 */
 @Composable
-fun GridScreen(onItemClick: (UiMediaItem) -> Unit) {
+fun GridScreen(
+    onItemClick: (UiMediaItem) -> Unit,
+    onServerSelected: () -> Unit = {}
+) {
     var libs by remember { mutableStateOf<List<UiLibrary>?>(null) }
     var collages by remember { mutableStateOf<Map<String, List<UiMediaItem>>>(emptyMap()) }
     var selectedLib by remember { mutableStateOf<UiLibrary?>(null) }
@@ -837,6 +840,7 @@ fun GridScreen(onItemClick: (UiMediaItem) -> Unit) {
             onServerSelected = {
                 // 切换服务器后回到首页
                 reloadKey++
+                onServerSelected()
             }
         )
     }

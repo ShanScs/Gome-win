@@ -225,7 +225,10 @@ fun GomeApp(
                     onItemClick = { screen = Screen.Detail(it.id) },
                     onBack = { screen = Screen.Home }
                 )
-                is Screen.Grid -> GridScreen(onItemClick = { screen = Screen.Detail(it.id) })
+                is Screen.Grid -> GridScreen(
+                    onItemClick = { screen = Screen.Detail(it.id) },
+                    onServerSelected = { screen = Screen.Home }
+                )
                 is Screen.Search -> SearchScreen(onItemClick = { screen = Screen.Detail(it.id) })
                 is Screen.Favorites -> FavoritesScreen(onItemClick = { screen = Screen.Detail(it.id) })
                 is Screen.Settings -> SettingsScreen(
