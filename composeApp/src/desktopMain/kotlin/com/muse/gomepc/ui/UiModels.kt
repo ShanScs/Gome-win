@@ -31,6 +31,8 @@ data class UiMediaItem(
     val libName: String,
     /** 真实海报 URL（演示模式为 null，走占位渐变） */
     val imageUrl: String?,
+    /** 背景大图 URL（轮播横幅用，无则 null 回退到 imageUrl） */
+    val backdropUrl: String? = null,
     val hue: Float = 210f,
     /** 继续观看进度 0..1（无则 null） */
     val progress: Float? = null,
@@ -83,6 +85,7 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
         overview = overview,
         libName = libName,
         imageUrl = YambyClient.imageUrl(posterId, "Primary", 400),
+        backdropUrl = YambyClient.imageUrl(id, "Backdrop", 800),
         progress = progress,
         badge = badge,
         subtitle = if (isEp) epLabel() else "",

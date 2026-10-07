@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -624,73 +625,121 @@ fun ResumeListScreen(
 }
 
 /**
- * 顶部轮播（最新入库）：横向滚动大卡片。
- * 对齐 Android item_banner.xml：300x170dp，20dp圆角，无阴影；
- * 标题24sp粗体白字右下角，元信息11sp白字深色药丸，无渐变。
+ * 顶部轮播大图（全宽横幅，对齐用户截图样式）。
+ * 全宽 backdrop 大图，底部渐变叠加标题/评分/年份/类型/简介，圆点指示器，自动轮播。
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun BannerCarousel(
     items: List<UiMediaItem>,
     onItemClick: (UiMediaItem) -> Unit
 ) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp)
-    ) {
-        items(items) { item ->
+    if (items.isEmpty()) return
+    val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { items.size })
+    // 自动轮播：每 5 秒切换
+    androidx.compose.runtime.LaunchedEffect(pagerState) {
+        while (true) {
+            kotlinx.coroutines.delay(5000)
+            val next = (pagerState.currentPage + 1) % items.size
+            pagerState.animateScrollToPage(next)
+        }
+    }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.pager.HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(320.dp)
+        ) { page ->
+            val item = items[page]
             Box(
                 modifier = Modifier
-                    .width(300.dp)
-                    .height(170.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFFE0E0E0))
+                    .fillMaxSize()
                     .clickable { onItemClick(item) }
             ) {
+                // 背景大图（优先 backdrop，无则用海报）
                 EmbyImage(
-                    url = item.imageUrl,
+                    url = item.backdropUrl ?: item.imageUrl,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-                // 右下角标题+元信息（无渐变，保持干净）
+                // 底部渐变
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0x99000000)
+                                ),
+                                startY = 200f
+                            )
+                        )
+                )
+                // 标题/元信息/简介（左下角）
                 Column(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(14.dp),
-                    horizontalAlignment = Alignment.End
+                        .align(Alignment.BottomStart)
+                        .padding(start = 20.dp, end = 20.dp, bottom = 36.dp)
                 ) {
                     Text(
                         item.name,
-                        fontSize = 24.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         maxLines = 1
                     )
                     val meta = listOfNotNull(
-                        item.libName.takeIf { it.isNotBlank() },
-                        item.year.takeIf { it.isNotBlank() }
-                    ).joinToString(" | ")
+                        item.rating?.let { "★ $it" },
+                        item.year.takeIf { it.isNotBlank() },
+                        item.genres.firstOrNull()
+                    ).joinToString(" · ")
                     if (meta.isNotBlank()) {
                         Text(
                             meta,
-                            fontSize = 11.sp,
-                            color = Color.White,
+                            fontSize = 13.sp,
+                            color = Color(0xE6FFFFFF),
                             maxLines = 1,
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0x99000000))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    if (item.overview.isNotBlank()) {
+                        Text(
+                            item.overview,
+                            fontSize = 13.sp,
+                            color = Color(0xB3FFFFFF),
+                            maxLines = 2,
+                            modifier = Modifier.padding(top = 6.dp)
                         )
                     }
                 }
             }
         }
+        // 圆点指示器
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items.forEachIndexed { index, _ ->
+                Box(
+                    modifier = Modifier
+                        .size(if (index == pagerState.currentPage) 8.dp else 6.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (index == pagerState.currentPage) Color.White
+                            else Color(0x80FFFFFF)
+                        )
+                )
+            }
+        }
     }
 }
 
-/** 媒体库卡片（对齐 Android item_library_card.xml：190×105dp，14dp 圆角，2×2 拼图） */
+/** 媒体库卡片（对齐用户截图样式：左侧彩色块+库名，右侧海报拼贴） */
 @Composable
 fun LibraryCard(
     lib: UiLibrary,
@@ -698,6 +747,22 @@ fun LibraryCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 根据库名选择背景色（对齐截图：国产剧青、港台剧浅绿、日韩剧金、欧美剧橄榄绿、短剧亮绿等）
+    val bgColor = when {
+        lib.name.contains("国产") -> Color(0xFF2E9AA6)
+        lib.name.contains("港台") -> Color(0xFF7BC8A4)
+        lib.name.contains("日韩") -> Color(0xFFD4A017)
+        lib.name.contains("欧美") -> Color(0xFF9AA653)
+        lib.name.contains("短剧") -> Color(0xFF2ECC71)
+        lib.name.contains("电影") -> Color(0xFF1A6B7A)
+        lib.name.contains("综艺") -> Color(0xFFE67E22)
+        lib.name.contains("动漫") -> Color(0xFF9B59B6)
+        lib.name.contains("纪录") -> Color(0xFF5D6D7E)
+        else -> {
+            val hues = listOf(0xFF2E9AA6, 0xFF7BC8A4, 0xFFD4A017, 0xFF9AA653, 0xFF2ECC71, 0xFF1A6B7A)
+            Color(hues[Math.abs(lib.name.hashCode()) % hues.size])
+        }
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
@@ -710,29 +775,59 @@ fun LibraryCard(
                 .width(190.dp)
                 .height(105.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFFCFD8DC))
+                .background(bgColor)
         ) {
-            // 2×2 拼图
-            Column(Modifier.fillMaxSize()) {
-                Row(Modifier.weight(1f).fillMaxWidth()) {
-                    LibraryCollageCell(posters.getOrNull(0), Modifier.weight(1f).fillMaxSize())
-                    LibraryCollageCell(posters.getOrNull(1), Modifier.weight(1f).fillMaxSize())
-                }
-                Row(Modifier.weight(1f).fillMaxWidth()) {
-                    LibraryCollageCell(posters.getOrNull(2), Modifier.weight(1f).fillMaxSize())
-                    LibraryCollageCell(posters.getOrNull(3), Modifier.weight(1f).fillMaxSize())
+            // 左侧：库名
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 14.dp),
+            ) {
+                Text(
+                    lib.name,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "TV",
+                    fontSize = 10.sp,
+                    color = Color(0xB3FFFFFF),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            // 右侧：海报拼贴（3张错落叠放）
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy((-16).dp)
+            ) {
+                posters.take(3).forEachIndexed { index, poster ->
+                    Box(
+                        modifier = Modifier
+                            .width(56.dp)
+                            .height(80.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0x40000000))
+                            .graphicsLayer {
+                                rotationZ = (index - 1) * 8f
+                                translationY = (index - 1) * 4f
+                            }
+                    ) {
+                        if (poster.imageUrl != null) {
+                            EmbyImage(
+                                url = poster.imageUrl,
+                                contentDescription = poster.name,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
                 }
             }
-            // 库名压在拼图上：白色 20sp bold，左侧
-            Text(
-                lib.name,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }
