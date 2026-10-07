@@ -54,8 +54,9 @@ private fun dockTabs(): List<DockTab> = listOf(
 fun DockBar(
     current: Screen,
     onSelect: (Screen) -> Unit,
-    blurredBackdrop: ImageBitmap? = null,
-    onDockBounds: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
+    backgroundContent: @Composable () -> Unit,
+    screenW: androidx.compose.ui.unit.Dp,
+    screenH: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
     val tabs = dockTabs()
@@ -68,28 +69,19 @@ fun DockBar(
         modifier = modifier,
         contentAlignment = Alignment.BottomCenter
     ) {
-        MGlassBox(
-            modifier = Modifier
-                .padding(bottom = 12.dp)
-                .then(
-                    if (onDockBounds != null) {
-                        Modifier.onGloballyPositioned { coords ->
-                            val pos = coords.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
-                            val size = coords.size
-                            onDockBounds(
-                                androidx.compose.ui.geometry.Rect(
-                                    pos.x, pos.y,
-                                    pos.x + size.width, pos.y + size.height
-                                )
-                            )
-                        }
-                    } else Modifier
-                ),
-            corner = 30.dp,
-            blurredBackdrop = blurredBackdrop,
-            // 真模糊抓图暂不可用，用 75% 白模拟毛玻璃糊感
-            tint = MGlass.DockTintNoBlur
+        // Dock 容器：真模糊背景 + 图标
+        Box(
+            modifier = Modifier.padding(bottom = 12.dp)
         ) {
+            // 真 backdrop 模糊背景（自研双渲染）
+            TrueBlurDockBackground(
+                backgroundContent = backgroundContent,
+                screenW = screenW,
+                screenH = screenH,
+                modifier = Modifier.matchParentSize(),
+                corner = 30.dp
+            )
+            // 图标内容
             Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 // 选中指示器（灰色 pill，位于 tab 下层）
                 Box(

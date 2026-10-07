@@ -2,8 +2,10 @@ package com.muse.gomepc
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +28,6 @@ import com.sun.jna.platform.win32.WinDef
 import com.sun.jna.platform.win32.WinUser
 import com.muse.gomepc.ui.DetailScreen
 import com.muse.gomepc.ui.DockBar
-import com.muse.gomepc.ui.DockBlurState
 import com.muse.gomepc.ui.FavoritesScreen
 import com.muse.gomepc.ui.GomeTheme
 import com.muse.gomepc.ui.GridScreen
@@ -201,33 +202,9 @@ fun GomeApp(
     }
 
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
-    // M玻璃真模糊：定时抓取 dock 背后的窗口区域做模糊
-    val dockBlur = remember { DockBlurState() }
-    // dock 在窗口内的位置（像素）
-    var dockBoundsInWindow by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    // 定时更新 dock 模糊背景（500ms 一次）
-    androidx.compose.runtime.LaunchedEffect(dockBoundsInWindow, owner) {
-        while (true) {
-            kotlinx.coroutines.delay(500)
-            val bounds = dockBoundsInWindow
-            val w = owner
-            if (bounds != null && w != null) {
-                // 在 IO 线程抓图，避免卡 UI
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    dockBlur.captureAndBlur(
-                        w,
-                        bounds.left.toInt(),
-                        bounds.top.toInt(),
-                        bounds.width.toInt(),
-                        bounds.height.toInt()
-                    )
-                }
-            }
-        }
-    }
-    Box(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
-        Box(Modifier.fillMaxSize()) {
-            when (val s = screen) {
+    // 真 backdrop 模糊（自研双渲染）：背景内容 lambda 供 dock 模糊层复用
+    val backgroundContent: @Composable () -> Unit = {
+        when (val s = screen) {
                 is Screen.Home -> HomeScreen(
                     onItemClick = { screen = Screen.Detail(it.id) },
                     onResumeMore = { screen = Screen.ResumeList },
@@ -277,18 +254,21 @@ fun GomeApp(
                 )
                 else -> {}
             }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
+        Box(Modifier.fillMaxSize()) {
+            backgroundContent()
         }
         // 详情页也保留 Dock（对齐 Android：Dock 只在播放器页隐藏）
         if (screen !is Screen.Player) {
             DockBar(
                 current = screen,
                 onSelect = { screen = it },
-                blurredBackdrop = dockBlur.blurred,
-                onDockBounds = { dockBoundsInWindow = it },
+                backgroundContent = backgroundContent,
+                screenW = maxWidth,
+                screenH = maxHeight,
                 modifier = Modifier.fillMaxSize()
             )
         }
-
-        // Dock 真模糊：Window.paint() 抓窗口内容做高斯模糊，见 DockBlurState
     }
 }
