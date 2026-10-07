@@ -46,18 +46,17 @@ fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
         state = state,
-        title = "Gome PC"
+        title = "Gome PC",
+        undecorated = isFullscreen
     ) {
         MaterialTheme {
             GomeApp(
                 onFullscreen = {
-                    val awtWindow = window
-                    val device = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
                     isFullscreen = !isFullscreen
                     if (isFullscreen) {
-                        device.fullScreenWindow = awtWindow
+                        state.placement = WindowPlacement.Fullscreen
                     } else {
-                        device.fullScreenWindow = null
+                        state.placement = WindowPlacement.Floating
                     }
                 },
                 owner = window
