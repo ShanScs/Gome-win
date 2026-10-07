@@ -104,6 +104,10 @@
   - 2026-10-07 17:28 用户 1.0.70 仍不满意
   - 根因：M玻璃#55FFFFFF 是配 BlurView 真模糊的，PC 无真模糊时纯色太透
   - 修：Dock 用 DockTintNoBlur(#BFFFFFFF) 模拟毛玻璃糊感，高光描边不变
+  - 2026-10-07 17:46 用户：第三方 dock 主题在 Win11 亚克力出来前就做出来了，PC 自己写真模糊
+  - 修：DockBlurState 改用 Window.paint() 抓窗口内容（不用 Robot 抓屏），
+    MGlassBox 补上 blurredBackdrop 绘制，Dock 换回标准 #55FFFFFF 底，
+    Main.kt 加 500ms 定时更新模糊背景
 
 ### 编辑服务器弹窗（2026-10-07 16:58 用户："删除和图标功能啦？"）
 - [x] 加删除按钮（编辑模式左下角红色）

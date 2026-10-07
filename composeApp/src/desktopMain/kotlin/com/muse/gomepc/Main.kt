@@ -201,11 +201,30 @@ fun GomeApp(
     }
 
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
-    // M玻璃真模糊：定时抓取 dock 背后的屏幕区域做模糊
+    // M玻璃真模糊：定时抓取 dock 背后的窗口区域做模糊
     val dockBlur = remember { DockBlurState() }
-    // dock 在窗口内的位置（像素），用于换算屏幕坐标
+    // dock 在窗口内的位置（像素）
     var dockBoundsInWindow by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    var windowPos by remember { mutableStateOf<androidx.compose.ui.unit.IntOffset?>(null) }
+    // 定时更新 dock 模糊背景（500ms 一次）
+    androidx.compose.runtime.LaunchedEffect(dockBoundsInWindow, owner) {
+        while (true) {
+            kotlinx.coroutines.delay(500)
+            val bounds = dockBoundsInWindow
+            val w = owner
+            if (bounds != null && w != null) {
+                // 在 IO 线程抓图，避免卡 UI
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    dockBlur.captureAndBlur(
+                        w,
+                        bounds.left.toInt(),
+                        bounds.top.toInt(),
+                        bounds.width.toInt(),
+                        bounds.height.toInt()
+                    )
+                }
+            }
+        }
+    }
     Box(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
         Box(Modifier.fillMaxSize()) {
             when (val s = screen) {
@@ -270,7 +289,6 @@ fun GomeApp(
             )
         }
 
-        // Dock 抓屏真模糊已停用：Robot 抓到的是黑色，dock 发黑
-        // 直接按安卓 M玻璃 参数画（#55FFFFFF 底 + 高光 + 描边），见 MGlass.kt
+        // Dock 真模糊：Window.paint() 抓窗口内容做高斯模糊，见 DockBlurState
     }
 }

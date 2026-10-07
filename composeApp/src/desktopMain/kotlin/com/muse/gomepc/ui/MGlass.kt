@@ -58,6 +58,16 @@ fun MGlassBox(
             .clip(shape)
             .border(1.dp, MGlass.Stroke, shape)
     ) {
+        // 最底层：真模糊抓图（有就画，没有就透明）
+        val backdrop = blurredBackdrop
+        if (backdrop != null) {
+            androidx.compose.foundation.Image(
+                bitmap = backdrop,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
         // M玻璃底色（默认#55FFFFFF）
         Box(
             modifier = Modifier
