@@ -4,7 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -1193,14 +1195,16 @@ private fun ServerCard(
                         if (isCurrent) Color(0xFF34C759) else Color(0xFFCCCCCC)
                     )
             )
-            // 服务器图标 32dp 圆形：点击进编辑
+            // 服务器图标 32dp 圆形：点击进编辑（用 pointerInput 避免跟卡片 combinedClickable 冲突）
             Box(
                 modifier = Modifier
                     .padding(start = 8.dp)
                     .size(32.dp)
                     .clip(androidx.compose.foundation.shape.CircleShape)
                     .background(Color.White)
-                    .clickable { onAvatarClick() },
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { onAvatarClick() })
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Text(

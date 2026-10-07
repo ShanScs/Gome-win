@@ -89,6 +89,9 @@
 - [x] 删掉资源页右上角两个图标（锁 / 更多）
 - [x] 点服务器卡片进主页，点服务器头像进编辑
   - ServerCard 加 onAvatarClick，头像 Box 单独 clickable
+  - 2026-10-07 17:05 用户：点击服务器无效，不能进入主页
+  - 根因：头像的 clickable 跟卡片的 combinedClickable 冲突
+  - 修：头像改用 pointerInput + detectTapGestures
 - [x] Dock 修好：太黑，拿安卓 M玻璃 参数
   - 根因：Robot 抓屏模糊抓到黑色，dock 发黑
   - 修：停用抓屏，直接按安卓参数画（#55FFFFFF 底 + #99FFFFFF→#00FFFFFF 高光 + #AAFFFFFF 描边）
