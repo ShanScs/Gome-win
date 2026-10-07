@@ -55,34 +55,27 @@ object HomeDataCache {
         scope.launch {
             try {
                 error = null
-                // 总超时 30 秒，防止卡死
-                val ok = withTimeoutOrNull(30000) {
-                    // 第一批并行：libraries + resume + latest（各 10 秒超时）
-                    val libsDef = async { withTimeoutOrNull(10000) { Repo.libraries() } ?: emptyList() }
-                    val resumeDef = async { withTimeoutOrNull(10000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
-                    val latestDef = async { withTimeoutOrNull(10000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
-                    val l = libsDef.await()
-                    libs = l
-                    resume = resumeDef.await()
-                    latest = latestDef.await()
-                    // 第二批并行：每个媒体库的 items（各 10 秒超时）
-                    val itemsDefs = l.map { lib ->
-                        lib.id to async {
-                            withTimeoutOrNull(10000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
-                        }
+                // 第一批：libraries + resume + latest（各 15 秒超时，并行）
+                val libsDef = async { withTimeoutOrNull(15000) { Repo.libraries() } ?: emptyList() }
+                val resumeDef = async { withTimeoutOrNull(15000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
+                val latestDef = async { withTimeoutOrNull(15000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
+                val l = libsDef.await()
+                libs = l
+                resume = resumeDef.await()
+                latest = latestDef.await()
+                // 库列表出来就标记完成，UI 先显示；剧集后台并行填
+                loaded = true
+                // 第二批：每个媒体库的 items（各 15 秒超时，并行，增量更新 UI）
+                val itemsDefs = l.map { lib ->
+                    lib.id to async {
+                        withTimeoutOrNull(15000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
                     }
-                    val map = mutableMapOf<String, List<UiMediaItem>>()
-                    for ((id, def) in itemsDefs) {
-                        map[id] = def.await()
-                        // 增量更新：每回来一个库就刷新 UI，不用等全部
-                        libItems = map.toMap()
-                    }
-                    true
                 }
-                if (ok == true) {
-                    loaded = true
-                } else {
-                    error = "加载超时，请重试"
+                val map = mutableMapOf<String, List<UiMediaItem>>()
+                for ((id, def) in itemsDefs) {
+                    map[id] = def.await()
+                    // 增量更新：每回来一个库就刷新 UI，不用等全部
+                    libItems = map.toMap()
                 }
             } catch (e: Exception) {
                 error = e.message ?: "未知错误"
