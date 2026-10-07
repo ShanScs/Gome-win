@@ -41,9 +41,6 @@ class MpvPlayer {
         fun onTimePos(sec: Double, duration: Double)
         fun onPause(paused: Boolean)
         fun onLog(prefix: String, level: String, text: String) {}
-
-        // 💥 新增核心回调：通知外部 UI 底层发现了鼠标活动
-        fun onMouseActivity() {}
     }
 
     var listener: Listener? = null
@@ -55,8 +52,6 @@ class MpvPlayer {
     @Volatile private var lastTimePos = 0.0
     @Volatile private var lastDuration = 0.0
     @Volatile private var lastPaused = false
-    // 鼠标高频事件节流降频时间戳
-    private var lastMouseActivityTime = 0L
 
     val timePos: Double get() = lastTimePos
     val duration: Double get() = lastDuration
@@ -121,25 +116,8 @@ class MpvPlayer {
             return "mpv_initialize failed: ${lib.mpv_error_string(r)}"
         }
 
-        // 🔥 【核心修复 1】：在初始化成功后，立刻注入鼠标告密哨兵脚本
-        try {
-            val luaScript = """
-                mp.add_forced_key_binding("mouse_move", "sentinel_move", function()
-                    mp.msg.info("SENTINEL_MOUSE_MOVE_EVENT")
-                end)
-            """.trimIndent()
-
-            val tempScriptFile = java.io.File.createTempFile("mpv_mouse_sentinel_", ".lua").apply {
-                writeText(luaScript)
-                deleteOnExit()
-            }
-
-            lib.mpv_command(ctx, arrayOf("load-script", tempScriptFile.absolutePath, null))
-            DebugLog.d("MPV", "哨兵脚本已注入: ${tempScriptFile.absolutePath}")
-        } catch (e: Throwable) {
-            DebugLog.d("MPV", "注入哨兵脚本失败: ${e.message}")
-            println("注入哨兵脚本失败: ${e.message}")
-        }
+        // 鼠标哨兵 Lua 脚本已移除：AWT Canvas 已有 mouseMoved/mouseDragged/mouseClicked 监听，
+        // 哨兵的 mouse_move 高频触发会导致工具栏无法自动隐藏（刚隐藏 278ms 就被唤醒）。
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property）
         lib.mpv_set_property_string(ctx, "osd-level", "0")
@@ -277,25 +255,12 @@ class MpvPlayer {
                         lm.read()
                         val text = (lm.text ?: "").trim()
 
-                        // 拦截来自内部 Lua 脚本的"告密信号"
-                        if (text.contains("SENTINEL_MOUSE_MOVE_EVENT")) {
-                            DebugLog.d("SENTINEL", "收到鼠标移动告密信号")
-                            val now = System.currentTimeMillis()
-                            // 节流：50 毫秒内只向 Compose 汇报一次鼠标活动，防止高频重构卡死主线程
-                            if (now - lastMouseActivityTime > 50) {
-                                lastMouseActivityTime = now
-                                javax.swing.SwingUtilities.invokeLater {
-                                    listener?.onMouseActivity()
-                                }
-                            }
-                        } else {
-                            // 其他常规日志正常派发
-                            listener?.onLog(
-                                lm.prefix ?: "",
-                                lm.level ?: "",
-                                text
-                            )
-                        }
+                        // 其他常规日志正常派发
+                        listener?.onLog(
+                            lm.prefix ?: "",
+                            lm.level ?: "",
+                            text
+                        )
                     } catch (_: Throwable) { }
                 }
             }

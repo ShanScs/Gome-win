@@ -52,8 +52,14 @@
   - 新建VolumeBar类：6dp轨道+14dp白圆，拖动调音量（同SeekBar样式）
 - [x] 全屏模式工具栏无法呼出（2026-10-07 13:56 用户："点击全屏进入全屏模式后工具栏无法呼出"）
   - 改用AWT真全屏（GraphicsDevice.fullScreenWindow），标题栏去掉后鼠标事件正常
-- [x] 全屏模式顶部白条没去掉（2026-10-07 13:56 用户："顶部的白条还在，把它去掉"）
-  - 改用undecorated真全屏：Window加undecorated=isFullscreen参数（1.0.61）
+- [ ] 全屏模式顶部白条没去掉（2026-10-07 13:56 用户："顶部的白条还在，把它去掉"）
+  - 1.0.61用undecorated导致闪退，已回滚（1.0.62）
+  - 1.0.63改用JNA+Win32 SetWindowLongPtr修改窗口样式，不重建HWND（按Gemini分析建议）
+  - 进入全屏：保存原style/bounds → 去WS_CAPTION/WS_THICKFRAME → 设为显示器完整bounds（覆盖任务栏）
+  - 退出全屏：恢复原style/bounds
+- [ ] 1.0.61工具栏不自动隐藏（2026-10-07 15:40 用户："忘说了1.0.61工具栏不自动隐藏"）
+  - 根因：MPV鼠标哨兵Lua脚本高频触发mouse_move，工具栏刚隐藏278ms就被唤醒
+  - 修复：删除哨兵脚本，AWT Canvas已有mouseMoved/mouseDragged/mouseClicked监听
 - [x] 上下集和选集切换无效（2026-10-07 13:59 用户："点击上下集和选集卡片里面切换剧集无效"）
   - 根因：player用remember缓存，换集时还是旧player
   - 修复：remember(episodeId)，换集时销毁旧player建新player

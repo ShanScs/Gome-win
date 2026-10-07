@@ -296,14 +296,6 @@ fun PlayerScreen(
                     if (mpvLogs.size > 50) mpvLogs.removeAt(0)
                 }
             }
-            override fun onMouseActivity() {
-                com.muse.gomepc.player.DebugLog.d("UI", "onMouseActivity 回调触发")
-                // 收到来自 mpv 核心最深处的呼唤，不管窗口怎么穿透、怎么丢失焦点，强行唤醒控制条
-                if (!controlsVisible) {
-                    com.muse.gomepc.player.DebugLog.d("UI", "唤醒工具栏: false -> true")
-                    controlsVisible = true
-                }
-            }
         }
         onDispose {
             player.destroy()

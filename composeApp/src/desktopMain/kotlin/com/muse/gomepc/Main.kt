@@ -18,6 +18,9 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.muse.gomepc.emby.Prefs
+import com.sun.jna.Library
+import com.sun.jna.Native
+import com.sun.jna.Pointer
 import com.muse.gomepc.ui.DetailScreen
 import com.muse.gomepc.ui.DockBar
 import com.muse.gomepc.ui.DockBlurState
@@ -36,6 +39,65 @@ import com.muse.gomepc.ui.SettingsScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Windows下去掉标题栏但不重建HWND（避免MPV崩） */
+private interface User32Ext : Library {
+    fun GetWindowLongPtr(hWnd: Pointer, nIndex: Int): Long
+    fun SetWindowLongPtr(hWnd: Pointer, nIndex: Int, dwNewLong: Long): Long
+    fun SetWindowPos(hWnd: Pointer, hWndInsertAfter: Pointer?, x: Int, y: Int, cx: Int, cy: Int, uFlags: Int): Boolean
+}
+
+private var savedWindowStyle: Long = 0L
+private var savedWindowBounds: java.awt.Rectangle? = null
+
+private fun setWindowBorderless(hwnd: Long, borderless: Boolean) {
+    try {
+        val user32 = Native.load("user32", User32Ext::class.java)
+        val hWnd = Pointer(hwnd)
+        val GWL_STYLE = -16
+        val WS_CAPTION = 0x00C00000
+        val WS_THICKFRAME = 0x00040000
+        val SWP_NOMOVE = 0x0002
+        val SWP_NOSIZE = 0x0001
+        val SWP_NOZORDER = 0x0004
+        val SWP_FRAMECHANGED = 0x0020
+        if (borderless) {
+            // 保存原始样式，进入无边框
+            savedWindowStyle = user32.GetWindowLongPtr(hWnd, GWL_STYLE)
+            com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "保存原始style: 0x${savedWindowStyle.toString(16)}, hwnd=$hwnd")
+            val newStyle = (savedWindowStyle.toInt() and WS_CAPTION.inv() and WS_THICKFRAME.inv()).toLong()
+            user32.SetWindowLongPtr(hWnd, GWL_STYLE, newStyle)
+            com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "设置无边框style: 0x${newStyle.toString(16)}")
+        } else {
+            // 恢复原始样式
+            if (savedWindowStyle != 0L) {
+                user32.SetWindowLongPtr(hWnd, GWL_STYLE, savedWindowStyle)
+                com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复原始style: 0x${savedWindowStyle.toString(16)}")
+            }
+        }
+        // 刷新窗口
+        user32.SetWindowPos(
+            hWnd, null, 0, 0, 0, 0,
+            SWP_NOMOVE or SWP_NOSIZE or SWP_NOZORDER or SWP_FRAMECHANGED
+        )
+    } catch (e: Throwable) {
+        com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "setWindowBorderless失败: ${e.message}")
+        e.printStackTrace()
+    }
+}
+
+private fun getHwnd(window: java.awt.Window): Long {
+    return try {
+        val peerField = java.awt.Component::class.java.getDeclaredField("peer")
+        peerField.isAccessible = true
+        val peer = peerField.get(window)
+        val hwndField = peer.javaClass.getDeclaredField("hwnd")
+        hwndField.isAccessible = true
+        hwndField.getLong(peer)
+    } catch (e: Throwable) {
+        0L
+    }
+}
+
 fun main() = application {
     val state = rememberWindowState(
         width = 1280.dp,
@@ -52,13 +114,40 @@ fun main() = application {
             GomeApp(
                 onFullscreen = {
                     val awtWindow = window
-                    val device = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
                     isFullscreen = !isFullscreen
+                    val hwnd = getHwnd(awtWindow)
+                    com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "切换全屏: isFullscreen=$isFullscreen, hwnd=$hwnd")
                     if (isFullscreen) {
-                        device.fullScreenWindow = awtWindow
+                        // 保存当前窗口位置
+                        savedWindowBounds = awtWindow.bounds
+                        com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "保存窗口bounds: $savedWindowBounds")
+                        // 去标题栏（不重建HWND）
+                        if (hwnd != 0L) setWindowBorderless(hwnd, true)
+                        // 用显示器完整bounds覆盖全屏（不是最大化到工作区，避免任务栏出现）
+                        try {
+                            val gd = awtWindow.graphicsConfiguration.device
+                            val bounds = gd.defaultConfiguration.bounds
+                            com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "显示器bounds: $bounds")
+                            awtWindow.bounds = bounds
+                        } catch (e: Throwable) {
+                            com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "设置全屏bounds失败: ${e.message}")
+                            state.placement = WindowPlacement.Maximized
+                        }
                     } else {
-                        device.fullScreenWindow = null
+                        // 恢复标题栏
+                        if (hwnd != 0L) setWindowBorderless(hwnd, false)
+                        // 恢复窗口位置
+                        try {
+                            savedWindowBounds?.let {
+                                awtWindow.bounds = it
+                                com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复窗口bounds: $it")
+                            }
+                            state.placement = WindowPlacement.Floating
+                        } catch (e: Throwable) {
+                            com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复窗口失败: ${e.message}")
+                        }
                     }
+                    // 工具栏位置由 ToolbarWindowManager 的 200ms 定时器自动同步，无需手动调用
                 },
                 owner = window
             )
