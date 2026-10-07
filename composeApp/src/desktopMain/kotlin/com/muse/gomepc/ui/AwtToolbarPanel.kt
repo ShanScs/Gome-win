@@ -366,9 +366,8 @@ class AwtToolbarPanel(
     }
 
     private fun buildBottomBar() {
-        val bottomBar = JPanel().apply {
+        val bottomBar = JPanel(BorderLayout()).apply {
             isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = EmptyBorder(8, 12, 12, 12)
         }
 
@@ -432,8 +431,8 @@ class AwtToolbarPanel(
         controlRow.add(centerGroup, BorderLayout.CENTER)
         controlRow.add(rightGroup, BorderLayout.EAST)
 
-        bottomBar.add(progressRow)
-        bottomBar.add(controlRow)
+        bottomBar.add(progressRow, BorderLayout.NORTH)
+        bottomBar.add(controlRow, BorderLayout.CENTER)
         add(bottomBar, BorderLayout.SOUTH)
 
         applyEnabledStates()
@@ -711,6 +710,9 @@ class AwtToolbarPanel(
                 if (!isEnabled || dimmed) alpha = 0.4f
                 if (pressed) alpha *= 0.65f
                 g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
+                // 半透明背板：整个32×32都可点，不只线条
+                g2.color = Color(0, 0, 0, 1)
+                g2.fillOval(0, 0, width, height)
                 // 圆圈+字形同一坐标系一次画完
                 try {
                     VectorIcon.get(iconName, 32).paintIcon(this, g2, 0, 0)
