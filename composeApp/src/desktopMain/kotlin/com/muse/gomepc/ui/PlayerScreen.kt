@@ -186,7 +186,7 @@ fun PlayerScreen(
     onFullscreen: () -> Unit,
     onSwitchEpisode: ((episodeId: String, episodeIndex: Int) -> Unit)? = null
 ) {
-    val player = remember { MpvPlayer() }
+    val player = remember(episodeId) { MpvPlayer() }
     val engine = remember {
         DanmakuEngine().apply { setDanmakuList(demoDanmakus) }
     }
@@ -372,6 +372,12 @@ fun PlayerScreen(
                 ToolbarWindowManager.hide()
                 com.muse.gomepc.player.DebugLog.d("UI", "工具栏已隐藏")
             } catch (_: Throwable) { }
+        }
+    }
+
+    // 换集时销毁旧 player
+    DisposableEffect(episodeId) {
+        onDispose {
             try { player.destroy() } catch (_: Throwable) { }
         }
     }

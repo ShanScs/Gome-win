@@ -42,6 +42,7 @@ fun main() = application {
         height = 800.dp,
         position = WindowPosition(Alignment.Center)
     )
+    var isFullscreen by remember { mutableStateOf(false) }
     Window(
         onCloseRequest = ::exitApplication,
         state = state,
@@ -50,8 +51,14 @@ fun main() = application {
         MaterialTheme {
             GomeApp(
                 onFullscreen = {
-                    state.placement = if (state.placement == WindowPlacement.Fullscreen)
-                        WindowPlacement.Floating else WindowPlacement.Fullscreen
+                    val awtWindow = window
+                    val device = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
+                    isFullscreen = !isFullscreen
+                    if (isFullscreen) {
+                        device.fullScreenWindow = awtWindow
+                    } else {
+                        device.fullScreenWindow = null
+                    }
                 },
                 owner = window
             )
