@@ -87,8 +87,8 @@ fun DockBar(
                 ),
             corner = 30.dp,
             blurredBackdrop = blurredBackdrop,
-            // M玻璃真模糊已接上，用标准 #55FFFFFF 底
-            tint = MGlass.Tint
+            // 真模糊抓图暂不可用，用 75% 白模拟毛玻璃糊感
+            tint = MGlass.DockTintNoBlur
         ) {
             Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 // 选中指示器（灰色 pill，位于 tab 下层）
