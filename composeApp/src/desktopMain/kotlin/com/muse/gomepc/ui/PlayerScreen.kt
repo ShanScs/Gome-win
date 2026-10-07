@@ -329,7 +329,8 @@ fun PlayerScreen(
                 return@Thread
             }
             val err = try {
-                player.init(wid, vo = vo, hwdec = hwdec)
+                val prefs = com.muse.gomepc.emby.Prefs
+                player.init(wid, vo = vo, hwdec = hwdec, cacheEnabled = prefs.cacheEnabled, cacheSizeGb = prefs.cacheSizeGb)
             } catch (e: Throwable) {
                 "init异常: ${e.message}"
             }

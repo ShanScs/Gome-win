@@ -61,11 +61,11 @@ jobs:
           # 安装后 exe 所在目录即程序目录，同目录放 DLL 即可加载。
           # 用 jpackage 把 app-image 打成 MSI 安装包
           $jpackage = Join-Path $env:JAVA_HOME "bin\jpackage.exe"
-          & $jpackage --type msi --app-image "$appDir" --name "Gome" --app-version "1.0.54" --vendor "Muse" --description "Gome PC - Emby client (Dolby Vision compatible)" --dest "composeApp/build/msi" --win-menu --win-shortcut
+          & $jpackage --type msi --app-image "$appDir" --name "Gome" --app-version "1.0.55" --vendor "Muse" --description "Gome PC - Emby client (Dolby Vision compatible)" --dest "composeApp/build/msi" --win-menu --win-shortcut
           $msi = Get-ChildItem -Path "composeApp/build/msi" -Filter "*.msi" | Select-Object -First 1
           if (-not $msi) { throw "MSI not created" }
           # 安装包文件名改为 Gome-win（跟仓库名一致），app 本体仍叫 Gome
-          $msiFinal = Join-Path "composeApp/build/msi" "Gome-win-1.0.54.msi"
+          $msiFinal = Join-Path "composeApp/build/msi" "Gome-win-1.0.55.msi"
           Move-Item $msi.FullName $msiFinal -Force
           Write-Host "MSI: $msiFinal ($([math]::Round((Get-Item $msiFinal).Length/1MB,1)) MB)"
           echo "MSI_PATH=$msiFinal" >> $env:GITHUB_ENV
@@ -73,6 +73,6 @@ jobs:
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Gome-win-1.0.54.msi
+          name: Gome-win-1.0.55.msi
           path: ${{ env.MSI_PATH }}
           retention-days: 30

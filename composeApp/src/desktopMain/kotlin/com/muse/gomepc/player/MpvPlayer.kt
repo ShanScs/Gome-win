@@ -69,7 +69,7 @@ class MpvPlayer {
      * @param hwdec "auto" / "no"，VM 无 GPU 时用 "no"
      * @return null=成功，否则为错误信息
      */
-    fun init(wid: Long, vo: String = "gpu-next", hwdec: String = "auto"): String? {
+    fun init(wid: Long, vo: String = "gpu-next", hwdec: String = "auto", cacheEnabled: Boolean = true, cacheSizeGb: Int = 1): String? {
         if (handle != null) return "already initialized"
         val lib = LibMpv.INSTANCE
         val ctx: Pointer = try {
@@ -103,6 +103,14 @@ class MpvPlayer {
         opt("input-vo-keyboard", "no")?.let { /* 非致命，忽略 */ }
         opt("input-default-bindings", "no")?.let { /* 非致命，忽略 */ }
         opt("osc", "no")?.let { /* 非致命，忽略 */ }
+
+        // 缓存设置（对齐安卓：cache=yes + demuxer-max-bytes=1G/2G/3G）
+        if (cacheEnabled) {
+            opt("cache", "yes")?.let { /* 非致命，忽略 */ }
+            opt("demuxer-max-bytes", "${cacheSizeGb}GiB")?.let { /* 非致命，忽略 */ }
+        } else {
+            opt("cache", "no")?.let { /* 非致命，忽略 */ }
+        }
 
         // 请求日志消息必须在 initialize 之前（mpv 要求）
         try { lib.mpv_request_log_messages(ctx, "info") } catch (_: Throwable) { }
