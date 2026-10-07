@@ -104,7 +104,11 @@ object YambyClient {
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else c.errorStream
             val txt = stream?.bufferedReader()?.readText() ?: ""
-            if (code !in 200..299) throw Exception("$what 失败（HTTP $code）")
+            if (code !in 200..299) {
+                // 脱敏：去掉 api_key 参数再显示
+                val safeUrl = u.replace(Regex("api_key=[^&]*"), "api_key=***")
+                throw Exception("$what 失败（HTTP $code）\n$safeUrl")
+            }
             JSONObject(txt)
         } finally {
             c.disconnect()
