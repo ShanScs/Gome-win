@@ -379,6 +379,7 @@ class AwtToolbarPanel(
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 32)
         }
         val infoIcon = JLabel(icon("ic_pl_info", 18))
         infoIcon.border = EmptyBorder(0, 0, 0, 6)
@@ -724,6 +725,11 @@ class AwtToolbarPanel(
             } finally {
                 g2.dispose()
             }
+        }
+
+        // 整个 32×32 都是点击区域，不只线条
+        override fun contains(x: Int, y: Int): Boolean {
+            return x in 0..width && y in 0..height
         }
     }
 
