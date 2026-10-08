@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
 /**
@@ -43,6 +44,7 @@ fun TrueBlurDockBackground(
 
     // 模糊背景层：全屏渲染 + blur + 底部对齐 + 圆角裁剪
     // offset(y=12.dp)：补偿 dock 的 12dp 底边距，使采样与真实内容像素对齐
+    // pointerInput 吞掉所有指针事件：模糊副本不接收滚轮/点击，避免与主内容冲突
     Box(
         modifier = modifier
             .clip(shape)
@@ -53,6 +55,16 @@ fun TrueBlurDockBackground(
                 .align(Alignment.BottomCenter)
                 .offset(y = 12.dp)
                 .blur(24.dp)
+                .pointerInput(Unit) {
+                    // 消费所有指针事件，阻止模糊副本截获滚轮
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent().changes.forEach {
+                                it.consume()
+                            }
+                        }
+                    }
+                }
         ) {
             backgroundContent()
         }
