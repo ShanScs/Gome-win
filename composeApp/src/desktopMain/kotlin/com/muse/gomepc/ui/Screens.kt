@@ -2784,7 +2784,7 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, onClick: () -> U
 
 /** 详情页（1:1 Android activity_detail） */
 @Composable
-fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpisode) -> Unit) {
+fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpisode) -> Unit, listState: androidx.compose.foundation.lazy.LazyListState? = null) {
     var item by remember(itemId) { mutableStateOf<UiMediaItem?>(null) }
     var epData by remember(itemId) { mutableStateOf<EpisodeData?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -2847,6 +2847,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
             Box(Modifier.fillMaxSize().background(Color.White)) {
                 LazyColumn(
                     Modifier.fillMaxSize(),
+                    state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState(),
                     contentPadding = PaddingValues(bottom = 110.dp)
                 ) {
                     // 海报头 480dp

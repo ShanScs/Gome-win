@@ -209,6 +209,9 @@ fun GomeApp(
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val dockHomeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val dockLibraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    // 详情页滚动状态（dock 模糊层同步用）
+    val detailListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val dockDetailListState = androidx.compose.foundation.lazy.rememberLazyListState()
     // 滚动时把主内容的位置同步到 dock 模糊层（手动，不共享对象）
     androidx.compose.runtime.LaunchedEffect(homeListState) {
         androidx.compose.runtime.snapshotFlow {
@@ -222,6 +225,13 @@ fun GomeApp(
             libraryGridState.firstVisibleItemIndex to libraryGridState.firstVisibleItemScrollOffset
         }.collect { (index, offset) ->
             try { dockLibraryGridState.scrollToItem(index, offset) } catch (_: Exception) {}
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(detailListState) {
+        androidx.compose.runtime.snapshotFlow {
+            detailListState.firstVisibleItemIndex to detailListState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            try { dockDetailListState.scrollToItem(index, offset) } catch (_: Exception) {}
         }
     }
     val backgroundContent: @Composable () -> Unit = {
@@ -273,7 +283,8 @@ fun GomeApp(
                             episodeId = ep.id,
                             episodeIndex = ep.index
                         )
-                    }
+                    },
+                    listState = detailListState
                 )
                 else -> {}
             }
@@ -294,6 +305,12 @@ fun GomeApp(
                 onItemClick = {},
                 onBack = {},
                 gridState = dockLibraryGridState  // 独立状态，LaunchedEffect 手动同步
+            )
+            is Screen.Detail -> DetailScreen(
+                itemId = s.itemId,
+                onBack = {},
+                onPlay = { _, _ -> },
+                listState = dockDetailListState  // 独立状态，LaunchedEffect 手动同步
             )
             else -> backgroundContent()
         }
