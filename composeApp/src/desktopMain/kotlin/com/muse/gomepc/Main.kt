@@ -299,8 +299,11 @@ fun GomeApp(
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
-        Box(Modifier.fillMaxSize()) {
-            backgroundContent()
+        // key(screen)：强制主内容跟随 screen 切换重组（修复 tab 点击指示器动但页面不切）
+        androidx.compose.runtime.key(screen) {
+            Box(Modifier.fillMaxSize()) {
+                backgroundContent()
+            }
         }
         // 详情页也保留 Dock（对齐 Android：Dock 只在播放器页隐藏）
         if (screen !is Screen.Player) {
