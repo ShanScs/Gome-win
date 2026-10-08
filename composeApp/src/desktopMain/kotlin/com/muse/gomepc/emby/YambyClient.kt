@@ -754,7 +754,7 @@ object YambyClient {
                 .url(rawUrl)
                 .header("Authorization", authHeader())
                 .header("Range", "bytes=0-15")
-                .header("User-Agent", "Yamby/1.0")
+                .header("User-Agent", "Yamby/2.1.0.11")
                 .get()
                 .build()
             http.newCall(req).execute().use { resp ->
