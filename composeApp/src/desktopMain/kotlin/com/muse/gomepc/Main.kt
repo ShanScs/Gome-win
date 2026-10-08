@@ -204,11 +204,36 @@ fun GomeApp(
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
     // 真 backdrop 模糊（自研双渲染）：背景内容 lambda 供 dock 模糊层复用
     // 注意：dock 模糊层用独立的滚动状态，手动同步位置。
-    // 真 backdrop 模糊：dock 模糊副本与主内容共享滚动状态（天然同步），
-    // 副本用 pointerInput 吞掉所有指针事件，不会截获滚轮——解决 1.0.95 的滚轮冲突。
+    // 教训（2026-10-08）：共享状态对象会导致滚轮冲突——dock 里的全屏模糊副本会截获滚轮事件。
     val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val dockHomeListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val dockLibraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    // 详情页滚动状态（dock 模糊层同步用）
     val detailListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val dockDetailListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // 滚动时把主内容的位置同步到 dock 模糊层（手动，不共享对象）
+    androidx.compose.runtime.LaunchedEffect(homeListState) {
+        androidx.compose.runtime.snapshotFlow {
+            homeListState.firstVisibleItemIndex to homeListState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            try { dockHomeListState.scrollToItem(index, offset) } catch (_: Exception) {}
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(libraryGridState) {
+        androidx.compose.runtime.snapshotFlow {
+            libraryGridState.firstVisibleItemIndex to libraryGridState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            try { dockLibraryGridState.scrollToItem(index, offset) } catch (_: Exception) {}
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(detailListState) {
+        androidx.compose.runtime.snapshotFlow {
+            detailListState.firstVisibleItemIndex to detailListState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            try { dockDetailListState.scrollToItem(index, offset) } catch (_: Exception) {}
+        }
+    }
     val backgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
                 is Screen.Home -> HomeScreen(
@@ -264,6 +289,32 @@ fun GomeApp(
                 else -> {}
             }
     }
+    // Dock 模糊层专用背景：独立滚动状态，手动同步位置（不共享，避免滚轮冲突）
+    val dockBackgroundContent: @Composable () -> Unit = {
+        when (val s = screen) {
+            is Screen.Home -> HomeScreen(
+                onItemClick = {},
+                onResumeMore = {},
+                onServerIconClick = {},
+                onLibraryClick = {},
+                listState = dockHomeListState  // 独立状态，LaunchedEffect 手动同步
+            )
+            is Screen.Library -> LibraryScreen(
+                libId = s.libId,
+                libName = s.libName,
+                onItemClick = {},
+                onBack = {},
+                gridState = dockLibraryGridState  // 独立状态，LaunchedEffect 手动同步
+            )
+            is Screen.Detail -> DetailScreen(
+                itemId = s.itemId,
+                onBack = {},
+                onPlay = { _, _ -> },
+                listState = dockDetailListState  // 独立状态，LaunchedEffect 手动同步
+            )
+            else -> backgroundContent()
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
         // key(screen)：强制主内容跟随 screen 切换重组（修复 tab 点击指示器动但页面不切）
         androidx.compose.runtime.key(screen) {
@@ -276,7 +327,7 @@ fun GomeApp(
             DockBar(
                 current = screen,
                 onSelect = { screen = it },
-                backgroundContent = backgroundContent,
+                backgroundContent = dockBackgroundContent,
                 screenW = maxWidth,
                 screenH = maxHeight,
                 modifier = Modifier.fillMaxSize()
