@@ -57,8 +57,7 @@ fun DockBar(
     backgroundContent: @Composable () -> Unit,
     screenW: androidx.compose.ui.unit.Dp,
     screenH: androidx.compose.ui.unit.Dp,
-    modifier: Modifier = Modifier,
-    scrollVersion: Int = 0
+    modifier: Modifier = Modifier
 ) {
     val tabs = dockTabs()
     // 选中 tab 索引（Detail/Player 等非常驻页保持上次选中的 tab 高亮）
@@ -74,15 +73,13 @@ fun DockBar(
         Box(
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
-            // 真 backdrop 模糊背景（自研双渲染）
-            // scrollVersion 变化时重组（轻量，不销毁）
+            // 真 backdrop 模糊背景（自研双渲染，共享滚动状态实时同步）
             TrueBlurDockBackground(
                 backgroundContent = backgroundContent,
                 screenW = screenW,
                 screenH = screenH,
                 modifier = Modifier.matchParentSize(),
-                corner = 30.dp,
-                scrollVersion = scrollVersion
+                corner = 30.dp
             )
             // 图标内容
             Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {

@@ -154,6 +154,7 @@ compose.desktop {
         jvmArgs(
             "--add-opens", "java.desktop/java.awt=ALL-UNNAMED",
             "--add-opens", "java.desktop/sun.awt.windows=ALL-UNNAMED",
+            "-Djava.net.preferIPv4Stack=true",
         )
         nativeDistributions {
             // targetFormats 按平台启用：Linux 本地构建用 app-image+zip（deb bundler 在此环境损坏）；
@@ -170,7 +171,7 @@ compose.desktop {
                 else -> targetFormats(TargetFormat.AppImage)
             }
             packageName = "Gome"
-            packageVersion = "1.0.93"
+            packageVersion = "1.0.95"
             description = "Gome PC — Emby client (Dolby Vision compatible)"
             copyright = "© 2026 Muse"
             linux {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -23,6 +24,9 @@ import androidx.compose.ui.unit.dp
  * 做高斯模糊后，通过 Alignment.BottomCenter 对齐到底部 dock 位置，
  * 裁成圆角。模糊层与背后内容自动对齐，无需抓屏。
  *
+ * 注意：模糊层共享主内容的滚动状态，滚动时自动实时同步（VOD 教训）。
+ * dock 有 12dp 底边距，模糊内容需下移 12dp 补偿对齐。
+ *
  * @param backgroundContent 背景内容（会被调用两次，Compose 会复用状态）
  * @param screenW 屏幕宽度（用于全屏渲染模糊层）
  * @param screenH 屏幕高度（用于全屏渲染模糊层）
@@ -33,15 +37,12 @@ fun TrueBlurDockBackground(
     screenW: androidx.compose.ui.unit.Dp,
     screenH: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
-    corner: androidx.compose.ui.unit.Dp = 30.dp,
-    scrollVersion: Int = 0
+    corner: androidx.compose.ui.unit.Dp = 30.dp
 ) {
-    // 读取 scrollVersion 以在滚动时触发轻量重组（不销毁 composition，避免透明和滚轮失效）
-    @Suppress("UNUSED_EXPRESSION")
-    scrollVersion
     val shape = RoundedCornerShape(corner)
 
     // 模糊背景层：全屏渲染 + blur + 底部对齐 + 圆角裁剪
+    // offset(y=12.dp)：补偿 dock 的 12dp 底边距，使采样与真实内容像素对齐
     Box(
         modifier = modifier
             .clip(shape)
@@ -50,6 +51,7 @@ fun TrueBlurDockBackground(
             modifier = Modifier
                 .size(screenW, screenH)
                 .align(Alignment.BottomCenter)
+                .offset(y = 12.dp)
                 .blur(24.dp)
         ) {
             backgroundContent()
