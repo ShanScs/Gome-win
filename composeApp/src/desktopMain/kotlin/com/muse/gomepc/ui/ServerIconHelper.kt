@@ -62,7 +62,7 @@ object ServerIconHelper {
             try {
                 val req = Request.Builder()
                     .url(ICON_JSON_URL)
-                    .header("User-Agent", "GomePC")
+                    .header("User-Agent", "Yamby/2.1.0.11")
                     .build()
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@withContext emptyMap<String, String>()
@@ -124,7 +124,7 @@ object ServerIconHelper {
             try {
                 val req = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "GomePC")
+                    .header("User-Agent", "Yamby/2.1.0.11")
                     .build()
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@withContext null
