@@ -242,3 +242,77 @@
 ### 验证
 - `:composeApp:compileKotlinDesktop` → BUILD SUCCESSFUL（本地 Linux）
 - 已 push 到 https://github.com/ShanScs/Gome-win（7 文件），Actions 自动构建 MSI
+
+## Step 11 — 1:1 功能补完（2026-10-10，用户令"把Gome的PC端UI做好"）
+
+审计：3 个并行审计子代理逐项比对 Android（yamby-copy）vs PC，结论：11 页中 2 页完全缺失（演员页、短剧），播放器 P0 有 3 项，多处"UI-only"（设置写了 pref 但无处读取）。
+
+### 播放器核心（P0）
+- URL 候选重试链：逐个试地址 + 25s 超时 + 整轮重试（CF 冷启动）+ 诊断 + 错误框（重试/返回按钮）
+- onEndFile 自动连播：自然播完 → 下一集，无下集 → 返回
+- mpv bypass 系统代理：`http-proxy=""` + `X-Emby-Token` header + Chrome UA
+- 轨道选择接通：详情页选的版本/音轨/字幕经 Repo.pendingTrackParams 传到播放器（aid/sid 应用）
+- decodeMode 接线：mediacodec-copy→auto-copy 等桌面映射（之前设置页改了等于没改）
+- 键盘：空格/←→/↑↓/F/Esc
+- 进度上报：reportPlaying/reportProgress(10s)/reportStopped + 断点续播 StartTimeTicks
+- 错误 UI：居中错误框 + 重试按钮（替代顶栏小红字）
+
+### 演员页（P0 缺失页）
+- 新建 PersonScreen.kt：头像+简介（4行展开）+ 3列作品网格
+- DetailScreen 演职人员行可点击 → Main.kt 路由
+
+### 服务器管理（P0）
+- recordServerVisit：卡片切换/登录后刷新影片数（之前永远显示"–"）
+- 切换失败回滚：恢复原服务器 + 提示，不再进坏状态首页
+- 编辑改 key 迁移：transferServerStat + custom name + icon 文件迁移
+- 自定义服务器名：custom_name_ + 编辑框名称字段 + effectiveServerName 显示
+- 密码框"留空不修改"、协议端口跟随逻辑对齐安卓
+
+### 弹幕真实接线（P1）
+- Prefs.danmakuSources 多源（url+enabled，JSON，与安卓同格式，旧单 URL 自动迁移）
+- 设置页弹幕弹窗改多源列表（开关+删除+添加）
+- 播放器启动按启用源顺序加载真实弹幕（fallback 链），单开关状态统一 + 持久化
+- 删除演示假数据
+
+### 小修（P1）
+- 主页心形按钮 → 收藏页
+- 收藏页长按 → 确认取消收藏
+- DetailScreen onPlay 前写 pendingTrackParams（两处）
+
+### 验证
+- `:composeApp:compileKotlinDesktop` → BUILD SUCCESSFUL（全量，含三代理并行改动）
+- 已 commit（11ef83e），未打包
+
+### 仍未做（需用户确认优先级）
+- 短剧（整个功能：文件夹/卡片/本地播放）
+- 备用线路（Prefs 字段+编辑卡+切换）
+- 字幕字体/颜色/描边、弹幕样式（大小/速度/延迟/区域）、跳过片头片尾、倍速/旋转/缩放按钮入口、选集面板滚动到当前集、Library 排序、服务器卡片拖动排序、ServerProbe、地址打码
+
+## Step 12 — P0/P1/P2/P3 剩余功能补完（2026-10-11，用户"继续"）
+
+4 个并行子代理完成，全部 BUILD SUCCESSFUL。
+
+### P0：服务器管理（commit `635db12`）
+- **备用线路**：`ServerEntry` += backupProtocol/Host/Port/Path/Name；`baseUrl()` 按 `getActiveLine(key)` 切主/备（`YambyClient` 全流量走它）；`rememberCurrentServer` 登录刷新保留备用字段；编辑框"备用线路"按钮→子卡（线路名称/地址/协议/端口/路径，暂存后主保存写入）；主页顶栏服务器图标长按→线路切换小卡（主线路/备用线路名，✓标记，切换失败回滚）
+- **服务器卡片拖动排序**：`serverOrder`（逗号分隔 key）；长按卡片进排序模式（↑/↓按钮，即时持久化，搜索时退出）；短剧卡固定位置0不参与；头像点进编辑（与安卓一致）
+- **地址打码**：卡片第三行 `host.take(5)+"**"`（>5位时）；编辑框仍显示完整
+
+### P1：播放器功能（commit `bc5e5b8`）
+- **字幕样式**：`SubtitlePopup.kt`（关闭字幕/大小[-]N[+]/当前字幕轨道/当前字体→颜色行+字体列表，1:1安卓）；mpv `sub-font-size/sub-font/sub-color/sub-border-color/sub-border-size` + `sub-scale-with-window=no`；Prefs 键与安卓一致
+- **弹幕样式**：`DanmakuStylePopup.kt`（大小/速度/延迟/描边/透明度/区域/位置，步进器实时生效+持久化）；`AwtDanmakuPanel` 加 `recalcRows()`（之前改样式行数不重算的 bug）
+- **倍速/旋转/缩放**：工具栏三个可见按钮；倍速弹窗（0.5x~2.0x，持久化恢复）；旋转循环0/90/180/270（`video-rotate`）；缩放循环自适应/16:9/4:3/铺满（`video-aspect-override`）
+
+### P2：杂项（并入 `635db12`）
+- **跳过片头片尾**：1:1安卓三段逻辑（服务器章节自动片头→"跳过片头"按钮；手动片头自动跳；手动片尾"跳到下一集(5→1)"倒计时）；片头/片尾标记按钮（前3分钟/后3分钟，点设点取消）；`YambyClient.getIntroRange` 移植
+- **媒体库排序**：`LibSortDialog`（↑/↓+眼睛显隐，保存写 `homeLibOrder`/`homeLibHidden`）；`applyLibOrder` 移植（含隐藏超半防御）；顶栏排序按钮+新图标
+- **ServerProbe**：新建 `ServerProbe.kt`（`Proxy.NO_PROXY` bypass，GET `/System/Info/Public`，4s超时，返回延迟ms）；添加框"探测"按钮；资源库卡片并行探测，状态点绿/红/灰
+
+### P3：短剧（并入 `635db12`）
+- `ShortDramaStore.kt`（JSON 文件夹存储，java.io.File 扫描，9种扩展名，数字感知排序，进度/视频缓存）
+- `ShortDramaListScreen.kt`（文件夹列表，JFileChooser 目录选择，长按/右键删除）
+- `ShortDramaPlayerScreen.kt`（单 MpvPlayer + `loop-file=inf`；点击暂停/滚轮切集/↑↓/空格/Esc；右侧选集栏；进度持久化）
+- 资源库短剧卡固定位置0；FAB 变"添加"菜单[服务器, 短剧]；Dock 在短剧播放页隐藏
+
+### 验证
+- `:composeApp:compileKotlinDesktop` → **BUILD SUCCESSFUL**（最终整树，2026-10-11）
+- 真机运行时（重试链、自动连播、短剧播放、线路切换）需用户 Windows 环境验证
