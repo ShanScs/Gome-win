@@ -304,7 +304,8 @@ object YambyClient {
         limit: Int = 60,
         sortBy: String = "SortName",
         sortOrder: String = "Ascending",
-        minimal: Boolean = false
+        minimal: Boolean = false,
+        startIndex: Int = 0
     ): List<Item> {
         val fields = if (minimal) "" else
             "&Fields=Overview,ProductionYear,RunTimeTicks,ChildCount,RecursiveItemCount,CommunityRating,SeriesName,Status,Genres,PremiereDate,DateCreated,DateLastContentAdded,CriticRating,OfficialRating"
@@ -312,7 +313,7 @@ object YambyClient {
             "/Users/${Prefs.userId}/Items",
             "ParentId=$parentId&Recursive=true&IncludeItemTypes=Movie,Series" +
                 fields +
-                "&SortBy=$sortBy&SortOrder=$sortOrder&Limit=$limit"
+                "&SortBy=$sortBy&SortOrder=$sortOrder&Limit=$limit&StartIndex=$startIndex"
         )
         return parseItems(getJson(u, "获取列表"))
     }
@@ -754,7 +755,7 @@ object YambyClient {
                 .url(rawUrl)
                 .header("Authorization", authHeader())
                 .header("Range", "bytes=0-15")
-                .header("User-Agent", "Yamby/2.1.0.11")
+                .header("User-Agent", "Yamby/1.0")
                 .get()
                 .build()
             http.newCall(req).execute().use { resp ->
