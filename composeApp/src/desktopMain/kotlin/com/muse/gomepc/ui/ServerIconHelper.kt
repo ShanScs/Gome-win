@@ -34,6 +34,7 @@ object ServerIconHelper {
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
+        .proxy(java.net.Proxy.NO_PROXY) // 对齐安卓：图标下载直连，不走系统代理
         .build()
 
     @Volatile private var iconMap: Map<String, String>? = null
@@ -62,7 +63,7 @@ object ServerIconHelper {
             try {
                 val req = Request.Builder()
                     .url(ICON_JSON_URL)
-                    .header("User-Agent", "Yamby/2.1.0.11")
+                    .header("User-Agent", "GomePC")
                     .build()
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@withContext emptyMap<String, String>()
@@ -124,7 +125,7 @@ object ServerIconHelper {
             try {
                 val req = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Yamby/2.1.0.11")
+                    .header("User-Agent", "GomePC")
                     .build()
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@withContext null

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -813,6 +815,20 @@ private fun LibraryCollageCell(item: UiMediaItem?, modifier: Modifier = Modifier
 }
 
 /** 媒体库详情页：点击媒体库卡片或"更多"进入（对齐安卓 LibraryFragment） */
+/** 排序选项：显示名 → (SortBy, SortOrder, 箭头)，对齐 Android LibraryFragment */
+private val librarySortOptions = listOf(
+    "更新日期" to Triple("DateLastContentAdded", "Descending", "↓"),
+    "最新上线" to Triple("DateCreated", "Descending", "↓"),
+    "创建日期" to Triple("DateCreated", "Descending", "↓"),
+    "公众评分" to Triple("CommunityRating", "Descending", "↓"),
+    "标题" to Triple("SortName", "Ascending", "↑"),
+    "首映日期" to Triple("PremiereDate", "Descending", "↓"),
+    "官方分级" to Triple("OfficialRating", "Ascending", "↑"),
+    "出品年份" to Triple("ProductionYear", "Descending", "↓"),
+    "影评人评分" to Triple("CriticRating", "Descending", "↓"),
+    "播放日期" to Triple("DatePlayed", "Descending", "↓"),
+)
+
 @Composable
 fun LibraryScreen(
     libId: String,
@@ -822,10 +838,16 @@ fun LibraryScreen(
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState? = null
 ) {
     var libItems by remember { mutableStateOf<List<UiMediaItem>?>(null) }
+    var selectedSort by remember { mutableStateOf(5) }  // 默认：首映日期 ↓（对齐 Android）
+    var showSortDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(libId) {
+    LaunchedEffect(libId, selectedSort) {
         libItems = null
-        try { libItems = Repo.items(libId, 60) }
+        try {
+            val (_, triple) = librarySortOptions[selectedSort]
+            // 分页取全量，不再只取 60 条
+            libItems = Repo.libraryItems(libId, triple.first, triple.second)
+        }
         catch (_: Exception) { libItems = emptyList() }
     }
 
@@ -849,6 +871,27 @@ fun LibraryScreen(
                 modifier = Modifier.padding(start = 8.dp)
             )
         }
+        // 工具栏：计数 + 右上角排序（对齐 Android activity_library）
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (libItems == null) "" else "${libItems!!.size} 项",
+                fontSize = 14.sp,
+                color = GomeTheme.TextPrimary
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            val (sortName, sortTriple) = librarySortOptions[selectedSort]
+            Text(
+                text = "☰ $sortName ${sortTriple.third}",
+                fontSize = 14.sp,
+                color = Color(0xFF2F6FED),
+                modifier = Modifier.clickable { showSortDialog = true }
+                    .padding(8.dp)
+            )
+        }
         if (libItems == null) {
             LoadingBox(Modifier.weight(1f))
         } else {
@@ -865,6 +908,52 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+
+    // 排序弹窗：3 列 chip 网格（对齐 Android dialog_sort_chips）
+    if (showSortDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSortDialog = false },
+            title = { Text("排序", fontSize = 17.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    itemsIndexed(librarySortOptions) { index, (name, triple) ->
+                        val selected = index == selectedSort
+                        Box(
+                            modifier = Modifier.height(36.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (selected) Color(0xFF2F6FED) else Color(0x80FFFFFF))
+                                .border(
+                                    1.dp,
+                                    if (selected) Color(0xFF2F6FED) else Color(0xAAFFFFFF),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    selectedSort = index
+                                    showSortDialog = false
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "$name ${triple.third}",
+                                fontSize = 13.sp,
+                                color = if (selected) Color.White else Color(0xFF1A1A1A)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showSortDialog = false }) {
+                    Text("关闭")
+                }
+            }
+        )
     }
 }
 
@@ -1337,6 +1426,22 @@ private fun AddServerDialog(
     // 编辑模式记录旧 key，用于 key 变化时删除旧条目
     val oldKey = existing?.key()
 
+    // 备用线路暂存：子卡片点保存只暂存，主框点保存才真正写入（对齐安卓）
+    var backupDraft by remember {
+        mutableStateOf(
+            if (existing != null) ServerEntry(
+                name = existing.name, protocol = existing.protocol, host = existing.host,
+                port = existing.port, path = existing.path, username = existing.username,
+                password = existing.password,
+                backupProtocol = existing.backupProtocol, backupHost = existing.backupHost,
+                backupPort = existing.backupPort, backupPath = existing.backupPath,
+                backupName = existing.backupName
+            ) else null
+        )
+    }
+    var showBackupCard by remember { mutableStateOf(false) }
+    var showPasswordCard by remember { mutableStateOf(false) }
+
     // 协议切换时自动跟随默认端口（对齐安卓）
     fun onProtocolChange(https: Boolean) {
         useHttps = https
@@ -1392,6 +1497,22 @@ private fun AddServerDialog(
                                 .clickable { showIconPicker = true }
                                 .padding(12.dp, 8.dp, 12.dp, 8.dp)
                         )
+                        Text(
+                            "备用线路",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2F6FED),
+                            modifier = Modifier
+                                .clickable { showBackupCard = true }
+                                .padding(12.dp, 8.dp, 12.dp, 8.dp)
+                        )
+                        Text(
+                            "更换密码",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2F6FED),
+                            modifier = Modifier
+                                .clickable { showPasswordCard = true }
+                                .padding(12.dp, 8.dp, 12.dp, 8.dp)
+                        )
                     }
                     if (showIconPicker) {
                         IconPickerDialog(
@@ -1400,6 +1521,27 @@ private fun AddServerDialog(
                             onPicked = {
                                 iconVersion++
                                 showIconPicker = false
+                            }
+                        )
+                    }
+                    // 备用线路子卡片（对齐安卓 showBackupCard）
+                    if (showBackupCard) {
+                        BackupLineDialog(
+                            initial = backupDraft,
+                            onDismiss = { showBackupCard = false },
+                            onSaved = { draft ->
+                                backupDraft = draft
+                                showBackupCard = false
+                            }
+                        )
+                    }
+                    // 更换密码子卡片（对齐安卓 showPasswordCard）：填入主框密码栏
+                    if (showPasswordCard) {
+                        ChangePasswordDialog(
+                            onDismiss = { showPasswordCard = false },
+                            onConfirmed = { newPass ->
+                                password = newPass
+                                showPasswordCard = false
                             }
                         )
                     }
@@ -1456,11 +1598,17 @@ private fun AddServerDialog(
             androidx.compose.material3.Button(
                 onClick = {
                     if (host.isNotBlank() && username.isNotBlank()) {
+                        val bd = backupDraft
                         val newEntry = ServerEntry(
                             name = existing?.name?.ifEmpty { host } ?: host,
                             protocol = if (useHttps) "https" else "http",
                             host = host, port = port, path = path,
-                            username = username, password = password
+                            username = username, password = password,
+                            backupProtocol = bd?.backupProtocol ?: "",
+                            backupHost = bd?.backupHost ?: "",
+                            backupPort = bd?.backupPort ?: "",
+                            backupPath = bd?.backupPath ?: "",
+                            backupName = bd?.backupName ?: ""
                         )
                         // 编辑模式且 key 变化：先删旧条目（对齐安卓 showEdit）
                         if (isEdit && oldKey != null && oldKey != newEntry.key()) {
@@ -1501,6 +1649,149 @@ private fun AddServerDialog(
                     // 保存/连接按钮由 confirmButton 提供，这里占位
                 }
             }
+        }
+    )
+}
+
+/** 备用线路子卡片（对齐安卓 showBackupCard）。点保存只暂存，主框点保存才真正写入。 */
+@Composable
+private fun BackupLineDialog(
+    initial: ServerEntry?,
+    onDismiss: () -> Unit,
+    onSaved: (ServerEntry) -> Unit
+) {
+    var bName by remember { mutableStateOf(initial?.backupName ?: "") }
+    var bHost by remember { mutableStateOf(initial?.backupHost ?: "") }
+    var bProtocol by remember {
+        mutableStateOf(
+            (initial?.backupProtocol ?: "").let { if (it == "http") "http" else "https" }
+        )
+    }
+    var bPort by remember {
+        mutableStateOf(
+            (initial?.backupPort ?: "").ifEmpty { if (bProtocol == "https") "443" else "80" }
+        )
+    }
+    var bPath by remember { mutableStateOf(initial?.backupPath ?: "") }
+    var protoExpanded by remember { mutableStateOf(false) }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("备用线路") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ServerField("线路名称", bName) { bName = it }
+                ServerField("备用服务器地址", bHost) { bHost = it }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = if (bProtocol == "https") "HTTPS" else "HTTP",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("协议") },
+                            singleLine = true,
+                            trailingIcon = {
+                                Text(
+                                    "▼",
+                                    modifier = Modifier.clickable { protoExpanded = !protoExpanded }.padding(8.dp)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().clickable { protoExpanded = true }
+                        )
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = protoExpanded,
+                            onDismissRequest = { protoExpanded = false }
+                        ) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("HTTPS") },
+                                onClick = {
+                                    bProtocol = "https"
+                                    if (bPort.isEmpty() || bPort == "80") bPort = "443"
+                                    protoExpanded = false
+                                }
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("HTTP") },
+                                onClick = {
+                                    bProtocol = "http"
+                                    if (bPort.isEmpty() || bPort == "443") bPort = "80"
+                                    protoExpanded = false
+                                }
+                            )
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        ServerField("端口", bPort) { bPort = it }
+                    }
+                }
+                ServerField("备用路径(可选,无则留空)", bPath) { bPath = it }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                val bh = bHost.trim()
+                val bp = bPort.trim().ifEmpty { if (bProtocol == "https") "443" else "80" }
+                val base = initial ?: ServerEntry(
+                    name = "", protocol = "https", host = "", port = "",
+                    path = "", username = "", password = ""
+                )
+                onSaved(
+                    base.copy(
+                        backupProtocol = bProtocol,
+                        backupHost = bh,
+                        backupPort = if (bh.isEmpty()) "" else bp,
+                        backupPath = bPath.trim(),
+                        backupName = bName.trim()
+                    )
+                )
+            }) { Text("保存") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+/** 更换密码子卡片（对齐安卓 showPasswordCard）。确认后把新密码填入主框密码栏。 */
+@Composable
+private fun ChangePasswordDialog(
+    onDismiss: () -> Unit,
+    onConfirmed: (String) -> Unit
+) {
+    var p1 by remember { mutableStateOf("") }
+    var p2 by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("更换密码") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ServerField("新密码", p1, isPassword = true) { p1 = it }
+                ServerField("确认新密码", p2, isPassword = true) { p2 = it }
+                if (error != null) {
+                    Text(error!!, color = Color(0xFFFF3B30), fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                if (p1.isEmpty()) {
+                    error = "请输入新密码"
+                    return@TextButton
+                }
+                if (p1 != p2) {
+                    error = "两次输入不一致"
+                    return@TextButton
+                }
+                onConfirmed(p1)
+            }) { Text("确定") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
 }
@@ -2006,10 +2297,13 @@ fun SettingsScreen(
         else -> "Auto"
     }
     fun cacheLabel(): String = if (prefs.cacheEnabled) "${prefs.cacheSizeGb}G" else "关"
-    fun danmakuLabel(): String = when {
-        !prefs.danmakuEnabled -> "关"
-        prefs.danmakuApiUrl.isBlank() -> "未设置"
-        else -> "已设置"
+    fun danmakuLabel(): String {
+        val srcs = prefs.danmakuSources
+        return when {
+            !prefs.danmakuEnabled -> "关"
+            srcs.isEmpty() -> "未设置"
+            else -> "${srcs.count { it.enabled }} / ${srcs.size} 源"
+        }
     }
     fun dockLabel(): String = if (prefs.dockStyle == 0) "M玻璃" else "原玻璃"
     fun animLabel(): String = when (prefs.flybackMode) {
@@ -2357,7 +2651,10 @@ private fun SettingCacheDialog(
     }
 }
 
-/** 弹幕弹窗：开关 + API 输入 */
+/**
+ * 弹幕源管理弹窗（1:1 Android showDanmakuSourcesDialog）。
+ * 顶部"启用弹幕"总开关；中间源列表（每条可开关/删除）；底部"＋ 添加弹幕源"。
+ */
 @Composable
 private fun SettingDanmakuDialog(
     onDismiss: () -> Unit,
@@ -2365,41 +2662,127 @@ private fun SettingDanmakuDialog(
 ) {
     val prefs = com.muse.gomepc.emby.Prefs
     var enabled by remember { mutableStateOf(prefs.danmakuEnabled) }
-    var api by remember { mutableStateOf(prefs.danmakuApiUrl) }
+    var sources by remember { mutableStateOf(prefs.danmakuSources) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var addText by remember { mutableStateOf("") }
+    var addError by remember { mutableStateOf<String?>(null) }
+
+    fun persistSources(list: List<com.muse.gomepc.emby.Prefs.DanmakuSource>) {
+        sources = list
+        prefs.danmakuSources = list
+    }
+
+    if (showAddDialog) {
+        MaoDiDialog(onDismiss = { showAddDialog = false; addError = null }) {
+            Column(Modifier.width(300.dp)) {
+                Text("添加弹幕源", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                Text("dandanplay 兼容的 API 地址（如自建 danmu_api）",
+                    fontSize = 13.sp, color = Color(0xFF8E8E93),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = addText,
+                    onValueChange = { addText = it; addError = null },
+                    label = { Text("https://你的弹幕API地址") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (addError != null) {
+                    Text(addError!!, fontSize = 13.sp, color = Color(0xFFFF3B30),
+                        modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
+                        modifier = Modifier.clickable {
+                            showAddDialog = false; addError = null
+                        }.padding(8.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("添加", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                        modifier = Modifier.clickable {
+                            val ok = prefs.addDanmakuSource(addText)
+                            if (ok) {
+                                sources = prefs.danmakuSources
+                                addText = ""
+                                showAddDialog = false
+                            } else {
+                                addError = "地址为空或已存在"
+                            }
+                        }.padding(8.dp))
+                }
+            }
+        }
+    }
+
     MaoDiDialog(onDismiss = onDismiss) {
-        Column(Modifier.width(300.dp)) {
-            Text("弹幕", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
+        Column(Modifier.width(340.dp)) {
+            Text("弹幕源（dandanplay 兼容）", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                color = Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
             Row(
                 Modifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("启用弹幕", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
-                androidx.compose.material3.Switch(checked = enabled, onCheckedChange = { enabled = it })
+                androidx.compose.material3.Switch(
+                    checked = enabled,
+                    onCheckedChange = {
+                        enabled = it
+                        prefs.danmakuEnabled = it
+                        if (it) prefs.danmakuDisabled = false
+                    }
+                )
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
-            Spacer(Modifier.height(8.dp))
-            androidx.compose.material3.OutlinedTextField(
-                value = api,
-                onValueChange = { api = it },
-                label = { Text("弹幕 API 地址") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(12.dp))
+            // 源列表
+            androidx.compose.foundation.lazy.LazyColumn(
+                Modifier.fillMaxWidth().heightIn(max = 280.dp)
+            ) {
+                items(sources.size) { i ->
+                    val s = sources[i]
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = s.enabled,
+                            onCheckedChange = { on ->
+                                persistSources(sources.map {
+                                    if (it.url == s.url) it.copy(enabled = on) else it
+                                })
+                            }
+                        )
+                        Text(
+                            s.url,
+                            fontSize = 14.sp,
+                            color = Color.Black,
+                            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                            maxLines = 2
+                        )
+                        Text("删除", fontSize = 14.sp, color = Color(0xFFFF3B30),
+                            modifier = Modifier.clickable {
+                                persistSources(sources.filter { it.url != s.url })
+                            }.padding(8.dp))
+                    }
+                    if (i < sources.size - 1) {
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+                    }
+                }
+            }
+            if (sources.isEmpty()) {
+                Text("暂无弹幕源，点击下方添加",
+                    fontSize = 14.sp, color = Color(0xFF8E8E93),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Text("＋ 添加弹幕源", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                modifier = Modifier.fillMaxWidth().clickable { showAddDialog = true }
+                    .padding(vertical = 14.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("清除API", fontSize = 16.sp, color = Color(0xFF8E8E93),
-                    modifier = Modifier.clickable { api = "" }.padding(8.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
-                    modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("保存", fontSize = 16.sp, color = Color(0xFF2F6FED),
-                    modifier = Modifier.clickable {
-                        prefs.danmakuEnabled = enabled
-                        prefs.danmakuApiUrl = api.trim()
-                        onConfirm()
-                    }.padding(8.dp))
+                Text("关闭", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                    modifier = Modifier.clickable { onConfirm() }.padding(8.dp))
             }
         }
     }
@@ -2784,7 +3167,7 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, onClick: () -> U
 
 /** 详情页（1:1 Android activity_detail） */
 @Composable
-fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpisode) -> Unit, listState: androidx.compose.foundation.lazy.LazyListState? = null) {
+fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpisode) -> Unit) {
     var item by remember(itemId) { mutableStateOf<UiMediaItem?>(null) }
     var epData by remember(itemId) { mutableStateOf<EpisodeData?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -2847,7 +3230,6 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
             Box(Modifier.fillMaxSize().background(Color.White)) {
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState(),
                     contentPadding = PaddingValues(bottom = 110.dp)
                 ) {
                     // 海报头 480dp

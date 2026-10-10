@@ -38,7 +38,10 @@ class AwtToolbarPanel(
     private val onToggleDanmaku: (() -> Unit)? = null,
     private val isDanmakuEnabled: (() -> Boolean)? = null,
     private val onDanmakuPosition: ((Int) -> Unit)? = null,
-    private val getDanmakuPosition: (() -> Int)? = null
+    private val getDanmakuPosition: (() -> Int)? = null,
+    private val onDanmakuSearch: ((String) -> Unit)? = null,
+    private val onDanmakuImport: ((String) -> Int)? = null,
+    private val onDanmakuStyleChanged: (() -> Unit)? = null
 ) : JPanel() {
 
     private fun icon(name: String, size: Int): Icon {
@@ -104,6 +107,9 @@ class AwtToolbarPanel(
     private var isDanmakuEnabledCb: (() -> Boolean)? = isDanmakuEnabled
     private var onDanmakuPositionCb: ((Int) -> Unit)? = onDanmakuPosition
     private var getDanmakuPositionCb: (() -> Int)? = getDanmakuPosition
+    private var onDanmakuSearchCb: ((String) -> Unit)? = onDanmakuSearch
+    private var onDanmakuImportCb: ((String) -> Int)? = onDanmakuImport
+    private var onDanmakuStyleChangedCb: (() -> Unit)? = onDanmakuStyleChanged
     private lateinit var danmakuBtn: PlButton
 
     fun updateDanmakuCallbacks(
@@ -117,6 +123,17 @@ class AwtToolbarPanel(
         onDanmakuPositionCb = onDanmakuPosition
         getDanmakuPositionCb = getDanmakuPosition
         updateDanmakuBtnState()
+    }
+
+    /** 单例复用时更新弹幕动作回调（搜索/导入/样式） */
+    fun updateDanmakuActionCallbacks(
+        onDanmakuSearch: ((String) -> Unit)?,
+        onDanmakuImport: ((String) -> Int)?,
+        onDanmakuStyleChanged: (() -> Unit)?
+    ) {
+        onDanmakuSearchCb = onDanmakuSearch
+        onDanmakuImportCb = onDanmakuImport
+        onDanmakuStyleChangedCb = onDanmakuStyleChanged
     }
 
     private fun updateDanmakuBtnState() {
@@ -134,8 +151,11 @@ class AwtToolbarPanel(
         val enabled = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
         val pos = try { getDanmakuPositionCb?.invoke() } catch (_: Exception) { null } ?: 0
         val posLabels = listOf("顶部", "半屏", "全屏")
-        val apiUrl = getDanmakuApiUrl()
-        val apiLabel = if (apiUrl.isBlank()) "API-1（未设置）" else "API-1（已设置）"
+        val srcs = com.muse.gomepc.emby.Prefs.danmakuSources
+        val apiLabel = when {
+            srcs.isEmpty() -> "API（未设置）"
+            else -> "API（${srcs.count { it.enabled }} / ${srcs.size} 已启用）"
+        }
         val rows = listOf(
             FrostedPopup.Row(
                 label = "搜索弹幕",
@@ -174,101 +194,175 @@ class AwtToolbarPanel(
         FrostedPopup(owner, anchor).show(rows, width = 260)
     }
 
-    // 弹幕 API URL 存储
-    private fun getDanmakuApiUrl(): String {
-        return try {
-            java.util.prefs.Preferences.userRoot().node("gome/danmaku").get("apiUrl", "")
-        } catch (_: Exception) { "" }
-    }
-
-    private fun setDanmakuApiUrl(url: String) {
-        try {
-            java.util.prefs.Preferences.userRoot().node("gome/danmaku").put("apiUrl", url)
-        } catch (_: Exception) { }
-    }
-
-    /** API 选择子菜单 */
+    /** API 选择子菜单（1:1 Android：多源，每条可开关） */
     private fun showDanmakuApiList() {
+        val prefs = com.muse.gomepc.emby.Prefs
         val owner = SwingUtilities.getWindowAncestor(this) ?: return
         val anchor = danmakuBtn
-        val cur = getDanmakuApiUrl()
-        val rows = listOf(
+        val rows = mutableListOf<FrostedPopup.Row>()
+        prefs.danmakuSources.forEach { s ->
+            val label = (if (s.enabled) "✓ " else "✕ ") + s.url.take(38)
+            rows.add(
+                FrostedPopup.Row(
+                    label = label,
+                    checked = s.enabled,
+                    action = {
+                        prefs.setDanmakuSourceEnabled(s.url, !s.enabled)
+                        showTip(if (!s.enabled) "已启用" else "已禁用")
+                        showDanmakuApiList()
+                    }
+                )
+            )
+        }
+        rows.add(
             FrostedPopup.Row(
-                label = if (cur.isBlank()) "API-1：未设置" else "API-1：已设置",
-                checked = cur.isNotBlank(),
+                label = "＋ 添加弹幕源",
+                iconName = "ic_pl_api",
                 action = { showDanmakuApiInput() }
-            ),
-            FrostedPopup.Row(
-                label = "清除API",
-                iconName = "ic_pl_delete",
-                action = {
-                    setDanmakuApiUrl("")
-                    showTip("API已清除")
-                }
             )
         )
-        FrostedPopup(owner, anchor).show(rows, width = 260)
+        if (prefs.danmakuSources.isNotEmpty()) {
+            rows.add(
+                FrostedPopup.Row(
+                    label = "清空全部",
+                    iconName = "ic_pl_delete",
+                    action = {
+                        prefs.danmakuSources = emptyList()
+                        showTip("API已清空")
+                    }
+                )
+            )
+        }
+        FrostedPopup(owner, anchor).show(rows, width = 300)
     }
 
-    /** API 输入对话框 */
+    /** 添加弹幕源（1:1 Android） */
     private fun showDanmakuApiInput() {
-        val cur = getDanmakuApiUrl()
-        val input = JTextField(cur, 30)
+        val prefs = com.muse.gomepc.emby.Prefs
+        val panel = JPanel(BorderLayout(8, 8)).apply {
+            border = EmptyBorder(8, 8, 8, 8)
+            add(JLabel("dandanplay 兼容的 API 地址（如自建 danmu_api）"), BorderLayout.NORTH)
+        }
+        val input = JTextField(30)
+        panel.add(input, BorderLayout.CENTER)
         val result = JOptionPane.showConfirmDialog(
-            this, input, "设置弹幕API",
+            this, panel, "添加弹幕源",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE
         )
         if (result == JOptionPane.OK_OPTION) {
-            val url = input.text.trim()
-            setDanmakuApiUrl(url)
-            showTip(if (url.isBlank()) "API已清除" else "API已设置")
+            val ok = prefs.addDanmakuSource(input.text)
+            showTip(if (ok) "已添加" else "地址为空或已存在")
+            if (ok) showDanmakuApiList()
         }
     }
 
-    /** 搜索弹幕：输入关键词 */
+    /** 搜索弹幕：输入关键词，用已启用的第一个 API 搜索（1:1 Android） */
     private fun showDanmakuSearch() {
-        val apiUrl = getDanmakuApiUrl()
-        if (apiUrl.isBlank()) {
-            showTip("请先在 API-1 中设置弹幕API")
+        val prefs = com.muse.gomepc.emby.Prefs
+        val first = prefs.enabledDanmakuUrls().firstOrNull()
+        if (first == null) {
+            showTip("请先添加并启用弹幕API")
             showDanmakuApiInput()
             return
         }
-        val input = JTextField(30).apply {
-            // hint 效果
-        }
+        val input = JTextField(30)
         val result = JOptionPane.showConfirmDialog(
-            this, input, "搜索弹幕",
+            this, input, "搜索弹幕（输入关键词）",
             JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE
         )
         if (result == JOptionPane.OK_OPTION) {
             val kw = input.text.trim()
             if (kw.isNotEmpty()) {
-                showTip("弹幕搜索功能开发中（需要弹幕后端支持）")
+                onDanmakuSearchCb?.invoke(kw)
+                showTip("正在搜索「$kw」…")
                 DebugLog.d("UI", "搜索弹幕: $kw")
             }
         }
     }
 
-    /** 本地导入：文件选择器 */
+    /** 本地导入：文件选择器 → importFromText（1:1 Android） */
     private fun importDanmakuFile() {
         val chooser = JFileChooser().apply {
-            dialogTitle = "选择弹幕文件"
+            dialogTitle = "选择弹幕文件（B站 XML / JSON）"
         }
         val result = chooser.showOpenDialog(this)
         if (result == JFileChooser.APPROVE_OPTION) {
-            val file = chooser.selectedFile
-            showTip("弹幕导入功能开发中（需要弹幕解析器支持）")
-            DebugLog.d("UI", "导入弹幕文件: ${file.absolutePath}")
+            try {
+                val text = chooser.selectedFile.readText()
+                val n = onDanmakuImportCb?.invoke(text) ?: 0
+                showTip(if (n > 0) "已导入 $n 条弹幕" else "未能识别弹幕文件")
+            } catch (e: Exception) {
+                showTip("导入失败：${e.message?.take(40)}")
+            }
+            DebugLog.d("UI", "导入弹幕文件: ${chooser.selectedFile.absolutePath}")
         }
     }
 
-    /** 弹幕设置 */
+    /** 弹幕设置：步进器面板（1:1 Android showDanmakuSettingsPanel） */
     private fun showDanmakuSettings() {
-        showTip("弹幕设置：可在弹幕位置子菜单中调整显示区域")
+        val prefs = com.muse.gomepc.emby.Prefs
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return
+        val panel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = EmptyBorder(12, 16, 12, 16)
+        }
+        fun fmtDelay(v: Float) = "${if (v % 1f == 0f) v.toInt().toString() else v.toString()} s"
+        fun addStepper(
+            label: String,
+            getValue: () -> String,
+            onMinus: () -> Unit,
+            onPlus: () -> Unit
+        ) {
+            val row = JPanel(BorderLayout(8, 0)).apply {
+                border = EmptyBorder(8, 0, 8, 0)
+                maximumSize = Dimension(Int.MAX_VALUE, 48)
+            }
+            val tvLabel = JLabel(label)
+            val tvValue = JLabel(getValue()).apply { horizontalAlignment = SwingConstants.CENTER }
+            tvValue.preferredSize = Dimension(76, 28)
+            fun stepperBtn(txt: String, act: () -> Unit): JButton {
+                return JButton(txt).apply {
+                    preferredSize = Dimension(40, 36)
+                    addActionListener {
+                        act()
+                        tvValue.text = getValue()
+                        onDanmakuStyleChangedCb?.invoke()
+                    }
+                }
+            }
+            val btnBox = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+                add(tvValue); add(stepperBtn("−", onMinus)); add(stepperBtn("+", onPlus))
+            }
+            row.add(tvLabel, BorderLayout.WEST)
+            row.add(btnBox, BorderLayout.EAST)
+            panel.add(row)
+            panel.add(JSeparator())
+        }
+        addStepper("延迟显示", { fmtDelay(prefs.danmakuDelay) },
+            { prefs.danmakuDelay = (prefs.danmakuDelay - 0.5f).coerceAtLeast(0f) },
+            { prefs.danmakuDelay = (prefs.danmakuDelay + 0.5f).coerceAtMost(10f) })
+        addStepper("字体大小", { "${prefs.danmakuFontSize}" },
+            { prefs.danmakuFontSize = (prefs.danmakuFontSize - 1).coerceAtLeast(12) },
+            { prefs.danmakuFontSize = (prefs.danmakuFontSize + 1).coerceAtMost(36) })
+        addStepper("描边大小", { "${prefs.danmakuStroke}" },
+            { prefs.danmakuStroke = (prefs.danmakuStroke - 0.5f).coerceAtLeast(0f) },
+            { prefs.danmakuStroke = (prefs.danmakuStroke + 0.5f).coerceAtMost(4f) })
+        addStepper("弹幕速度", { "${prefs.danmakuSpeed}%" },
+            { prefs.danmakuSpeed = (prefs.danmakuSpeed - 10).coerceAtLeast(50) },
+            { prefs.danmakuSpeed = (prefs.danmakuSpeed + 10).coerceAtMost(200) })
+        addStepper("不透明度", { "${prefs.danmakuOpacity}%" },
+            { prefs.danmakuOpacity = (prefs.danmakuOpacity - 10).coerceAtLeast(10) },
+            { prefs.danmakuOpacity = (prefs.danmakuOpacity + 10).coerceAtMost(100) })
+        addStepper("显示区域", { "${(prefs.danmakuArea * 100).toInt()}%" },
+            { prefs.danmakuArea = (prefs.danmakuArea - 0.05f).coerceAtLeast(0.1f) },
+            { prefs.danmakuArea = (prefs.danmakuArea + 0.05f).coerceAtMost(1f) })
+        if (panel.componentCount > 0) panel.remove(panel.componentCount - 1)
+        JOptionPane.showMessageDialog(owner, panel, "弹幕设置", JOptionPane.PLAIN_MESSAGE)
     }
 
     /** 弹幕位置子菜单 */
     private fun showDanmakuPositionMenu() {
+        val prefs = com.muse.gomepc.emby.Prefs
         val owner = SwingUtilities.getWindowAncestor(this) ?: return
         val anchor = danmakuBtn
         val current = try { getDanmakuPositionCb?.invoke() } catch (_: Exception) { null } ?: 0
@@ -278,6 +372,7 @@ class AwtToolbarPanel(
                 label = label,
                 checked = current == i,
                 action = {
+                    prefs.danmakuPosition = i
                     onDanmakuPositionCb?.invoke(i)
                     DebugLog.d("UI", "弹幕位置: $label")
                 }
@@ -480,6 +575,9 @@ class AwtToolbarPanel(
             val s = getNetSpeedCb?.invoke() ?: ""
             if (speedLabel.text != s) speedLabel.text = s
         } catch (_: Exception) { }
+
+        // 弹幕按钮状态（D键/底栏切换后同步置灰）
+        updateDanmakuBtnState()
     }
 
     private fun formatTime(sec: Double): String {

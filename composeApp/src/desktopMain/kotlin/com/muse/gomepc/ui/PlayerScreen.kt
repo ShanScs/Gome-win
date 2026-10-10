@@ -45,13 +45,6 @@ import java.awt.event.ComponentEvent
 import javax.swing.SwingUtilities
 import kotlin.math.roundToInt
 
-private val demoDanmakus = listOf(
-    "声声，准时来报到！", "檀健次我来了！！", "莫青成x18 ♡165",
-    "好喜欢檀健次莫青成x3 ♡210", "小炭火在此♡28", "多多，我来啦",
-    "啊啊啊，太甜了", "声声慢，我在", "前排打卡", "二刷来了",
-    "配音也太好听了吧", "顾声冲鸭", "名场面！！", "泪目了"
-)
-
 fun formatTime(sec: Double): String {
     val s = sec.coerceAtLeast(0.0).roundToInt()
     return "%02d:%02d".format(s / 60, s % 60)
@@ -187,8 +180,28 @@ fun PlayerScreen(
     onSwitchEpisode: ((episodeId: String, episodeIndex: Int) -> Unit)? = null
 ) {
     val player = remember(episodeId) { MpvPlayer() }
+    val prefs = remember { com.muse.gomepc.emby.Prefs }
+    /** 把 Prefs 里的弹幕样式应用到引擎（1:1 Android applyDanmakuStyle） */
+    fun applyDanmakuStyleToEngine(e: DanmakuEngine) {
+        e.setAreaRatio(prefs.danmakuArea)
+        e.setPosition(prefs.danmakuPosition)
+        e.setSpeedFactor(prefs.danmakuSpeed / 100f)
+        e.setDelaySec(prefs.danmakuDelay)
+        e.applyStyle(prefs.danmakuFontSize, prefs.danmakuStroke, prefs.danmakuOpacity)
+    }
     val engine = remember {
-        DanmakuEngine().apply { setDanmakuList(demoDanmakus) }
+        DanmakuEngine().apply {
+            applyDanmakuStyleToEngine(this)
+            // 1:1 Android：总开关 && 非永久禁用
+            if (prefs.danmakuEnabled) prefs.danmakuDisabled = false
+            val on = prefs.danmakuEnabled && !prefs.danmakuDisabled
+            setEnabled(on)
+            onError = { msg ->
+                com.muse.gomepc.player.DebugLog.d("Danmaku", "加载失败: $msg")
+            }
+            val urls = prefs.enabledDanmakuUrls()
+            if (urls.isNotEmpty()) loadFromApiMulti(urls, itemName)
+        }
     }
     var inited by remember { mutableStateOf(false) }
     var initError by remember { mutableStateOf<String?>(null) }
@@ -213,16 +226,58 @@ fun PlayerScreen(
     var showLogs by remember { mutableStateOf(false) }
     var urlTestResult by remember { mutableStateOf<String?>(null) }
     var fileLoaded by remember { mutableStateOf(false) }
-    val danmakuOn = remember { mutableStateOf(true) }
+    // 弹幕开关统一状态（工具栏按钮 / 底栏文字 / D键 共用，1:1 Android 会话语义）
+    var danmakuUiOn by remember { mutableStateOf(engine.isDanmakuOn()) }
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
     var videoUrl by remember { mutableStateOf<String?>(null) }
     var urlError by remember { mutableStateOf<String?>(null) }
     // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
     var danmakuPanelRef by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
-    var danmakuEnabled by remember { mutableStateOf(true) }
-    var danmakuPosition by remember { mutableStateOf(0) }
+    /** 切换弹幕：永久禁用后再次启用=解除；否则翻转引擎开关 */
+    fun toggleDanmaku() {
+        if (prefs.danmakuDisabled) {
+            prefs.danmakuDisabled = false
+            engine.setEnabled(true)
+            danmakuUiOn = true
+        } else {
+            val on = !engine.isDanmakuOn()
+            engine.setEnabled(on)
+            danmakuUiOn = on
+        }
+        javax.swing.SwingUtilities.invokeLater {
+            danmakuPanelRef?.isVisible = danmakuUiOn
+        }
+    }
+    /** 弹幕样式变化后重新应用（工具栏弹幕设置面板调用） */
+    fun refreshDanmakuStyle() {
+        applyDanmakuStyleToEngine(engine)
+    }
+    var danmakuPosition by remember { mutableStateOf(prefs.danmakuPosition) }
     var mpvInitDone by remember { mutableStateOf(false) }
+
+    // D 键直接开关弹幕（1:1 Android；输入框聚焦时不触发）
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val dispatcher = java.awt.KeyEventDispatcher { e ->
+            if (e.id == java.awt.event.KeyEvent.KEY_PRESSED &&
+                e.keyCode == java.awt.event.KeyEvent.VK_D &&
+                !e.isControlDown && !e.isAltDown && !e.isMetaDown
+            ) {
+                val focusOwner =
+                    java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+                if (focusOwner is javax.swing.text.JTextComponent) return@KeyEventDispatcher false
+                javax.swing.SwingUtilities.invokeLater { toggleDanmaku() }
+                return@KeyEventDispatcher true
+            }
+            false
+        }
+        java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+            .addKeyEventDispatcher(dispatcher)
+        onDispose {
+            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                .removeKeyEventDispatcher(dispatcher)
+        }
+    }
 
     // 取播放地址
     LaunchedEffect(episodeId) {
@@ -416,22 +471,43 @@ fun PlayerScreen(
                         getDuration = { duration },
                         onSeek = { player.seek(it) },
                         getNetSpeed = { netSpeedText },
-                        onToggleDanmaku = {
-                            danmakuEnabled = !danmakuEnabled
-                            engine.setEnabled(danmakuEnabled)
-                            javax.swing.SwingUtilities.invokeLater {
-                                danmakuPanelRef?.isVisible = danmakuEnabled
-                            }
-                        },
-                        isDanmakuEnabled = { danmakuEnabled },
+                        onToggleDanmaku = { toggleDanmaku() },
+                        isDanmakuEnabled = { danmakuUiOn },
                         onDanmakuPosition = { pos ->
                             danmakuPosition = pos
+                            prefs.danmakuPosition = pos
                             engine.setPosition(pos)
                         },
                         getDanmakuPosition = {
-                            // DanmakuEngine 没有 getter，用 remember 的值
                             danmakuPosition
                         },
+                        onDanmakuSearch = { kw ->
+                            val url = prefs.enabledDanmakuUrls().firstOrNull()
+                            if (url != null) {
+                                engine.loadFromApi(url, kw)
+                                if (!engine.isDanmakuOn()) {
+                                    prefs.danmakuDisabled = false
+                                    engine.setEnabled(true)
+                                    danmakuUiOn = true
+                                    javax.swing.SwingUtilities.invokeLater {
+                                        danmakuPanelRef?.isVisible = true
+                                    }
+                                }
+                            }
+                        },
+                        onDanmakuImport = { text ->
+                            val n = engine.importFromText(text)
+                            if (n > 0 && !engine.isDanmakuOn()) {
+                                prefs.danmakuDisabled = false
+                                engine.setEnabled(true)
+                                danmakuUiOn = true
+                                javax.swing.SwingUtilities.invokeLater {
+                                    danmakuPanelRef?.isVisible = true
+                                }
+                            }
+                            n
+                        },
+                        onDanmakuStyleChanged = { refreshDanmakuStyle() },
                         onPrev = if (episodeIndex > 0 && onSwitchEpisode != null) {
                             {
                                 val prev = episodeList.getOrNull(episodeIndex - 1)
@@ -506,14 +582,11 @@ fun PlayerScreen(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (danmakuOn.value) "弹幕开" else "弹幕关",
+                        if (danmakuUiOn) "弹幕开" else "弹幕关",
                         color = Color(0xFF1A1A1A),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
-                            danmakuOn.value = !danmakuOn.value
-                            engine.setEnabled(danmakuOn.value)
-                        }.padding(8.dp)
+                        modifier = Modifier.clickable { toggleDanmaku() }.padding(8.dp)
                     )
                     Text(
                         "全屏",

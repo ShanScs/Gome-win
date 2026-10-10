@@ -35,17 +35,18 @@ import com.muse.gomepc.ui.HomeScreen
 import com.muse.gomepc.ui.LibraryScreen
 import com.muse.gomepc.ui.LoginScreen
 import com.muse.gomepc.ui.PlayerScreen
-import com.muse.gomepc.ui.PersonScreen
-import com.muse.gomepc.ui.UiMediaItem
 import com.muse.gomepc.ui.Repo
 import com.muse.gomepc.ui.ResumeListScreen
 import com.muse.gomepc.ui.Screen
 import com.muse.gomepc.ui.SearchScreen
 import com.muse.gomepc.ui.SettingsScreen
-import com.muse.gomepc.ui.ShortDramaListScreen
-import com.muse.gomepc.ui.ShortDramaPlayerScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.muse.gomepc.ui.UiMediaItem
+
+/** 继续观看的条目是单集，详情页要用剧的 ID */
+private fun detailIdFor(item: UiMediaItem): String =
+    if (item.type == "Episode" && item.seriesId.isNotEmpty()) item.seriesId else item.id
 
 /** Windows下去掉标题栏但不重建HWND（避免MPV崩） */
 private var savedWindowStyle: Long = 0L
@@ -93,10 +94,6 @@ private fun getHwnd(window: java.awt.Window): Long {
         0L
     }
 }
-
-/** 详情页导航用的 ID：Episode 类型用 seriesId（继续观看的单集），其他用本体 id */
-private fun detailIdFor(item: UiMediaItem): String =
-    if (item.type == "Episode" && item.seriesId.isNotEmpty()) item.seriesId else item.id
 
 fun main() = application {
     val state = rememberWindowState(
@@ -194,18 +191,12 @@ fun GomeApp(
     // 播放器页：全屏独占（无边栏）
     if (screen is Screen.Player) {
         val p = screen as Screen.Player
-        // 详情页选中的版本/音轨/字幕经 Repo.pendingTrackParams 中转（Screens.kt onPlay 前写入）；
-        // 取走后清空，避免污染下一次播放
-        val tp = Repo.consumePendingTrackParams()
         PlayerScreen(
             itemId = p.itemId,
             itemName = p.itemName,
             episodeId = p.episodeId,
             episodeIndex = p.episodeIndex,
             owner = owner ?: throw IllegalStateException("no owner window"),
-            mediaSourceId = tp?.mediaSourceId,
-            audioIndex = tp?.audioIndex ?: -1,
-            subtitleIndex = tp?.subtitleIndex ?: -1,
             onBack = { screen = Screen.Detail(p.itemId) },
             onFullscreen = onFullscreen,
             onSwitchEpisode = { eid, idx ->
@@ -215,27 +206,13 @@ fun GomeApp(
         return
     }
 
-    // 短剧播放器页：全屏独占（无 Dock，对齐安卓 ShortDramaPlayerActivity 沉浸式）
-    if (screen is Screen.ShortDramaPlayer) {
-        val sp = screen as Screen.ShortDramaPlayer
-        ShortDramaPlayerScreen(
-            folderPath = sp.folderPath,
-            onBack = { screen = Screen.ShortDramaList }
-        )
-        return
-    }
-
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
     // 真 backdrop 模糊（自研双渲染）：背景内容 lambda 供 dock 模糊层复用
-    // 注意：dock 模糊层用独立的滚动状态，手动同步位置。
-    // 教训（2026-10-08）：共享状态对象会导致滚轮冲突——dock 里的全屏模糊副本会截获滚轮事件。
+    // 注意：dock 模糊层用独立的滚动状态，手动同步位置（共享状态对象会导致滚轮冲突）
     val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val dockHomeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val dockLibraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
-    // 详情页滚动状态（dock 模糊层同步用）
-    val detailListState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val dockDetailListState = androidx.compose.foundation.lazy.rememberLazyListState()
     // 滚动时把主内容的位置同步到 dock 模糊层（手动，不共享对象）
     androidx.compose.runtime.LaunchedEffect(homeListState) {
         androidx.compose.runtime.snapshotFlow {
@@ -251,12 +228,17 @@ fun GomeApp(
             try { dockLibraryGridState.scrollToItem(index, offset) } catch (_: Exception) {}
         }
     }
-    androidx.compose.runtime.LaunchedEffect(detailListState) {
-        androidx.compose.runtime.snapshotFlow {
-            detailListState.firstVisibleItemIndex to detailListState.firstVisibleItemScrollOffset
-        }.collect { (index, offset) ->
-            try { dockDetailListState.scrollToItem(index, offset) } catch (_: Exception) {}
-        }
+    // 滚动版本号：滚动时递增，触发 dock 模糊层重组（实时同步）
+    var scrollVersion by remember { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(homeListState, libraryGridState) {
+        kotlinx.coroutines.flow.combine(
+            androidx.compose.runtime.snapshotFlow {
+                homeListState.firstVisibleItemIndex * 100000 + homeListState.firstVisibleItemScrollOffset / 50
+            },
+            androidx.compose.runtime.snapshotFlow {
+                libraryGridState.firstVisibleItemIndex * 100000 + libraryGridState.firstVisibleItemScrollOffset / 50
+            }
+        ) { a, b -> a + b }.collect { scrollVersion++ }
     }
     val backgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
@@ -265,7 +247,6 @@ fun GomeApp(
                     onResumeMore = { screen = Screen.ResumeList },
                     onServerIconClick = { screen = Screen.Grid },
                     onLibraryClick = { lib -> screen = Screen.Library(lib.id, lib.name) },
-                    onFavoritesClick = { screen = Screen.Favorites },
                     listState = homeListState
                 )
                 is Screen.ResumeList -> ResumeListScreen(
@@ -281,15 +262,7 @@ fun GomeApp(
                 )
                 is Screen.Grid -> GridScreen(
                     onItemClick = { screen = Screen.Detail(detailIdFor(it)) },
-                    onServerSelected = { screen = Screen.Home },
-                    onShortDramaClick = { manage ->
-                        screen = if (manage) Screen.ShortDramaList
-                        else Screen.ShortDramaPlayer(null)
-                    }
-                )
-                is Screen.ShortDramaList -> ShortDramaListScreen(
-                    onFolderClick = { path -> screen = Screen.ShortDramaPlayer(path) },
-                    onBack = { screen = Screen.Grid }
+                    onServerSelected = { screen = Screen.Home }
                 )
                 is Screen.Search -> SearchScreen(onItemClick = { screen = Screen.Detail(detailIdFor(it)) })
                 is Screen.Favorites -> FavoritesScreen(onItemClick = { screen = Screen.Detail(detailIdFor(it)) })
@@ -316,23 +289,12 @@ fun GomeApp(
                             episodeId = ep.id,
                             episodeIndex = ep.index
                         )
-                    },
-                    onPersonClick = { person ->
-                        screen = Screen.Person(person.id, person.name, person.role)
-                    },
-                    listState = detailListState
-                )
-                is Screen.Person -> PersonScreen(
-                    personId = s.personId,
-                    personName = s.personName,
-                    personRole = s.personRole,
-                    onBack = { screen = Screen.Home },
-                    onItemClick = { screen = Screen.Detail(detailIdFor(it)) }
+                    }
                 )
                 else -> {}
             }
     }
-    // Dock 模糊层专用背景：独立滚动状态，手动同步位置（不共享，避免滚轮冲突）
+    // Dock 模糊层专用背景（不共享滚动状态，避免滚轮冲突）
     val dockBackgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
             is Screen.Home -> HomeScreen(
@@ -340,40 +302,32 @@ fun GomeApp(
                 onResumeMore = {},
                 onServerIconClick = {},
                 onLibraryClick = {},
-                listState = dockHomeListState  // 独立状态，LaunchedEffect 手动同步
+                listState = dockHomeListState  // 独立状态，手动同步位置
             )
             is Screen.Library -> LibraryScreen(
                 libId = s.libId,
                 libName = s.libName,
                 onItemClick = {},
                 onBack = {},
-                gridState = dockLibraryGridState  // 独立状态，LaunchedEffect 手动同步
-            )
-            is Screen.Detail -> DetailScreen(
-                itemId = s.itemId,
-                onBack = {},
-                onPlay = { _, _ -> },
-                listState = dockDetailListState  // 独立状态，LaunchedEffect 手动同步
+                gridState = dockLibraryGridState  // 独立状态，手动同步位置
             )
             else -> backgroundContent()
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
-        // key(screen)：强制主内容跟随 screen 切换重组（修复 tab 点击指示器动但页面不切）
-        androidx.compose.runtime.key(screen) {
-            Box(Modifier.fillMaxSize()) {
-                backgroundContent()
-            }
+        Box(Modifier.fillMaxSize()) {
+            backgroundContent()
         }
         // 详情页也保留 Dock（对齐 Android：Dock 只在播放器页隐藏）
-        if (screen !is Screen.Player && screen !is Screen.ShortDramaPlayer) {
+        if (screen !is Screen.Player) {
             DockBar(
                 current = screen,
                 onSelect = { screen = it },
                 backgroundContent = dockBackgroundContent,
                 screenW = maxWidth,
                 screenH = maxHeight,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                scrollVersion = scrollVersion
             )
         }
     }

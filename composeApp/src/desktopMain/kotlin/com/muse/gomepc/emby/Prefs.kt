@@ -22,7 +22,12 @@ data class ServerEntry(
     val port: String,
     val path: String,
     val username: String,
-    val password: String
+    val password: String,
+    val backupProtocol: String = "",
+    val backupHost: String = "",
+    val backupPort: String = "",
+    val backupPath: String = "",
+    val backupName: String = ""
 ) {
     /** 唯一键：地址+端口+路径+用户名 */
     fun key(): String = "$host:$port/${path.trim('/')}/$username"
@@ -127,7 +132,12 @@ object Prefs {
                     port = o.optString("port", "80"),
                     path = o.optString("path", ""),
                     username = o.optString("username"),
-                    password = o.optString("password")
+                    password = o.optString("password"),
+                    backupProtocol = o.optString("backupProtocol", ""),
+                    backupHost = o.optString("backupHost", ""),
+                    backupPort = o.optString("backupPort", ""),
+                    backupPath = o.optString("backupPath", ""),
+                    backupName = o.optString("backupName", "")
                 )
             }.filter { it.host.isNotEmpty() }
         } catch (_: Exception) {
@@ -147,6 +157,11 @@ object Prefs {
                     .put("path", s.path)
                     .put("username", s.username)
                     .put("password", s.password)
+                    .put("backupProtocol", s.backupProtocol)
+                    .put("backupHost", s.backupHost)
+                    .put("backupPort", s.backupPort)
+                    .put("backupPath", s.backupPath)
+                    .put("backupName", s.backupName)
             )
         }
         put(KEY_SERVERS, arr.toString())
@@ -320,10 +335,106 @@ object Prefs {
         get() = prefs.getBoolean("danmaku_enabled", true)
         set(v) { prefs.putBoolean("danmaku_enabled", v); try { prefs.flush() } catch (_: Exception) {} }
 
-    /** 弹幕 API 地址 */
+    /** 弹幕 API 地址（旧单源，保留做迁移） */
     var danmakuApiUrl: String
         get() = get("danmaku_api_url", "")
         set(v) = put("danmaku_api_url", v)
+
+    // ---- 弹幕源：dandanplay 兼容 API 地址列表（1:1 Android），按顺序尝试 ----
+    data class DanmakuSource(val url: String, val enabled: Boolean = true)
+
+    var danmakuSources: List<DanmakuSource>
+        get() {
+            val raw = prefs.get("danmaku_sources", null)
+            // 首次：从旧的单 URL 迁移；都没有则预置自建源，保证开箱可用
+            if (raw == null) {
+                val old = danmakuApiUrl.trim().trimEnd('/')
+                val d = if (old.isNotBlank()) listOf(DanmakuSource(old, true))
+                else listOf(DanmakuSource("https://dm.nnn.xx.kg", true))
+                danmakuSources = d
+                return d
+            }
+            return try {
+                val arr = JSONArray(raw)
+                (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.getJSONObject(i)
+                    val u = o.optString("url").trim().trimEnd('/')
+                    if (u.isBlank()) null else DanmakuSource(u, o.optBoolean("on", true))
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+        set(v) {
+            val arr = JSONArray()
+            v.map { it.url.trim().trimEnd('/') to it.enabled }
+                .filter { (u, _) -> u.isNotBlank() }
+                .distinctBy { (u, _) -> u }
+                .forEach { (u, on) -> arr.put(JSONObject().put("url", u).put("on", on)) }
+            put("danmaku_sources", arr.toString())
+        }
+
+    fun addDanmakuSource(url: String): Boolean {
+        var u = url.trim()
+        if (u.isEmpty()) return false
+        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
+        u = u.trimEnd('/')
+        if (danmakuSources.any { it.url == u }) return false
+        danmakuSources = danmakuSources + DanmakuSource(u, true)
+        return true
+    }
+
+    fun removeDanmakuSource(url: String) {
+        danmakuSources = danmakuSources.filter { it.url != url }
+    }
+
+    fun setDanmakuSourceEnabled(url: String, enabled: Boolean) {
+        danmakuSources = danmakuSources.map { if (it.url == url) it.copy(enabled = enabled) else it }
+    }
+
+    /** 已启用的弹幕源地址（按列表顺序） */
+    fun enabledDanmakuUrls(): List<String> = danmakuSources.filter { it.enabled }.map { it.url }
+
+    // ---- 弹幕样式（1:1 Android） ----
+    /** 弹幕延迟显示（秒），0~10，默认 0 */
+    var danmakuDelay: Float
+        get() = prefs.getFloat("danmaku_delay", 0f).let { if (it in 0f..10f) it else 0f }
+        set(v) { prefs.putFloat("danmaku_delay", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕字体大小（sp），12~36，默认 20 */
+    var danmakuFontSize: Int
+        get() = prefs.getInt("danmaku_font_size", 20).let { if (it in 12..36) it else 20 }
+        set(v) { prefs.putInt("danmaku_font_size", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕描边大小，0~4，默认 0.8 */
+    var danmakuStroke: Float
+        get() = prefs.getFloat("danmaku_stroke", 0.8f).let { if (it in 0f..4f) it else 0.8f }
+        set(v) { prefs.putFloat("danmaku_stroke", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕速度（%），50~200，默认 100 */
+    var danmakuSpeed: Int
+        get() = prefs.getInt("danmaku_speed", 100).let { if (it in 50..200) it else 100 }
+        set(v) { prefs.putInt("danmaku_speed", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕不透明度（%），10~100，默认 100 */
+    var danmakuOpacity: Int
+        get() = prefs.getInt("danmaku_opacity", 100).let { if (it in 10..100) it else 100 }
+        set(v) { prefs.putInt("danmaku_opacity", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕位置：0=顶部，1=半屏，2=全屏，默认 0 */
+    var danmakuPosition: Int
+        get() = prefs.getInt("danmaku_position", 0).let { if (it in 0..2) it else 0 }
+        set(v) { prefs.putInt("danmaku_position", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕显示区域比例，0.1~1，默认 0.35 */
+    var danmakuArea: Float
+        get() = prefs.getFloat("danmaku_area", 0.35f).let { if (it in 0.1f..1f) it else 0.35f }
+        set(v) { prefs.putFloat("danmaku_area", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 播放器内永久禁用弹幕（会话开关再次启用时清除） */
+    var danmakuDisabled: Boolean
+        get() = prefs.getBoolean("danmaku_disabled", false)
+        set(v) { prefs.putBoolean("danmaku_disabled", v); try { prefs.flush() } catch (_: Exception) {} }
 
     /** Dock 样式：0=M玻璃 1=原玻璃，默认0 */
     var dockStyle: Int

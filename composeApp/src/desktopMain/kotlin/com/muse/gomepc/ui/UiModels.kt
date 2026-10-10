@@ -52,7 +52,7 @@ data class UiMediaItem(
     val genres: List<String> = emptyList(),
     /** 演职人员 */
     val people: List<UiPerson> = emptyList(),
-    /** 所属剧集 ID（type=="Episode" 时为剧的 ID，用于详情页导航） */
+    /** 所属剧集 ID（Episode 类型时为剧的 ID，用于详情页导航） */
     val seriesId: String = ""
 )
 

@@ -205,14 +205,39 @@ items.add(Danmaku(text, w + delaySec * speed, row, speed, System.currentTimeMill
 
 /**
 * 从 API 拉取弹幕（DanDanPlay 兼容）。
-* @param url API base，如 https://Dm.lJiaoVm.com/luosen
+* @param url API base，如 https://dm.nnn.xx.kg
 * @param title 视频标题
 */
 fun loadFromApi(url: String, title: String = "") {
 if (url.isBlank()) return
 Thread {
+doLoadFromApi(url.trim().trimEnd('/'), title) { postError(it) }
+}.start()
+}
+
+/** 多源弹幕：按顺序尝试各 API，任一成功即停；全部失败才回调一次错误（1:1 Android） */
+fun loadFromApiMulti(urls: List<String>, title: String = "") {
+val list = urls.map { it.trim().trimEnd('/') }.filter { it.isNotBlank() }
+if (list.isEmpty()) return
+if (list.size == 1) {
+loadFromApi(list[0], title)
+return
+}
+Thread {
+var lastErr = ""
+for (base in list) {
+if (doLoadFromApi(base, title) { lastErr = it }) return@Thread
+}
+postError(if (lastErr.isNotEmpty()) lastErr else "所有弹幕源均无结果")
+}.start()
+}
+
+/**
+* 单源拉取核心逻辑（供 loadFromApi / loadFromApiMulti 共用）。
+* @return true=成功取到弹幕并填入 pool
+*/
+private fun doLoadFromApi(base: String, title: String, onErr: (String) -> Unit): Boolean {
 try {
-val base = url.trim().trimEnd('/')
 val cleanTitle = cleanTitleForSearch(title)
 Log.d("Danmaku", "弹幕API base: $base, 清洗后: $cleanTitle")
 val client = OkHttpClient.Builder()
@@ -232,8 +257,8 @@ if (animeId.isNotEmpty()) break
 }
 if (animeId.isEmpty()) {
 Log.w("Danmaku", "未搜到番剧: $title")
-postError("未搜到番剧: $title")
-return@Thread
+onErr("未搜到番剧: $title")
+return false
 }
 
 val bangumiUrl = "$base/api/v2/bangumi/$animeId"
@@ -242,8 +267,8 @@ val bangumiBody = bangumiResp.body?.string()?: ""
 bangumiResp.close()
 val episodeId = extractEpisodeId(bangumiBody)
 if (episodeId.isEmpty()) {
-postError("未取到分集")
-return@Thread
+onErr("未取到分集")
+return false
 }
 
 val commentUrl = "$base/api/v2/comment/$episodeId?withRelated=true"
@@ -255,14 +280,16 @@ Log.d("Danmaku", "解析到 ${list.size} 条弹幕")
 if (list.isNotEmpty()) {
 pool.clear()
 pool.addAll(list)
+return true
 } else {
-postError("弹幕为空")
+onErr("弹幕为空")
+return false
 }
 } catch (e: Exception) {
 Log.w("Danmaku", "API失败: ${e.message}")
-postError("API失败: ${e.message}")
+onErr("API失败: ${e.message}")
+return false
 }
-}.start()
 }
 
 private fun postError(msg: String) {
