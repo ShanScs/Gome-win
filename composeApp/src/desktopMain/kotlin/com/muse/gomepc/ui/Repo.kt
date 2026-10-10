@@ -211,9 +211,9 @@ object Repo {
             return listOf(v)
         }
         return if (!mediaSourceId.isNullOrEmpty()) {
-            YambyClient.getPlaybackUrlsForSource(episodeId, mediaSourceId, startTicks)
+            YambyClient.getPlaybackUrlsForSource(episodeId, mediaSourceId)
         } else {
-            YambyClient.getPlaybackUrls(episodeId, startTicks)
+            YambyClient.getPlaybackUrls(episodeId)
         }
     }
 
