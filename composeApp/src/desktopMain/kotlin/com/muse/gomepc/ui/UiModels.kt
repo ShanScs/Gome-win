@@ -51,7 +51,9 @@ data class UiMediaItem(
     /** 类型（如 ["剧情", "爱情"]） */
     val genres: List<String> = emptyList(),
     /** 演职人员 */
-    val people: List<UiPerson> = emptyList()
+    val people: List<UiPerson> = emptyList(),
+    /** 所属剧集 ID（type=="Episode" 时为剧的 ID，用于详情页导航） */
+    val seriesId: String = ""
 )
 
 /** 选集 */
@@ -94,7 +96,8 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
         type = type,
         played = played,
         genres = genres,
-        people = people.map { UiPerson(it.id, it.name, it.role) }
+        people = people.map { UiPerson(it.id, it.name, it.role) },
+        seriesId = seriesId
     )
 }
 

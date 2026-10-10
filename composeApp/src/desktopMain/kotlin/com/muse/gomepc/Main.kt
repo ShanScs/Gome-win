@@ -35,11 +35,15 @@ import com.muse.gomepc.ui.HomeScreen
 import com.muse.gomepc.ui.LibraryScreen
 import com.muse.gomepc.ui.LoginScreen
 import com.muse.gomepc.ui.PlayerScreen
+import com.muse.gomepc.ui.PersonScreen
+import com.muse.gomepc.ui.UiMediaItem
 import com.muse.gomepc.ui.Repo
 import com.muse.gomepc.ui.ResumeListScreen
 import com.muse.gomepc.ui.Screen
 import com.muse.gomepc.ui.SearchScreen
 import com.muse.gomepc.ui.SettingsScreen
+import com.muse.gomepc.ui.ShortDramaListScreen
+import com.muse.gomepc.ui.ShortDramaPlayerScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -89,6 +93,10 @@ private fun getHwnd(window: java.awt.Window): Long {
         0L
     }
 }
+
+/** 详情页导航用的 ID：Episode 类型用 seriesId（继续观看的单集），其他用本体 id */
+private fun detailIdFor(item: UiMediaItem): String =
+    if (item.type == "Episode" && item.seriesId.isNotEmpty()) item.seriesId else item.id
 
 fun main() = application {
     val state = rememberWindowState(
@@ -186,17 +194,33 @@ fun GomeApp(
     // 播放器页：全屏独占（无边栏）
     if (screen is Screen.Player) {
         val p = screen as Screen.Player
+        // 详情页选中的版本/音轨/字幕经 Repo.pendingTrackParams 中转（Screens.kt onPlay 前写入）；
+        // 取走后清空，避免污染下一次播放
+        val tp = Repo.consumePendingTrackParams()
         PlayerScreen(
             itemId = p.itemId,
             itemName = p.itemName,
             episodeId = p.episodeId,
             episodeIndex = p.episodeIndex,
             owner = owner ?: throw IllegalStateException("no owner window"),
+            mediaSourceId = tp?.mediaSourceId,
+            audioIndex = tp?.audioIndex ?: -1,
+            subtitleIndex = tp?.subtitleIndex ?: -1,
             onBack = { screen = Screen.Detail(p.itemId) },
             onFullscreen = onFullscreen,
             onSwitchEpisode = { eid, idx ->
                 screen = Screen.Player(p.itemId, p.itemName, eid, idx)
             }
+        )
+        return
+    }
+
+    // 短剧播放器页：全屏独占（无 Dock，对齐安卓 ShortDramaPlayerActivity 沉浸式）
+    if (screen is Screen.ShortDramaPlayer) {
+        val sp = screen as Screen.ShortDramaPlayer
+        ShortDramaPlayerScreen(
+            folderPath = sp.folderPath,
+            onBack = { screen = Screen.ShortDramaList }
         )
         return
     }
@@ -237,29 +261,38 @@ fun GomeApp(
     val backgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
                 is Screen.Home -> HomeScreen(
-                    onItemClick = { screen = Screen.Detail(it.id) },
+                    onItemClick = { screen = Screen.Detail(detailIdFor(it)) },
                     onResumeMore = { screen = Screen.ResumeList },
                     onServerIconClick = { screen = Screen.Grid },
                     onLibraryClick = { lib -> screen = Screen.Library(lib.id, lib.name) },
+                    onFavoritesClick = { screen = Screen.Favorites },
                     listState = homeListState
                 )
                 is Screen.ResumeList -> ResumeListScreen(
-                    onItemClick = { screen = Screen.Detail(it.id) },
+                    onItemClick = { screen = Screen.Detail(detailIdFor(it)) },
                     onBack = { screen = Screen.Home }
                 )
                 is Screen.Library -> LibraryScreen(
                     libId = s.libId,
                     libName = s.libName,
-                    onItemClick = { screen = Screen.Detail(it.id) },
+                    onItemClick = { screen = Screen.Detail(detailIdFor(it)) },
                     onBack = { screen = Screen.Home },
                     gridState = libraryGridState
                 )
                 is Screen.Grid -> GridScreen(
-                    onItemClick = { screen = Screen.Detail(it.id) },
-                    onServerSelected = { screen = Screen.Home }
+                    onItemClick = { screen = Screen.Detail(detailIdFor(it)) },
+                    onServerSelected = { screen = Screen.Home },
+                    onShortDramaClick = { manage ->
+                        screen = if (manage) Screen.ShortDramaList
+                        else Screen.ShortDramaPlayer(null)
+                    }
                 )
-                is Screen.Search -> SearchScreen(onItemClick = { screen = Screen.Detail(it.id) })
-                is Screen.Favorites -> FavoritesScreen(onItemClick = { screen = Screen.Detail(it.id) })
+                is Screen.ShortDramaList -> ShortDramaListScreen(
+                    onFolderClick = { path -> screen = Screen.ShortDramaPlayer(path) },
+                    onBack = { screen = Screen.Grid }
+                )
+                is Screen.Search -> SearchScreen(onItemClick = { screen = Screen.Detail(detailIdFor(it)) })
+                is Screen.Favorites -> FavoritesScreen(onItemClick = { screen = Screen.Detail(detailIdFor(it)) })
                 is Screen.Settings -> SettingsScreen(
                     onLogout = {
                         loggedIn = false
@@ -284,7 +317,17 @@ fun GomeApp(
                             episodeIndex = ep.index
                         )
                     },
+                    onPersonClick = { person ->
+                        screen = Screen.Person(person.id, person.name, person.role)
+                    },
                     listState = detailListState
+                )
+                is Screen.Person -> PersonScreen(
+                    personId = s.personId,
+                    personName = s.personName,
+                    personRole = s.personRole,
+                    onBack = { screen = Screen.Home },
+                    onItemClick = { screen = Screen.Detail(detailIdFor(it)) }
                 )
                 else -> {}
             }
@@ -323,7 +366,7 @@ fun GomeApp(
             }
         }
         // 详情页也保留 Dock（对齐 Android：Dock 只在播放器页隐藏）
-        if (screen !is Screen.Player) {
+        if (screen !is Screen.Player && screen !is Screen.ShortDramaPlayer) {
             DockBar(
                 current = screen,
                 onSelect = { screen = it },
