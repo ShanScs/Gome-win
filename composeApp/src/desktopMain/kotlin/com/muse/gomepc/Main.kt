@@ -98,7 +98,7 @@ private fun getHwnd(window: java.awt.Window): Long {
 fun main() = application {
     val state = rememberWindowState(
         width = 1280.dp,
-        height = 800.dp,
+        height = 960.dp,
         position = WindowPosition(Alignment.Center)
     )
     var isFullscreen by remember { mutableStateOf(false) }
