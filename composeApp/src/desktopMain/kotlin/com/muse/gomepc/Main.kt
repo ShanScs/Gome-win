@@ -326,8 +326,7 @@ fun GomeApp(
                 backgroundContent = dockBackgroundContent,
                 screenW = maxWidth,
                 screenH = maxHeight,
-                modifier = Modifier.fillMaxSize(),
-                scrollVersion = scrollVersion
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
