@@ -34,7 +34,8 @@ object ToolbarWindowManager {
         getDanmakuPosition: (() -> Int)? = null,
         onDanmakuSearch: ((String) -> Unit)? = null,
         onDanmakuImport: ((String) -> Int)? = null,
-        onDanmakuStyleChanged: (() -> Unit)? = null
+        onDanmakuStyleChanged: (() -> Unit)? = null,
+        getTopTitle: (() -> String)? = null
     ) {
         javax.swing.SwingUtilities.invokeLater {
             try {
@@ -67,7 +68,8 @@ object ToolbarWindowManager {
                         getDanmakuPosition = getDanmakuPosition,
                         onDanmakuSearch = onDanmakuSearch,
                         onDanmakuImport = onDanmakuImport,
-                        onDanmakuStyleChanged = onDanmakuStyleChanged
+                        onDanmakuStyleChanged = onDanmakuStyleChanged,
+                        getTopTitle = getTopTitle
                     )
                     win.contentPane.add(panel)
                     window = win
@@ -92,6 +94,8 @@ object ToolbarWindowManager {
                 // 更新面板回调（剧集切换时）
                 try {
                     val panel = w.contentPane.getComponent(0) as? AwtToolbarPanel
+                    panel?.updatePlayer(player)
+                    panel?.updateTopTitleCallback(getTopTitle)
                     panel?.updateEpisodeCallbacks(onPrev, onNext, onPlaylist)
                     panel?.updateNetSpeedCallback(getNetSpeed)
                     panel?.updateDanmakuCallbacks(onToggleDanmaku, isDanmakuEnabled, onDanmakuPosition, getDanmakuPosition)

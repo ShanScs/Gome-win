@@ -71,6 +71,8 @@ object EmbyImageLoader {
 
 /**
  * 带缓存的图片组件。url 为空或加载失败时显示 [fallback]。
+ * [fallbackUrl]：主 url 加载失败（404 等）时尝试的兜底图 URL（1:1 安卓 Glide .thumbnail 语义，
+ * 例如详情页头图先试 Backdrop、没有则用 Primary 海报），都失败才显示 [fallback]。
  */
 @Composable
 fun EmbyImage(
@@ -78,18 +80,22 @@ fun EmbyImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    fallbackUrl: String? = null,
     fallback: @Composable () -> Unit = {}
 ) {
-    var bitmap by remember(url) { mutableStateOf(EmbyImageLoader.getCached(url ?: "")) }
-    var failed by remember(url) { mutableStateOf(false) }
+    var bitmap by remember(url, fallbackUrl) { mutableStateOf(EmbyImageLoader.getCached(url ?: "")) }
+    var failed by remember(url, fallbackUrl) { mutableStateOf(false) }
 
-    LaunchedEffect(url) {
+    LaunchedEffect(url, fallbackUrl) {
         if (url.isNullOrBlank()) {
             failed = true
             return@LaunchedEffect
         }
         if (bitmap != null) return@LaunchedEffect
-        val bmp = EmbyImageLoader.load(url)
+        var bmp = EmbyImageLoader.load(url)
+        if (bmp == null && !fallbackUrl.isNullOrBlank()) {
+            bmp = EmbyImageLoader.load(fallbackUrl)
+        }
         if (bmp != null) bitmap = bmp else failed = true
     }
 

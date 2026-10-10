@@ -177,7 +177,7 @@ fun GomeApp(
     // 初始界面（截图测试用）：-Dui.screen=detail|player
     val initial = remember {
         when (System.getProperty("ui.screen", "home")) {
-            "player" -> Screen.Player("demo-item", "很想很想你", "demo-ep1", 1)
+            "player" -> Screen.Player("demo-item", "很想很想你", "demo-ep1", 1, 0.0)
             "detail" -> Screen.Detail("demo-item")
             else -> Screen.Home as Screen
         }
@@ -197,10 +197,11 @@ fun GomeApp(
             episodeId = p.episodeId,
             episodeIndex = p.episodeIndex,
             owner = owner ?: throw IllegalStateException("no owner window"),
+            startPositionSec = p.startPositionSec,
             onBack = { screen = Screen.Detail(p.itemId) },
             onFullscreen = onFullscreen,
-            onSwitchEpisode = { eid, idx ->
-                screen = Screen.Player(p.itemId, p.itemName, eid, idx)
+            onSwitchEpisode = { eid, idx, resumeSec ->
+                screen = Screen.Player(p.itemId, p.itemName, eid, idx, resumeSec)
             }
         )
         return
@@ -287,7 +288,8 @@ fun GomeApp(
                             itemId = item.id,
                             itemName = item.name,
                             episodeId = ep.id,
-                            episodeIndex = ep.index
+                            episodeIndex = ep.index,
+                            startPositionSec = ep.playTicks / 10_000_000.0
                         )
                     }
                 )

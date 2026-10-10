@@ -16,7 +16,7 @@ import com.muse.gomepc.player.DebugLog
  * 底栏：进度行(信息图标+当前时间+SeekBar+总时长) + 控制行(左5/中3/右5)
  */
 class AwtToolbarPanel(
-    private val player: MpvPlayer,
+    private var player: MpvPlayer,
     private val itemName: String,
     private val onBack: () -> Unit,
     private val onFullscreen: () -> Unit,
@@ -41,7 +41,9 @@ class AwtToolbarPanel(
     private val getDanmakuPosition: (() -> Int)? = null,
     private val onDanmakuSearch: ((String) -> Unit)? = null,
     private val onDanmakuImport: ((String) -> Int)? = null,
-    private val onDanmakuStyleChanged: (() -> Unit)? = null
+    private val onDanmakuStyleChanged: (() -> Unit)? = null,
+    /** 顶部标题（第X集+集名）；null 则用 itemName */
+    private val getTopTitle: (() -> String)? = null
 ) : JPanel() {
 
     private fun icon(name: String, size: Int): Icon {
@@ -77,6 +79,17 @@ class AwtToolbarPanel(
     private var onNextCb: (() -> Unit)? = onNext
     private var onPlaylistCb: (() -> Unit)? = onPlaylist
     private var getNetSpeedCb: (() -> String)? = getNetSpeed
+    private var getTopTitleCb: (() -> String)? = getTopTitle
+
+    /** 切集时更新 player 引用（旧 player 已销毁） */
+    fun updatePlayer(p: MpvPlayer) {
+        player = p
+    }
+
+    /** 刷新顶部标题回调 */
+    fun updateTopTitleCallback(cb: (() -> String)?) {
+        getTopTitleCb = cb
+    }
 
     private lateinit var prevBtn: PlButton
     private lateinit var nextBtn: PlButton
@@ -87,8 +100,7 @@ class AwtToolbarPanel(
         onPrev: (() -> Unit)?,
         onNext: (() -> Unit)?,
         onPlaylist: (() -> Unit)?
-    ) {
-        onPrevCb = onPrev
+    ) {        onPrevCb = onPrev
         onNextCb = onNext
         onPlaylistCb = onPlaylist
         if (::prevBtn.isInitialized) {
@@ -559,10 +571,10 @@ class AwtToolbarPanel(
         } catch (_: Exception) { }
         seekBar.repaint()
 
-        // 标题（280dp 截断省略）
+        // 标题（280dp 截断省略）：优先显示"第X集 集名"，无则用剧名
         try {
             val fm = titleLabel.getFontMetrics(titleLabel.font)
-            var t = itemName
+            var t = getTopTitleCb?.invoke()?.takeIf { it.isNotBlank() } ?: itemName
             if (fm.stringWidth(t) > 280) {
                 while (t.isNotEmpty() && fm.stringWidth("$t…") > 280) t = t.dropLast(1)
                 t += "…"

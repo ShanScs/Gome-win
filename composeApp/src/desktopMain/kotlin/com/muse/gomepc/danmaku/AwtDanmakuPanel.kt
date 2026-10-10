@@ -33,6 +33,8 @@ class AwtDanmakuPanel(
 
             override fun mouseDragged(e: java.awt.event.MouseEvent?) {
                 onMouseActivity()
+                // 拖动也要透传，否则进度条 Slider 无法拖动
+                dispatchToUnderlying(e)
             }
 
             private fun dispatchToUnderlying(e: java.awt.event.MouseEvent?) {

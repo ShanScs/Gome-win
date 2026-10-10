@@ -151,7 +151,7 @@ object Repo {
                 "Movie" -> {
                     // 电影：单集直接播本体
                     EpisodeData(
-                        listOf(UiEpisode(itemId, 1, "正片")),
+                        listOf(UiEpisode(itemId, 1, "正片", playTicks = item.playTicks)),
                         emptyList(), null
                     )
                 }
@@ -166,7 +166,7 @@ object Repo {
                                 it.id, it.episodeIdx, it.epLabel(),
                                 width = it.width, height = it.height,
                                 runTicks = it.runTicks, sizeBytes = it.sizeBytes,
-                                played = it.played
+                                played = it.played, playTicks = it.playTicks
                             )
                         }
                         EpisodeData(
@@ -191,7 +191,7 @@ object Repo {
                 it.id, it.episodeIdx, it.epLabel(),
                 width = it.width, height = it.height,
                 runTicks = it.runTicks, sizeBytes = it.sizeBytes,
-                played = it.played
+                played = it.played, playTicks = it.playTicks
             )
         }
     }

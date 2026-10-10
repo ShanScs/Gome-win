@@ -65,7 +65,9 @@ data class UiEpisode(
     val height: Int = 0,
     val runTicks: Long = 0L,
     val sizeBytes: Long = 0L,
-    val played: Boolean = false
+    val played: Boolean = false,
+    /** 上次播放位置（ticks，Emby UserData.PlaybackPositionTicks），用于断点续播 */
+    val playTicks: Long = 0L
 )
 
 /** YambyClient.Item → UiMediaItem */

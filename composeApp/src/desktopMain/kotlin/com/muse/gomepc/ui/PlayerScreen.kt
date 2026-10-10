@@ -175,9 +175,11 @@ fun PlayerScreen(
     owner: java.awt.Window,
     vo: String = defaultVo(),
     hwdec: String = defaultHwdec(),
+    /** 断点续播位置（秒），0=从头播 */
+    startPositionSec: Double = 0.0,
     onBack: () -> Unit,
     onFullscreen: () -> Unit,
-    onSwitchEpisode: ((episodeId: String, episodeIndex: Int) -> Unit)? = null
+    onSwitchEpisode: ((episodeId: String, episodeIndex: Int, resumeSec: Double) -> Unit)? = null
 ) {
     val player = remember(episodeId) { MpvPlayer() }
     val prefs = remember { com.muse.gomepc.emby.Prefs }
@@ -226,6 +228,19 @@ fun PlayerScreen(
     var showLogs by remember { mutableStateOf(false) }
     var urlTestResult by remember { mutableStateOf<String?>(null) }
     var fileLoaded by remember { mutableStateOf(false) }
+    // 断点续播：文件加载完成后只应用一次（1:1 Android pendingSeek 逻辑）；
+    // 接近片尾（剩余不足60秒）则从头开始
+    var resumeApplied by remember(episodeId) { mutableStateOf(false) }
+    LaunchedEffect(fileLoaded, episodeId) {
+        if (fileLoaded && !resumeApplied && startPositionSec > 0) {
+            resumeApplied = true
+            val dur = duration
+            if (dur <= 0 || startPositionSec < dur - 60) {
+                player.seek(startPositionSec)
+                com.muse.gomepc.player.DebugLog.d("UI", "断点续播 seek 到 $startPositionSec 秒")
+            }
+        }
+    }
     // 弹幕开关统一状态（工具栏按钮 / 底栏文字 / D键 共用，1:1 Android 会话语义）
     var danmakuUiOn by remember { mutableStateOf(engine.isDanmakuOn()) }
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
@@ -279,6 +294,7 @@ fun PlayerScreen(
         }
     }
 
+
     // 取播放地址
     LaunchedEffect(episodeId) {
         try {
@@ -326,9 +342,11 @@ fun PlayerScreen(
     }
 
     // canvas 有实际尺寸 + 拿到播放地址后才 init mpv（0x0 时无法渲染）
+    // 监听器跟随当前 episode 的 player：切集时旧 player 销毁、新 player 重新挂监听
     var initializing by remember { mutableStateOf(false) }
-    DisposableEffect(Unit) {
-        player.listener = object : MpvPlayer.Listener {
+    DisposableEffect(episodeId) {
+        val p = player
+        p.listener = object : MpvPlayer.Listener {
             override fun onFileLoaded() {
                 SwingUtilities.invokeLater { fileLoaded = true }
             }
@@ -342,8 +360,8 @@ fun PlayerScreen(
                     if (dur > 0) duration = dur
                 }
             }
-            override fun onPause(p: Boolean) {
-                SwingUtilities.invokeLater { paused = p }
+            override fun onPause(pausedState: Boolean) {
+                SwingUtilities.invokeLater { paused = pausedState }
             }
             override fun onLog(prefix: String, level: String, text: String) {
                 SwingUtilities.invokeLater {
@@ -353,7 +371,7 @@ fun PlayerScreen(
             }
         }
         onDispose {
-            player.destroy()
+            try { p.destroy() } catch (_: Throwable) { }
         }
     }
 
@@ -422,14 +440,113 @@ fun PlayerScreen(
         }
     }
 
-    // 换集时销毁旧 player
-    DisposableEffect(episodeId) {
-        onDispose {
-            try { player.destroy() } catch (_: Throwable) { }
-        }
+    // 稳定回调：remember 固定实例，防止父重构导致 Canvas 重建
+
+    // 浮动工具栏 root（切集时复用刷新回调）
+    var toolbarRoot by remember { mutableStateOf<javax.swing.JFrame?>(null) }
+    /** 刷新浮动工具栏（首建/切集时调用；单例窗口只更新回调与 player 引用） */
+    fun refreshToolbar() {
+        val root = toolbarRoot ?: return
+        ToolbarWindowManager.show(
+        owner = root,
+        player = player,
+        itemName = itemName,
+        getTopTitle = {
+            episodeList.getOrNull(episodeIndex)?.name?.takeIf { it.isNotBlank() } ?: itemName
+        },
+        onBack = { onBack() },
+        onFullscreen = { onFullscreen() },
+        isVisibleState = { controlsVisibleState.value },
+        getPaused = { paused },
+        getTimePos = { if (dragging) dragPos.toDouble() else timePos },
+        getDuration = { duration },
+        onSeek = { player.seek(it) },
+        getNetSpeed = { netSpeedText },
+        onToggleDanmaku = { toggleDanmaku() },
+        isDanmakuEnabled = { danmakuUiOn },
+        onDanmakuPosition = { pos ->
+            danmakuPosition = pos
+            prefs.danmakuPosition = pos
+            engine.setPosition(pos)
+        },
+        getDanmakuPosition = {
+            danmakuPosition
+        },
+        onDanmakuSearch = { kw ->
+            val url = prefs.enabledDanmakuUrls().firstOrNull()
+            if (url != null) {
+                engine.loadFromApi(url, kw)
+                if (!engine.isDanmakuOn()) {
+                    prefs.danmakuDisabled = false
+                    engine.setEnabled(true)
+                    danmakuUiOn = true
+                    javax.swing.SwingUtilities.invokeLater {
+                        danmakuPanelRef?.isVisible = true
+                    }
+                }
+            }
+        },
+        onDanmakuImport = { text ->
+            val n = engine.importFromText(text)
+            if (n > 0 && !engine.isDanmakuOn()) {
+                prefs.danmakuDisabled = false
+                engine.setEnabled(true)
+                danmakuUiOn = true
+                javax.swing.SwingUtilities.invokeLater {
+                    danmakuPanelRef?.isVisible = true
+                }
+            }
+            n
+        },
+        onDanmakuStyleChanged = { refreshDanmakuStyle() },
+        onPrev = if (episodeIndex > 0 && onSwitchEpisode != null) {
+            {
+                val prev = episodeList.getOrNull(episodeIndex - 1)
+                if (prev != null) onSwitchEpisode(prev.id, episodeIndex - 1, prev.playTicks / 10_000_000.0)
+            }
+        } else null,
+        onNext = if (onSwitchEpisode != null && episodeIndex < episodeList.size - 1) {
+            {
+                val next = episodeList.getOrNull(episodeIndex + 1)
+                if (next != null) onSwitchEpisode(next.id, episodeIndex + 1, next.playTicks / 10_000_000.0)
+            }
+        } else null,
+        onPlaylist = if (onSwitchEpisode != null && episodeList.isNotEmpty()) {
+            {
+                javax.swing.SwingUtilities.invokeLater {
+                    val infos = episodeList.map {
+                        EpisodePanel.EpisodeInfo(
+                            id = it.id, index = it.index, name = it.name,
+                            width = it.width, height = it.height,
+                            durationTicks = it.runTicks, sizeBytes = it.sizeBytes,
+                            playTicks = it.playTicks
+                        )
+                    }
+                    EpisodePanel(root, infos, episodeIndex) { ep, idx ->
+                        onSwitchEpisode(ep.id, idx, ep.playTicks / 10_000_000.0)
+                    }.show()
+                }
+            }
+        } else null
+        )
+    }
+    // 切集：重置本集播放状态 + 刷新浮动工具栏（新 player/新上下集回调）。
+    // 与取地址的 LaunchedEffect(episodeId) 并发执行：重置是同步的，先于网络返回完成。
+    LaunchedEffect(episodeId) {
+        mpvInitDone = false
+        inited = false
+        initializing = false
+        fileLoaded = false
+        initError = null
+        urlError = null
+        videoUrl = null
+        timePos = 0.0
+        duration = 0.0
+        paused = false
+        dragging = false
+        refreshToolbar()
     }
 
-    // 稳定回调：remember 固定实例，防止父重构导致 Canvas 重建
     val onCanvasReadyStable = remember {
         { canvas: java.awt.Canvas ->
             try {
@@ -458,85 +575,9 @@ fun PlayerScreen(
                     danmakuPanelRef = danmakuPanel
                     com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
 
-                    // 工具栏：单例复用，只创建一次
-                    ToolbarWindowManager.show(
-                        owner = root,
-                        player = player,
-                        itemName = itemName,
-                        onBack = { onBack() },
-                        onFullscreen = { onFullscreen() },
-                        isVisibleState = { controlsVisibleState.value },
-                        getPaused = { paused },
-                        getTimePos = { if (dragging) dragPos.toDouble() else timePos },
-                        getDuration = { duration },
-                        onSeek = { player.seek(it) },
-                        getNetSpeed = { netSpeedText },
-                        onToggleDanmaku = { toggleDanmaku() },
-                        isDanmakuEnabled = { danmakuUiOn },
-                        onDanmakuPosition = { pos ->
-                            danmakuPosition = pos
-                            prefs.danmakuPosition = pos
-                            engine.setPosition(pos)
-                        },
-                        getDanmakuPosition = {
-                            danmakuPosition
-                        },
-                        onDanmakuSearch = { kw ->
-                            val url = prefs.enabledDanmakuUrls().firstOrNull()
-                            if (url != null) {
-                                engine.loadFromApi(url, kw)
-                                if (!engine.isDanmakuOn()) {
-                                    prefs.danmakuDisabled = false
-                                    engine.setEnabled(true)
-                                    danmakuUiOn = true
-                                    javax.swing.SwingUtilities.invokeLater {
-                                        danmakuPanelRef?.isVisible = true
-                                    }
-                                }
-                            }
-                        },
-                        onDanmakuImport = { text ->
-                            val n = engine.importFromText(text)
-                            if (n > 0 && !engine.isDanmakuOn()) {
-                                prefs.danmakuDisabled = false
-                                engine.setEnabled(true)
-                                danmakuUiOn = true
-                                javax.swing.SwingUtilities.invokeLater {
-                                    danmakuPanelRef?.isVisible = true
-                                }
-                            }
-                            n
-                        },
-                        onDanmakuStyleChanged = { refreshDanmakuStyle() },
-                        onPrev = if (episodeIndex > 0 && onSwitchEpisode != null) {
-                            {
-                                val prev = episodeList.getOrNull(episodeIndex - 1)
-                                if (prev != null) onSwitchEpisode(prev.id, episodeIndex - 1)
-                            }
-                        } else null,
-                        onNext = if (onSwitchEpisode != null && episodeIndex < episodeList.size - 1) {
-                            {
-                                val next = episodeList.getOrNull(episodeIndex + 1)
-                                if (next != null) onSwitchEpisode(next.id, episodeIndex + 1)
-                            }
-                        } else null,
-                        onPlaylist = if (onSwitchEpisode != null && episodeList.isNotEmpty()) {
-                            {
-                                javax.swing.SwingUtilities.invokeLater {
-                                    val infos = episodeList.map {
-                                        EpisodePanel.EpisodeInfo(
-                                            id = it.id, index = it.index, name = it.name,
-                                            width = it.width, height = it.height,
-                                            durationTicks = it.runTicks, sizeBytes = it.sizeBytes
-                                        )
-                                    }
-                                    EpisodePanel(root, infos, episodeIndex) { ep, idx ->
-                                        onSwitchEpisode(ep.id, idx)
-                                    }.show()
-                                }
-                            }
-                        } else null
-                    )
+                    // 工具栏：单例复用，首建/切集都走 refreshToolbar 刷新回调
+                    toolbarRoot = root
+                    refreshToolbar()
                 }
             } catch (_: Throwable) { }
             pendingCanvas = canvas

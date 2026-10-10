@@ -34,7 +34,8 @@ class EpisodePanel(
         val width: Int = 0,
         val height: Int = 0,
         val durationTicks: Long = 0L,
-        val sizeBytes: Long = 0L
+        val sizeBytes: Long = 0L,
+        val playTicks: Long = 0L
     )
 
     private var dialog: JDialog? = null
@@ -98,20 +99,21 @@ class EpisodePanel(
             border = EmptyBorder(0, 12, 12, 12)
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            preferredSize = Dimension(360, 500)
+            preferredSize = Dimension(180, 333)
         }
         content.add(scroll)
 
         dlg.contentPane = content
         dlg.pack()
-        dlg.size = Dimension(380, 600)
+        dlg.size = Dimension(190, 400)
 
         try {
             val ownerLoc = owner.locationOnScreen
             val x = ownerLoc.x + owner.width - dlg.width - 12
             val y = ownerLoc.y + 12
             dlg.setLocation(x, y)
-            dlg.size = Dimension(380, owner.height - 24)
+            // 宽减半(380→190)，高减1/3
+            dlg.size = Dimension(190, (owner.height - 24) * 2 / 3)
         } catch (_: Throwable) {
             dlg.setLocationRelativeTo(owner)
         }

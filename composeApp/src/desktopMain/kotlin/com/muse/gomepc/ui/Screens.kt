@@ -82,7 +82,9 @@ sealed interface Screen {
         val itemId: String,
         val itemName: String,
         val episodeId: String,
-        val episodeIndex: Int
+        val episodeIndex: Int,
+        /** 断点续播位置（秒），0=从头播 */
+        val startPositionSec: Double = 0.0
     ) : Screen
     data object ResumeList : Screen
     data class Library(val libId: String, val libName: String) : Screen
@@ -3240,6 +3242,8 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                     url = YambyClient.imageUrl(it.id, "Backdrop", 1280),
                                     contentDescription = it.name,
                                     modifier = Modifier.fillMaxSize(),
+                                    // 1:1 安卓：Backdrop 没有时用 Primary 海报兜底，不直接掉渐变
+                                    fallbackUrl = YambyClient.imageUrl(it.id, "Primary", 1280),
                                     fallback = {
                                         val (c1, c2) = posterColors(it.hue)
                                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(c1, c2))))
@@ -3323,13 +3327,55 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         modifier = Modifier.clickable { showFullOverview = true }
                                     )
                                 }
-                                // 5 功能图标：已看/收藏/合集/音频/评论（1:1 安卓 DetailActivity）
-                                Spacer(Modifier.height(4.dp))
-                                Row(modifier = Modifier.fillMaxWidth()) {
+                            }
+                        }
+                    }
+                    // 播放按钮 + 5功能图标：同一行（播放占1/4，图标占3/4）
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(start = 20.dp, end = 20.dp, top = 10.dp)
+                                .height(56.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 播放按钮：1/4宽，白大胶囊 + 绿进度叠层
+                            Box(
+                                modifier = Modifier.weight(1f)
+                                    .fillMaxHeight()
+                                    .shadow(4.dp, RoundedCornerShape(28.dp))
+                                    .clip(RoundedCornerShape(28.dp))
+                                    .background(Color.White)
+                                    .clickable {
+                                        val first = eps.firstOrNull() ?: return@clickable
+                                        onPlay(it, first)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val p = it.progress
+                                if (p != null && p > 0f) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(p.coerceIn(0f, 1f))
+                                            .fillMaxHeight()
+                                            .align(Alignment.CenterStart)
+                                            .background(Color(0xFF34C759).copy(alpha = 0.25f))
+                                    )
+                                }
+                                Text(
+                                    if (p != null && p > 0f) "继续播放" else "▶ 播放",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GomeTheme.TextPrimary
+                                )
+                            }
+                            // 5功能图标：占3/4宽（已看/收藏/合集/音频/评论）
+                            Row(
+                                modifier = Modifier.weight(3f).fillMaxHeight(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                     // 已看：电影管自己，剧集管未看的第一集
                                     DetailActionBtn(
                                         DETAIL_ICON_CHECK, "已看",
-                                        tint = if (isWatched) Color(0xFF34C759) else Color.White
+                                        tint = if (isWatched) Color(0xFF34C759) else GomeTheme.TextPrimary
                                     ) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
@@ -3342,7 +3388,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                     // 收藏
                                     DetailActionBtn(
                                         DETAIL_ICON_HEART_PLUS, "收藏",
-                                        tint = if (isFav) Color(0xFFFF3B30) else Color.White
+                                        tint = if (isFav) Color(0xFFFF3B30) else GomeTheme.TextPrimary
                                     ) {
                                         detailScope.launch {
                                             isFav = !isFav
@@ -3351,7 +3397,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         }
                                     }
                                     // 合集→版本选择
-                                    DetailActionBtn(DETAIL_ICON_FILM, "合集") {
+                                    DetailActionBtn(DETAIL_ICON_FILM, "合集", tint = GomeTheme.TextPrimary) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -3390,7 +3436,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         }
                                     }
                                     // 音频
-                                    DetailActionBtn(DETAIL_ICON_HEADPHONES, "音频") {
+                                    DetailActionBtn(DETAIL_ICON_HEADPHONES, "音频", tint = GomeTheme.TextPrimary) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -3432,7 +3478,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         }
                                     }
                                     // 评论→字幕选择
-                                    DetailActionBtn(DETAIL_ICON_COMMENTS, "评论") {
+                                    DetailActionBtn(DETAIL_ICON_COMMENTS, "评论", tint = GomeTheme.TextPrimary) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -3471,40 +3517,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                             }
                                         }
                                     }
-                                }
                             }
-                        }
-                    }
-                    // 播放按钮：56dp 白大胶囊 + 绿进度叠层
-                    item {
-                        Box(
-                            modifier = Modifier.fillMaxWidth()
-                                .padding(start = 20.dp, end = 20.dp, top = 10.dp)
-                                .height(56.dp)
-                                .shadow(4.dp, RoundedCornerShape(28.dp))
-                                .clip(RoundedCornerShape(28.dp))
-                                .background(Color.White)
-                                .clickable {
-                                    val first = eps.firstOrNull() ?: return@clickable
-                                    onPlay(it, first)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val p = it.progress
-                            if (p != null && p > 0f) {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth(p.coerceIn(0f, 1f))
-                                        .fillMaxHeight()
-                                        .align(Alignment.CenterStart)
-                                        .background(Color(0xFF34C759).copy(alpha = 0.25f))
-                                )
-                            }
-                            Text(
-                                if (p != null && p > 0f) "继续播放" else "▶ 播放",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = GomeTheme.TextPrimary
-                            )
                         }
                     }
                     // 季选择行
