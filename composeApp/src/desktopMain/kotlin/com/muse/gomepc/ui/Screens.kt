@@ -408,22 +408,27 @@ fun HomeScreen(
                 item {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         BannerCarousel(items = bannerItems, onItemClick = onItemClick)
+                        // 顶栏透明悬浮：无背景，海报直通到顶边；中间文字删掉；左右图标用月亮灰磨砂圆背板
                         Box(
                             modifier = Modifier.fillMaxWidth().padding(12.dp).align(Alignment.TopCenter),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(
+                            MGlassBox(
                                 modifier = Modifier.align(Alignment.CenterStart).size(44.dp)
-                                    .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(Color(0x80FFFFFF)).clickable { onServerIconClick() },
-                                contentAlignment = Alignment.Center
+                                    .clickable { onServerIconClick() },
+                                corner = 22.dp,
+                                tint = Color(0x77BFBFBF)
                             ) {
-                                Text(Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
-                                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2F6FED))
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
+                                        fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2F6FED))
+                                }
                             }
-                            Text(Prefs.serverName.ifEmpty { "影音" },
-                                fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            MGlassBox(modifier = Modifier.align(Alignment.CenterEnd).size(33.dp), corner = 17.dp) {
+                            MGlassBox(
+                                modifier = Modifier.align(Alignment.CenterEnd).size(44.dp),
+                                corner = 22.dp,
+                                tint = Color(0x77BFBFBF)
+                            ) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     HeartIcon(modifier = Modifier.size(22.dp))
                                 }
@@ -434,18 +439,22 @@ fun HomeScreen(
             } else {
                 item {
                     Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                        Box(
+                        MGlassBox(
                             modifier = Modifier.align(Alignment.CenterStart).size(44.dp)
-                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                .background(Color.White).clickable { onServerIconClick() },
-                            contentAlignment = Alignment.Center
+                                .clickable { onServerIconClick() },
+                            corner = 22.dp,
+                            tint = Color(0x77BFBFBF)
                         ) {
-                            Text(Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
-                                fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2F6FED))
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
+                                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2F6FED))
+                            }
                         }
-                        Text(Prefs.serverName.ifEmpty { "影音" },
-                            fontSize = 20.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
-                        MGlassBox(modifier = Modifier.align(Alignment.CenterEnd).size(33.dp), corner = 17.dp) {
+                        MGlassBox(
+                            modifier = Modifier.align(Alignment.CenterEnd).size(44.dp),
+                            corner = 22.dp,
+                            tint = Color(0x77BFBFBF)
+                        ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 HeartIcon(modifier = Modifier.size(22.dp))
                             }
@@ -558,7 +567,7 @@ fun ResumeListScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "‹",
+                "←",
                 fontSize = 24.sp,
                 color = GomeTheme.TextPrimary,
                 modifier = Modifier.size(40.dp)
@@ -624,7 +633,7 @@ private fun BannerCarousel(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(480.dp)
+                .height(640.dp)
         ) { page ->
             val item = items[page]
             Box(
@@ -639,33 +648,35 @@ private fun BannerCarousel(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-                // 底部渐变
+                // 底部淡出到白色（对齐安卓：海报底部淡出衔接继续观看顶部）
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             androidx.compose.ui.graphics.Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color(0x99000000)
-                                ),
-                                startY = 200f
+                                0.55f to Color.Transparent,
+                                1f to Color.White
                             )
                         )
                 )
-                // 标题/元信息/简介（左下角）
+                // 大标题（白色，压在图片上、淡出区上方）
+                Text(
+                    item.name,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 20.dp, end = 20.dp, bottom = 300.dp)
+                )
+                // 评分/年份/类型/简介（落在白色淡出区，深色字，对齐安卓）
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 20.dp, end = 20.dp, bottom = 36.dp)
+                        .padding(start = 20.dp, end = 20.dp, bottom = 30.dp)
                 ) {
-                    Text(
-                        item.name,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 1
-                    )
                     val meta = listOfNotNull(
                         item.rating?.let { "★ $it" },
                         item.year.takeIf { it.isNotBlank() },
@@ -675,7 +686,7 @@ private fun BannerCarousel(
                         Text(
                             meta,
                             fontSize = 13.sp,
-                            color = Color(0xE6FFFFFF),
+                            color = GomeTheme.TextPrimary,
                             maxLines = 1,
                             modifier = Modifier.padding(top = 6.dp)
                         )
@@ -684,7 +695,7 @@ private fun BannerCarousel(
                         Text(
                             item.overview,
                             fontSize = 13.sp,
-                            color = Color(0xB3FFFFFF),
+                            color = GomeTheme.TextSecondary,
                             maxLines = 2,
                             modifier = Modifier.padding(top = 6.dp)
                         )
@@ -692,7 +703,7 @@ private fun BannerCarousel(
                 }
             }
         }
-        // 圆点指示器
+        // 圆点指示器（白色淡出区上用灰色）
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -705,8 +716,8 @@ private fun BannerCarousel(
                         .size(if (index == pagerState.currentPage) 8.dp else 6.dp)
                         .clip(CircleShape)
                         .background(
-                            if (index == pagerState.currentPage) Color.White
-                            else Color(0x80FFFFFF)
+                            if (index == pagerState.currentPage) Color(0xFF666666)
+                            else Color(0xFFCCCCCC)
                         )
                 )
             }
@@ -859,7 +870,7 @@ fun LibraryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "‹ 返回",
+                "← 返回",
                 fontSize = 15.sp,
                 color = GomeTheme.TextPrimary,
                 modifier = Modifier.clickable { onBack() }
@@ -872,26 +883,14 @@ fun LibraryScreen(
                 color = GomeTheme.TextPrimary,
                 modifier = Modifier.padding(start = 8.dp)
             )
-        }
-        // 工具栏：计数 + 右上角排序（对齐 Android activity_library）
-        Row(
-            modifier = Modifier.fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = if (libItems == null) "" else "${libItems!!.size} 项",
-                fontSize = 14.sp,
-                color = GomeTheme.TextPrimary
-            )
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             val (sortName, sortTriple) = librarySortOptions[selectedSort]
             Text(
                 text = "☰ $sortName ${sortTriple.third}",
-                fontSize = 14.sp,
+                fontSize = 20.sp,
                 color = Color(0xFF2F6FED),
                 modifier = Modifier.clickable { showSortDialog = true }
-                    .padding(8.dp)
+                    .padding(horizontal = 8.dp)
             )
         }
         if (libItems == null) {
@@ -3035,6 +3034,32 @@ private fun DetailActionBtn(paths: List<String>, desc: String, tint: Color = Col
     }
 }
 
+/** 海报上的白色圆按钮（1:1 安卓详情页） */
+@Composable
+private fun PosterCircleBtn(
+    paths: List<String>,
+    desc: String,
+    tint: Color = Color(0xFF1A1A1A),
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier.size(54.dp)
+                .shadow(4.dp, CircleShape)
+                .clip(CircleShape)
+                .background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            DetailStrokeIcon(paths = paths, tint = tint, modifier = Modifier.size(26.dp))
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(desc, fontSize = 12.sp, color = Color.White)
+    }
+}
+
 /** 详情页毛底单选弹窗（1:1 安卓 setSingleChoiceItems + 毛底样式） */
 @Composable
 private fun DetailSingleChoiceDialog(
@@ -3234,9 +3259,9 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 110.dp)
                 ) {
-                    // 海报头 480dp
+                    // 海报头 640dp（1:1 安卓：标题/5圆按钮/播放/简介叠在海报上）
                     item {
-                        Box(Modifier.fillMaxWidth().height(480.dp)) {
+                        Box(Modifier.fillMaxWidth().height(640.dp)) {
                             if (it.imageUrl != null) {
                                 EmbyImage(
                                     url = YambyClient.imageUrl(it.id, "Backdrop", 1280),
@@ -3249,133 +3274,39 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(c1, c2))))
                                     }
                                 )
-                                Box(
-                                    Modifier.fillMaxSize().background(
-                                        Brush.verticalGradient(
-                                            listOf(Color.Transparent, Color(0x99000000)),
-                                            startY = 0.4f
-                                        )
-                                    )
-                                )
                             } else {
                                 val (c1, c2) = posterColors(it.hue)
                                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(c1, c2))))
                             }
+                            // 底部深色渐变（保证白色文字可读，对齐安卓）
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Brush.verticalGradient(
+                                        0.35f to Color.Transparent,
+                                        1f to Color(0xD9000000)
+                                    )
+                                )
+                            )
+                            // 叠加内容：标题 + 5白圆按钮 + 播放/简介行
                             Column(
-                                Modifier.align(Alignment.BottomCenter)
-                                    .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                Modifier.align(Alignment.BottomStart)
+                                    .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
                             ) {
                                 Text(
                                     it.name,
-                                    fontSize = 32.sp,
+                                    fontSize = 30.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
-                                    textAlign = TextAlign.Center,
-                                    style = androidx.compose.ui.text.TextStyle(
-                                        shadow = androidx.compose.ui.graphics.Shadow(
-                                            color = Color(0x80000000),
-                                            offset = androidx.compose.ui.geometry.Offset(0f, 2f),
-                                            blurRadius = 8f
-                                        )
-                                    )
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    listOfNotNull(
-                                        it.year.takeIf { s -> s.isNotEmpty() },
-                                        it.libName.takeIf { s -> s.isNotEmpty() },
-                                        it.rating?.let { r -> "★$r" }
-                                    ).joinToString(" · "),
-                                    fontSize = 13.sp,
-                                    color = Color.White,
-                                    textAlign = TextAlign.Center,
-                                    style = androidx.compose.ui.text.TextStyle(
-                                        shadow = androidx.compose.ui.graphics.Shadow(
-                                            color = Color(0x80000000),
-                                            offset = androidx.compose.ui.geometry.Offset(0f, 1f),
-                                            blurRadius = 4f
-                                        )
-                                    )
-                                )
-                                if (it.genres.isNotEmpty()) {
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        it.genres.joinToString(" · "),
-                                        fontSize = 13.sp,
-                                        color = Color.White,
-                                        textAlign = TextAlign.Center,
-                                        style = androidx.compose.ui.text.TextStyle(
-                                            shadow = androidx.compose.ui.graphics.Shadow(
-                                                color = Color(0x80000000),
-                                                offset = androidx.compose.ui.geometry.Offset(0f, 1f),
-                                                blurRadius = 4f
-                                            )
-                                        )
-                                    )
-                                }
-                                if (it.overview.isNotEmpty()) {
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(
-                                        it.overview,
-                                        fontSize = 13.sp,
-                                        color = Color.White,
-                                        textAlign = TextAlign.Center,
-                                        lineHeight = 18.sp,
-                                        maxLines = 4,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.clickable { showFullOverview = true }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    // 播放按钮 + 5功能图标：同一行（播放占1/4，图标占3/4）
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth()
-                                .padding(start = 20.dp, end = 20.dp, top = 10.dp)
-                                .height(56.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // 播放按钮：1/4宽，白大胶囊 + 绿进度叠层
-                            Box(
-                                modifier = Modifier.weight(1f)
-                                    .fillMaxHeight()
-                                    .shadow(4.dp, RoundedCornerShape(28.dp))
-                                    .clip(RoundedCornerShape(28.dp))
-                                    .background(Color.White)
-                                    .clickable {
-                                        val first = eps.firstOrNull() ?: return@clickable
-                                        onPlay(it, first)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val p = it.progress
-                                if (p != null && p > 0f) {
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth(p.coerceIn(0f, 1f))
-                                            .fillMaxHeight()
-                                            .align(Alignment.CenterStart)
-                                            .background(Color(0xFF34C759).copy(alpha = 0.25f))
-                                    )
-                                }
-                                Text(
-                                    if (p != null && p > 0f) "继续播放" else "▶ 播放",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GomeTheme.TextPrimary
-                                )
-                            }
-                            // 5功能图标：占3/4宽（已看/收藏/合集/音频/评论）
-                            Row(
-                                modifier = Modifier.weight(3f).fillMaxHeight(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                                Spacer(Modifier.height(12.dp))
+                                // 5个白色圆按钮（已看/收藏/合集/音频/评论）
+                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     // 已看：电影管自己，剧集管未看的第一集
-                                    DetailActionBtn(
+                                    PosterCircleBtn(
                                         DETAIL_ICON_CHECK, "已看",
-                                        tint = if (isWatched) Color(0xFF34C759) else GomeTheme.TextPrimary
+                                        tint = if (isWatched) Color(0xFF34C759) else Color(0xFF1A1A1A)
                                     ) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
@@ -3386,9 +3317,9 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         }
                                     }
                                     // 收藏
-                                    DetailActionBtn(
+                                    PosterCircleBtn(
                                         DETAIL_ICON_HEART_PLUS, "收藏",
-                                        tint = if (isFav) Color(0xFFFF3B30) else GomeTheme.TextPrimary
+                                        tint = if (isFav) Color(0xFFFF3B30) else Color(0xFF1A1A1A)
                                     ) {
                                         detailScope.launch {
                                             isFav = !isFav
@@ -3397,7 +3328,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         }
                                     }
                                     // 合集→版本选择
-                                    DetailActionBtn(DETAIL_ICON_FILM, "合集", tint = GomeTheme.TextPrimary) {
+                                    PosterCircleBtn(DETAIL_ICON_FILM, "合集") {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -3436,7 +3367,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         }
                                     }
                                     // 音频
-                                    DetailActionBtn(DETAIL_ICON_HEADPHONES, "音频", tint = GomeTheme.TextPrimary) {
+                                    PosterCircleBtn(DETAIL_ICON_HEADPHONES, "音频") {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -3478,7 +3409,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         }
                                     }
                                     // 评论→字幕选择
-                                    DetailActionBtn(DETAIL_ICON_COMMENTS, "评论", tint = GomeTheme.TextPrimary) {
+                                    PosterCircleBtn(DETAIL_ICON_COMMENTS, "评论") {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -3517,6 +3448,64 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                             }
                                         }
                                     }
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                // 播放按钮 + 类型/简介
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier.width(200.dp).height(52.dp)
+                                            .shadow(4.dp, RoundedCornerShape(26.dp))
+                                            .clip(RoundedCornerShape(26.dp))
+                                            .background(Color.White)
+                                            .clickable {
+                                                val first = eps.firstOrNull() ?: return@clickable
+                                                onPlay(it, first)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val p = it.progress
+                                        if (p != null && p > 0f) {
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth(p.coerceIn(0f, 1f))
+                                                    .fillMaxHeight()
+                                                    .align(Alignment.CenterStart)
+                                                    .background(Color(0xFF34C759).copy(alpha = 0.25f))
+                                            )
+                                        }
+                                        Text(
+                                            if (p != null && p > 0f) "继续播放" else "▶ 播放",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = GomeTheme.TextPrimary
+                                        )
+                                    }
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            listOfNotNull(
+                                                it.genres.joinToString(" · ").takeIf { s -> s.isNotEmpty() },
+                                                it.year.takeIf { s -> s.isNotEmpty() },
+                                                it.rating?.let { r -> "★$r" }
+                                            ).joinToString(" · "),
+                                            fontSize = 13.sp,
+                                            color = Color(0xE6FFFFFF),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (it.overview.isNotEmpty()) {
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                it.overview,
+                                                fontSize = 13.sp,
+                                                color = Color(0xB3FFFFFF),
+                                                lineHeight = 18.sp,
+                                                maxLines = 3,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.clickable { showFullOverview = true }
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -3717,3 +3706,4 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
         }
     }
 }
+// force push

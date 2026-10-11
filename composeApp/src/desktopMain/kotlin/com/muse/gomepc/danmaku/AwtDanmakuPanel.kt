@@ -29,6 +29,8 @@ class AwtDanmakuPanel(
             override fun mouseMoved(e: java.awt.event.MouseEvent?) {
                 com.muse.gomepc.player.DebugLog.d("DANMAKU", "弹幕面板收到 mouseMoved")
                 onMouseActivity()
+                // 悬停也要透传，否则底层控件的 hover 状态失效
+                dispatchToUnderlying(e)
             }
 
             override fun mouseDragged(e: java.awt.event.MouseEvent?) {
@@ -37,29 +39,62 @@ class AwtDanmakuPanel(
                 dispatchToUnderlying(e)
             }
 
+            private var pressTarget: java.awt.Component? = null
+
+            /** 标准 Swing GlassPane 透传：在 contentPane 里做 hit-test，找到光标下最深的组件并把事件派给它 */
+            private fun findTargetUnder(e: java.awt.event.MouseEvent): java.awt.Component? {
+                val glassPane = this@AwtDanmakuPanel
+                val window = javax.swing.SwingUtilities.getWindowAncestor(glassPane) as? javax.swing.JFrame
+                    ?: return null
+                val contentPane = window.contentPane as? java.awt.Container ?: return null
+                val contentPoint = javax.swing.SwingUtilities.convertPoint(glassPane, e.point, contentPane)
+                return javax.swing.SwingUtilities.getDeepestComponentAt(
+                    contentPane, contentPoint.x, contentPoint.y
+                )
+            }
+
+            private fun redispatch(e: java.awt.event.MouseEvent, target: java.awt.Component) {
+                val targetPoint = javax.swing.SwingUtilities.convertPoint(
+                    this@AwtDanmakuPanel, e.point, target
+                )
+                val newEvent = java.awt.event.MouseEvent(
+                    target,
+                    e.id,
+                    e.`when`,
+                    e.modifiers,
+                    targetPoint.x,
+                    targetPoint.y,
+                    e.xOnScreen,
+                    e.yOnScreen,
+                    e.clickCount,
+                    e.isPopupTrigger,
+                    e.button
+                )
+                target.dispatchEvent(newEvent)
+            }
+
             private fun dispatchToUnderlying(e: java.awt.event.MouseEvent?) {
                 if (e == null) return
-                val ownerWindow = javax.swing.SwingUtilities.getWindowAncestor(this@AwtDanmakuPanel)
-                if (ownerWindow != null && ownerWindow.owner != null) {
-                    val mainWin = ownerWindow.owner
-
-                    // 💥 【核心修复】：使用官方安全平移，扣除 Windows 顶部标题栏的绝对像素差
-                    val targetPoint = java.awt.Point(e.xOnScreen, e.yOnScreen)
-                    javax.swing.SwingUtilities.convertPointFromScreen(targetPoint, mainWin)
-
-                    val convertedEvent = java.awt.event.MouseEvent(
-                        mainWin,
-                        e.id,
-                        e.`when`,
-                        e.modifiersEx,
-                        targetPoint.x,
-                        targetPoint.y,
-                        e.clickCount,
-                        e.isPopupTrigger,
-                        e.button
-                    )
-                    mainWin.dispatchEvent(convertedEvent)
-                }
+                try {
+                    when (e.id) {
+                        java.awt.event.MouseEvent.MOUSE_PRESSED -> {
+                            val target = findTargetUnder(e)
+                            pressTarget = target
+                            if (target != null) redispatch(e, target)
+                        }
+                        java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                        java.awt.event.MouseEvent.MOUSE_RELEASED -> {
+                            // 拖动/释放必须发给按下时的同一个组件，否则 Slider 抓不住拖动手势
+                            val target = pressTarget ?: findTargetUnder(e)
+                            if (target != null) redispatch(e, target)
+                            if (e.id == java.awt.event.MouseEvent.MOUSE_RELEASED) pressTarget = null
+                        }
+                        else -> {
+                            val target = findTargetUnder(e)
+                            if (target != null) redispatch(e, target)
+                        }
+                    }
+                } catch (_: Throwable) { }
             }
 
             override fun mousePressed(e: java.awt.event.MouseEvent?) {
