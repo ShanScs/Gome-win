@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -2148,7 +2150,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
     }
 }
 
-/** 收藏页（对齐 Android activity_favorites.xml）：顶栏"收藏"+计数，3列网格，空态"暂无收藏" */
+/** 收藏页：左右两张等大卡片，左边收藏（5列），右边搜索（3列） */
 @Composable
 fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
     var items by remember { mutableStateOf<List<UiMediaItem>?>(null) }
@@ -2163,27 +2165,145 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().background(Color.White)) {
-        Spacer(Modifier.height(76.dp))
-        val list = items
+    Row(
+        Modifier.fillMaxSize().background(Color.White)
+            .padding(start = 16.dp, end = 16.dp, top = 76.dp, bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 左卡片：收藏（5列）
+        Card(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Column(Modifier.fillMaxSize().padding(12.dp)) {
+                val list = items
+                when {
+                    list == null -> LoadingBox(Modifier.weight(1f))
+                    list.isEmpty() -> {
+                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Text("暂无收藏", fontSize = 15.sp, color = Color(0xFFAAAAAA))
+                        }
+                    }
+                    else -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(5),
+                            contentPadding = PaddingValues(bottom = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(list) { item ->
+                                ItemCard(item, onClick = { onItemClick(item) })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 右卡片：搜索（3列）
+        Card(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            CompactSearchPanel(onItemClick = onItemClick)
+        }
+    }
+}
+
+/** 紧凑搜索面板（用于收藏页右卡片）：搜索框 + 3列结果 */
+@Composable
+fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<UiMediaItem>?>(null) }
+    var searching by remember { mutableStateOf(false) }
+    var searchKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(searchKey) {
+        if (searchKey == 0) return@LaunchedEffect
+        val q = query
+        if (q.isBlank()) {
+            results = emptyList()
+            searching = false
+            return@LaunchedEffect
+        }
+        searching = true
+        try {
+            results = Repo.search(q)
+        } catch (_: Exception) {
+            results = emptyList()
+        }
+        searching = false
+    }
+
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
+        // 搜索框
+        Row(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFFF2F4F8))
+                .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NavIcon(NavKind.SEARCH, tint = Color(0xFF1A1A1A).copy(alpha = 0.5f), iconSize = 20.dp)
+            Spacer(Modifier.width(8.dp))
+            androidx.compose.foundation.text.BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onSearch = { searchKey++ }
+                ),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = 14.sp,
+                    color = Color(0xFF1A1A1A)
+                ),
+                modifier = Modifier.weight(1f).height(40.dp),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text("搜索", fontSize = 14.sp, color = Color(0xFFAAAAAA))
+                        }
+                        inner()
+                    }
+                }
+            )
+            if (query.isNotEmpty()) {
+                Box(
+                    modifier = Modifier.size(32.dp)
+                        .clickable { query = "" },
+                    contentAlignment = Alignment.Center
+                ) {
+                    CloseIcon(iconSize = 20.dp, tint = Color(0xFF8A8A8A))
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         when {
-            list == null -> LoadingBox(Modifier.weight(1f))
-            list.isEmpty() -> {
-                // 空态（对齐 Android："暂无收藏" 15sp #AAAAAA 居中）
+            searching -> LoadingBox(Modifier.weight(1f))
+            results == null -> {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("暂无收藏", fontSize = 15.sp, color = Color(0xFFAAAAAA))
+                    Text("输入关键词搜索", fontSize = 14.sp, color = Color(0xFFAAAAAA))
+                }
+            }
+            results!!.isEmpty() -> {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("无结果", fontSize = 14.sp, color = Color(0xFFAAAAAA))
                 }
             }
             else -> {
-                // 4列网格
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(list) { item ->
+                    items(results!!) { item ->
                         ItemCard(item, onClick = { onItemClick(item) })
                     }
                 }

@@ -420,21 +420,21 @@ fun GomeApp(
     val titleConfig: TitleBarConfig = when (val s = screen) {
         is Screen.Home -> TitleBarConfig(
             left = listOf(
-                TitleLeftIcon.App { /* 已在主页，无操作 */ },
+                TitleLeftIcon.App { screen = Screen.Settings },
                 TitleLeftIcon.Server { screen = Screen.Grid },
                 TitleLeftIcon.Favorites { screen = Screen.Favorites }
             )
         )
         is Screen.Detail -> TitleBarConfig(
             left = listOf(
-                TitleLeftIcon.App { screen = Screen.Home },
+                TitleLeftIcon.App { screen = Screen.Settings },
                 TitleLeftIcon.Server { screen = Screen.Grid },
                 TitleLeftIcon.Back { screen = Screen.Home }
             )
         )
         is Screen.Library -> TitleBarConfig(
             left = listOf(
-                TitleLeftIcon.App { screen = Screen.Home },
+                TitleLeftIcon.App { screen = Screen.Settings },
                 TitleLeftIcon.Sort { libSortRequest++ },
                 TitleLeftIcon.Back { screen = Screen.Home }
             ),
@@ -449,7 +449,7 @@ fun GomeApp(
         )
         else -> TitleBarConfig(
             left = listOf(
-                TitleLeftIcon.App { screen = Screen.Home },
+                TitleLeftIcon.App { screen = Screen.Settings },
                 TitleLeftIcon.Server { screen = Screen.Grid },
                 TitleLeftIcon.Back { screen = Screen.Home }
             )
@@ -469,16 +469,6 @@ fun GomeApp(
             onClose = onClose,
             modifier = Modifier.align(Alignment.TopCenter)
         )
-        // 详情页也保留 Dock（对齐 Android：Dock 只在播放器页隐藏）
-        if (screen !is Screen.Player) {
-            DockBar(
-                current = screen,
-                onSelect = { screen = it },
-                backgroundContent = dockBackgroundContent,
-                screenW = maxWidth,
-                screenH = maxHeight,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        // Dock已删除（用户要求）
     }
 }
