@@ -42,16 +42,17 @@ class EpisodePanel(
     private var outsideClickListener: AWTEventListener? = null
 
     // dp = px
-    private val THUMB_W = 110
-    private val THUMB_H = 62
-    private val THUMB_RADIUS = 12
-    private val ROW_RADIUS = 16
-    private val ROW_PAD_H = 12
+    private val THUMB_W = 104
+    private val THUMB_H = 58
+    private val THUMB_RADIUS = 10
+    private val ROW_RADIUS = 14
+    private val ROW_PAD_H = 10
     private val ROW_PAD_V = 10
     private val TEXT_MARGIN_START = 12
     private val TITLE_SIZE = 14
     private val META_SIZE = 12
-    private val META_MARGIN_TOP = 4
+    private val META_MARGIN_TOP = 5
+    private val PANEL_W = 340
 
     fun show() {
         dismiss()
@@ -99,21 +100,23 @@ class EpisodePanel(
             border = EmptyBorder(0, 12, 12, 12)
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            preferredSize = Dimension(180, 333)
+            preferredSize = Dimension(320, 333)
         }
         content.add(scroll)
 
         dlg.contentPane = content
         dlg.pack()
-        dlg.size = Dimension(190, 400)
+        dlg.size = Dimension(PANEL_W, 400)
 
         try {
             val ownerLoc = owner.locationOnScreen
             val x = ownerLoc.x + owner.width - dlg.width - 12
-            val y = ownerLoc.y + 12
+            // 整个播放界面垂直居中，底部在进度条上方
+            val bottomBarH = 130
+            val panelH = (owner.height * 2 / 3).coerceAtMost(owner.height - bottomBarH * 2 - 24)
+            dlg.size = Dimension(PANEL_W, panelH)
+            val y = ownerLoc.y + (owner.height - panelH) / 2
             dlg.setLocation(x, y)
-            // 宽减半(380→190)，高减1/3
-            dlg.size = Dimension(190, (owner.height - 24) * 2 / 3)
         } catch (_: Throwable) {
             dlg.setLocationRelativeTo(owner)
         }
@@ -145,6 +148,9 @@ class EpisodePanel(
     }
 
     private fun createEpisodeRow(ep: EpisodeInfo, index: Int, isCurrent: Boolean): JPanel {
+        val bgColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color.WHITE
+        val titleColor = if (isCurrent) Color.WHITE else Color(0x1A, 0x1A, 0x1A)
+        val metaColor = if (isCurrent) Color(255, 255, 255, 217) else Color(0x8E, 0x8E, 0x93)
         val row = object : JPanel() {
             init {
                 isOpaque = false
@@ -156,22 +162,40 @@ class EpisodePanel(
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                // bg_ep_row: 透明 16dp圆角；bg_ep_current: #B3FFFFFF 16dp圆角
-                if (isCurrent) {
-                    g2.color = Color(255, 255, 255, 179) // B3 = 179
-                    g2.fillRoundRect(0, 0, width, height, ROW_RADIUS, ROW_RADIUS)
-                }
+                // 每集独立小卡片：白底圆角14+阴影；当前集蓝底
+                g2.color = bgColor
+                g2.fillRoundRect(0, 0, width, height, ROW_RADIUS, ROW_RADIUS)
+                // 阴影
+                g2.color = Color(0, 0, 0, 15)
+                g2.drawRoundRect(0, 0, width - 1, height - 1, ROW_RADIUS, ROW_RADIUS)
                 super.paintComponent(g)
             }
         }
 
-        // 缩略图 (110x62, 12dp圆角)
-        val thumbLabel = JLabel().apply {
+        // 缩略图 (104x58, 10dp圆角)，垂直居中
+        val thumbPanel = JPanel(null).apply {
+            isOpaque = false
             preferredSize = Dimension(THUMB_W, THUMB_H)
             maximumSize = Dimension(THUMB_W, THUMB_H)
             minimumSize = Dimension(THUMB_W, THUMB_H)
+        }
+        val thumbLabel = JLabel().apply {
+            setBounds(0, 0, THUMB_W, THUMB_H)
             horizontalAlignment = SwingConstants.CENTER
             verticalAlignment = SwingConstants.CENTER
+        }
+        thumbPanel.add(thumbLabel)
+        // 当前集：缩略图左上角"播放中"徽标
+        if (isCurrent) {
+            val badge = JLabel("播放中").apply {
+                font = Font(Font.SANS_SERIF, Font.BOLD, 9)
+                foreground = Color(0x2F, 0x7C, 0xF6)
+                background = Color(255, 255, 255, 242)
+                isOpaque = true
+                border = EmptyBorder(2, 7, 2, 7)
+                setBounds(6, 6, 44, 18)
+            }
+            thumbPanel.add(badge)
         }
         // 异步加载并圆角裁剪
         Thread {
@@ -187,32 +211,40 @@ class EpisodePanel(
             }
         }.start()
 
-        row.add(thumbLabel)
+        row.add(thumbPanel)
         row.add(Box.createHorizontalStrut(TEXT_MARGIN_START))
 
-        // 文字区
+        // 文字区：10个汉字宽度，垂直居中
         val textPanel = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
         }
-        val titleLabel = JLabel(ep.name).apply {
+        // 标题截断到10个汉字宽度
+        val titleText = truncateTo10(ep.name)
+        val titleLabel = JLabel(titleText).apply {
             font = Font(Font.SANS_SERIF, Font.BOLD, TITLE_SIZE)
-            foreground = Color(0x1A, 0x1A, 0x1A)
+            foreground = titleColor
             alignmentX = Component.LEFT_ALIGNMENT
         }
         val metaLabel = JLabel(buildInfoLine(ep)).apply {
             font = Font(Font.SANS_SERIF, Font.PLAIN, META_SIZE)
-            foreground = Color(0x8E, 0x8E, 0x93)
+            foreground = metaColor
             border = EmptyBorder(META_MARGIN_TOP, 0, 0, 0)
             alignmentX = Component.LEFT_ALIGNMENT
         }
         textPanel.add(titleLabel)
         textPanel.add(metaLabel)
-        // 垂直居中
-        val textWrapper = JPanel(BorderLayout()).apply {
+        // 垂直居中：用BoxLayout的glue
+        val textWrapper = JPanel().apply {
             isOpaque = false
-            add(textPanel, BorderLayout.WEST)
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(Box.createVerticalGlue())
+            add(textPanel)
+            add(Box.createVerticalGlue())
         }
+        // 限制文字区宽度为10em
+        textWrapper.preferredSize = Dimension((TITLE_SIZE * 10 * 1.1).toInt(), THUMB_H)
+        textWrapper.maximumSize = Dimension((TITLE_SIZE * 10 * 1.1).toInt(), THUMB_H)
         row.add(textWrapper)
         row.add(Box.createHorizontalGlue())
 
@@ -224,6 +256,23 @@ class EpisodePanel(
         })
 
         return row
+    }
+
+    /** 截断到10个汉字宽度，超出加省略号 */
+    private fun truncateTo10(s: String): String {
+        var width = 0.0
+        val sb = StringBuilder()
+        for (c in s) {
+            // 汉字/全角算1，半角算0.5
+            val w = if (c.code > 0xFF) 1.0 else 0.5
+            if (width + w > 10) {
+                sb.append("…")
+                break
+            }
+            sb.append(c)
+            width += w
+        }
+        return sb.toString()
     }
 
     private fun makeRounded(src: Image, w: Int, h: Int, radius: Int): BufferedImage {
