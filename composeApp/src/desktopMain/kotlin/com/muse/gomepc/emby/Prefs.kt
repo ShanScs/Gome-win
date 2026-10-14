@@ -213,6 +213,15 @@ object Prefs {
         val stats = getServerStats().toMutableMap()
         stats.remove(key)
         saveServerStats(stats)
+        // 删的是当前正在用的服务器：断开连接，清登录态
+        if (key == currentServerKey()) {
+            clearLogin()
+            host = ""
+            port = ""
+            path = ""
+            username = ""
+            serverName = ""
+        }
     }
 
     /** 编辑服务器导致 key 变化时，迁移统计缓存 */
