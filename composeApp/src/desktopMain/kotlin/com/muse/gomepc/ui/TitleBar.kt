@@ -119,7 +119,8 @@ fun CustomTitleBar(
         // 左侧：椭圆毛玻璃背板 + 3 图标（垂直居中）
         MGlassBox(
             modifier = Modifier.align(Alignment.CenterStart),
-            corner = 20.dp
+            corner = 20.dp,
+            tint = Color(0xFFBFBFBF)
         ) {
             Row(
                 modifier = Modifier.height(40.dp).padding(horizontal = 4.dp),
@@ -144,7 +145,8 @@ fun CustomTitleBar(
         // 右侧：椭圆毛玻璃背板 + 最小化/最大化/关闭（垂直居中）
         MGlassBox(
             modifier = Modifier.align(Alignment.CenterEnd),
-            corner = 20.dp
+            corner = 20.dp,
+            tint = Color(0xFFBFBFBF)
         ) {
             Row(
                 modifier = Modifier.height(40.dp).padding(horizontal = 4.dp),

@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
  * 真 backdrop 模糊在桌面端需走平台相关实现，后续可优化。
  */
 object MGlass {
-    val Tint = Color(0x55FFFFFF)
+    val Tint = Color(0xFCFFFFFF)
     val Stroke = Color(0xAAFFFFFF)
     val HighlightTop = Color(0x99FFFFFF)
     val HighlightBottom = Color(0x00FFFFFF)
