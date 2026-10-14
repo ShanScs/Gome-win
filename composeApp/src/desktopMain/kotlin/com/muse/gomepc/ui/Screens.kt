@@ -2164,27 +2164,7 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().background(Color.White)) {
-        // 顶栏（对齐 Android：标题"收藏" 20sp 加粗，右侧计数 13sp #8A8A8A；顶部留出统一透明标题栏高度）
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 76.dp, bottom = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "收藏",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1A1A1A)
-            )
-            Spacer(Modifier.weight(1f))
-            val list = items
-            if (list != null && list.isNotEmpty()) {
-                Text(
-                    "${list.size} 项",
-                    fontSize = 13.sp,
-                    color = Color(0xFF8A8A8A)
-                )
-            }
-        }
+        Spacer(Modifier.height(76.dp))
         val list = items
         when {
             list == null -> LoadingBox(Modifier.weight(1f))
@@ -2195,9 +2175,9 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
                 }
             }
             else -> {
-                // 3列网格（对齐 Android GridLayoutManager 3列，paddingBottom 100dp）
+                // 4列网格
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
+                    columns = GridCells.Fixed(4),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
