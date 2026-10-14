@@ -1043,7 +1043,6 @@ private fun ServerCardsGrid(
                                         Prefs.username = server.username
                                         Prefs.clearLogin()
                                         YambyClient.login(server.username, server.password)
-                                        Prefs.rememberCurrentServer(server.password)
                                         try {
                                             val sn = YambyClient.getServerName()
                                             if (sn.isNotEmpty()) {
@@ -1054,6 +1053,7 @@ private fun ServerCardsGrid(
                                         } catch (_: Exception) {
                                             Prefs.serverName = server.name
                                         }
+                                        Prefs.rememberCurrentServer(server.password)
                                         Prefs.touchServerLastUsed(server.key())
                                     } catch (_: Exception) {
                                         Prefs.serverName = server.name
