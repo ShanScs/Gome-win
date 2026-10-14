@@ -2170,9 +2170,9 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
             .padding(start = 16.dp, end = 16.dp, top = 76.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 左卡片：收藏（5列）
+        // 左卡片：收藏（5列，更宽）
         Card(
-            modifier = Modifier.weight(1f).fillMaxHeight(),
+            modifier = Modifier.weight(1.6f).fillMaxHeight(),
             shape = RoundedCornerShape(16.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
