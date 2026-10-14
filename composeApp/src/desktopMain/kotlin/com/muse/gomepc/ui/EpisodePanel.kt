@@ -110,6 +110,8 @@ class EpisodePanel(
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             preferredSize = Dimension(320, 333)
+            // 鼠标滚轮加速
+            verticalScrollBar.unitIncrement = 40
         }
         content.add(scroll)
 
@@ -120,11 +122,13 @@ class EpisodePanel(
         try {
             val ownerLoc = owner.locationOnScreen
             val x = ownerLoc.x + owner.width - dlg.width - 12
-            // 整个播放界面垂直居中，底部在进度条上方
+            // 上下一起拉长，底部刚好到进度条上方，整个界面垂直居中
             val bottomBarH = 130
-            val panelH = (owner.height * 2 / 3).coerceAtMost(owner.height - bottomBarH * 2 - 24)
-            dlg.size = Dimension(PANEL_W, panelH)
-            val y = ownerLoc.y + (owner.height - panelH) / 2
+            val margin = 12
+            // 底部 = 窗口高 - 进度条高 - 边距；居中时 panelH = 窗口高 - 2*(底部边距)
+            val panelH = owner.height - (bottomBarH + margin) * 2
+            dlg.size = Dimension(PANEL_W, panelH.coerceAtLeast(300))
+            val y = ownerLoc.y + (owner.height - dlg.height) / 2
             dlg.setLocation(x, y)
         } catch (_: Throwable) {
             dlg.setLocationRelativeTo(owner)
@@ -154,6 +158,21 @@ class EpisodePanel(
 
         dialog = dlg
         dlg.isVisible = true
+        // 打开后滚动到当前集并居中
+        SwingUtilities.invokeLater {
+            try {
+                // listPanel里每个episode占2个组件(wrapper+strut)，currentIndex对应位置
+                val compIndex = currentIndex * 2
+                if (compIndex < listPanel.componentCount) {
+                    val comp = listPanel.getComponent(compIndex)
+                    val rect = comp.bounds
+                    // 居中：计算让当前集显示在可视区域中间的滚动位置
+                    val viewRect = scroll.viewport.viewRect
+                    val y = rect.y - (viewRect.height - rect.height) / 2
+                    scroll.viewport.viewPosition = java.awt.Point(0, y.coerceAtLeast(0))
+                }
+            } catch (_: Exception) { }
+        }
     }
 
     private fun createEpisodeRow(ep: EpisodeInfo, index: Int, isCurrent: Boolean): JPanel {
