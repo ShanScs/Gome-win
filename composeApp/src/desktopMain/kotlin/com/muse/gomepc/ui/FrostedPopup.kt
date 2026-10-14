@@ -61,8 +61,8 @@ class FrostedPopup(
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                // bg_more_popup: #D9FFFFFF, 16dp 圆角
-                g2.color = Color(255, 255, 255, 217) // D9 = 217
+                // 不透明 #FFFFFF, 16dp 圆角
+                g2.color = Color(255, 255, 255)
                 g2.fillRoundRect(0, 0, width, height, CORNER_RADIUS, CORNER_RADIUS)
                 super.paintComponent(g)
             }

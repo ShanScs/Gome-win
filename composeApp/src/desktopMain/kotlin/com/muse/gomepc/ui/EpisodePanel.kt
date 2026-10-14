@@ -69,8 +69,8 @@ class EpisodePanel(
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                // 磨砂背景 #D9FFFFFF 16dp圆角（与弹窗一致）
-                g2.color = Color(255, 255, 255, 217)
+                // 不透明背景 #FFFFFF 16dp圆角
+                g2.color = Color(255, 255, 255)
                 g2.fillRoundRect(0, 0, width, height, 16, 16)
                 super.paintComponent(g)
             }
@@ -122,12 +122,6 @@ class EpisodePanel(
         try {
             val ownerLoc = owner.locationOnScreen
             val x = ownerLoc.x + owner.width - dlg.width - 12
-            // 上下一起拉长，底部刚好到进度条上方，整个界面垂直居中
-            val bottomBarH = 130
-            val margin = 12
-            // 底部 = 窗口高 - 进度条高 - 边距；居中时 panelH = 窗口高 - 2*(底部边距)
-            val panelH = owner.height - (bottomBarH + margin) * 2
-            dlg.size = Dimension(PANEL_W, panelH.coerceAtLeast(300))
             val y = ownerLoc.y + (owner.height - dlg.height) / 2
             dlg.setLocation(x, y)
         } catch (_: Throwable) {
@@ -157,19 +151,33 @@ class EpisodePanel(
         Toolkit.getDefaultToolkit().addAWTEventListener(outsideClickListener, AWTEvent.MOUSE_EVENT_MASK)
 
         dialog = dlg
+        // 先算好高度再显示，避免显示后resize导致卡死
+        try {
+            val ownerH = owner.height
+            val bottomBarH = 130
+            val margin = 12
+            val panelH = (ownerH - (bottomBarH + margin) * 2).coerceAtLeast(300)
+            val ownerLoc = owner.locationOnScreen
+            val x = ownerLoc.x + owner.width - PANEL_W - 12
+            val y = ownerLoc.y + (ownerH - panelH) / 2
+            dlg.setSize(PANEL_W, panelH)
+            dlg.setLocation(x, y)
+        } catch (_: Throwable) {
+            try { dlg.setLocationRelativeTo(owner) } catch (_: Throwable) { }
+        }
         dlg.isVisible = true
-        // 打开后滚动到当前集并居中
+        // 只做滚动，不调尺寸
         SwingUtilities.invokeLater {
             try {
-                // listPanel里每个episode占2个组件(wrapper+strut)，currentIndex对应位置
                 val compIndex = currentIndex * 2
                 if (compIndex < listPanel.componentCount) {
                     val comp = listPanel.getComponent(compIndex)
                     val rect = comp.bounds
-                    // 居中：计算让当前集显示在可视区域中间的滚动位置
-                    val viewRect = scroll.viewport.viewRect
-                    val y = rect.y - (viewRect.height - rect.height) / 2
-                    scroll.viewport.viewPosition = java.awt.Point(0, y.coerceAtLeast(0))
+                    if (rect.height > 0) {
+                        val viewRect = scroll.viewport.viewRect
+                        val y = rect.y - (viewRect.height - rect.height) / 2
+                        scroll.viewport.viewPosition = java.awt.Point(0, y.coerceAtLeast(0))
+                    }
                 }
             } catch (_: Exception) { }
         }
@@ -178,7 +186,7 @@ class EpisodePanel(
     private fun createEpisodeRow(ep: EpisodeInfo, index: Int, isCurrent: Boolean): JPanel {
         val bgColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color.WHITE
         val titleColor = if (isCurrent) Color.WHITE else Color(0x1A, 0x1A, 0x1A)
-        val metaColor = if (isCurrent) Color(255, 255, 255, 217) else Color(0x8E, 0x8E, 0x93)
+        val metaColor = if (isCurrent) Color(255, 255, 255) else Color(0x8E, 0x8E, 0x93)
         val row = object : JPanel() {
             init {
                 isOpaque = false
@@ -223,7 +231,7 @@ class EpisodePanel(
             val badge = JLabel("播放中").apply {
                 font = Font(Font.SANS_SERIF, Font.BOLD, 9)
                 foreground = Color(0x2F, 0x7C, 0xF6)
-                background = Color(255, 255, 255, 242)
+                background = Color(255, 255, 255)
                 isOpaque = true
                 border = EmptyBorder(2, 7, 2, 7)
                 setBounds(6, 6, 44, 18)
