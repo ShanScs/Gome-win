@@ -86,13 +86,22 @@ class EpisodePanel(
         }
         content.add(titleLabel)
 
-        // 剧集列表
+        // 剧集列表：用垂直BoxLayout，每行固定高度不拉伸
         val listPanel = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
         }
         episodes.forEachIndexed { i, ep ->
-            listPanel.add(createEpisodeRow(ep, i, i == currentIndex))
+            val row = createEpisodeRow(ep, i, i == currentIndex)
+            // 包装一层防止拉伸
+            val wrapper = JPanel(BorderLayout()).apply {
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                maximumSize = Dimension(PANEL_W - 24, row.preferredSize.height + 8)
+                add(row, BorderLayout.CENTER)
+            }
+            listPanel.add(wrapper)
+            listPanel.add(Box.createVerticalStrut(8))
         }
         val scroll = JScrollPane(listPanel).apply {
             isOpaque = false
@@ -158,6 +167,11 @@ class EpisodePanel(
                 border = EmptyBorder(ROW_PAD_V, ROW_PAD_H, ROW_PAD_V, ROW_PAD_H)
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 alignmentX = Component.LEFT_ALIGNMENT
+                // 固定高度，防止被拉伸
+                val rowH = ROW_PAD_V * 2 + THUMB_H
+                preferredSize = Dimension(PANEL_W - 48, rowH)
+                maximumSize = Dimension(PANEL_W - 48, rowH)
+                minimumSize = Dimension(PANEL_W - 48, rowH)
             }
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
@@ -258,11 +272,19 @@ class EpisodePanel(
         return row
     }
 
-    /** 截断到10个汉字宽度，超出加省略号 */
+    /** 截断到10个汉字宽度，超出加省略号；去重"第X集"前缀 */
     private fun truncateTo10(s: String): String {
+        // 去重：如果名字里已经有"第X集"，只保留一次
+        var text = s
+        val dupPattern = Regex("^第\\d+集\\s+第\\s*\\d+\\s*集")
+        if (dupPattern.containsMatchIn(text)) {
+            // 取后面的"第 X 集"部分
+            val m = Regex("第\\s*\\d+\\s*集.*$").find(text)
+            if (m != null) text = m.value
+        }
         var width = 0.0
         val sb = StringBuilder()
-        for (c in s) {
+        for (c in text) {
             // 汉字/全角算1，半角算0.5
             val w = if (c.code > 0xFF) 1.0 else 0.5
             if (width + w > 10) {
