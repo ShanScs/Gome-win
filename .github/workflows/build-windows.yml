@@ -1,0 +1,83 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download Windows libmpv (with libdovi)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261006/mpv-dev-x86_64-20261006-git-6c092d978b.7z"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
+          7z x "$env:RUNNER_TEMP\mpv-dev.7z" -o"$env:RUNNER_TEMP\mpv-dev"
+          $dll = Get-ChildItem -Path "$env:RUNNER_TEMP\mpv-dev" -Recurse -Filter "libmpv-2.dll" | Select-Object -First 1
+          if (-not $dll) { throw "libmpv-2.dll not found in archive" }
+          Write-Host "Found: $($dll.FullName) ($([math]::Round($dll.Length/1MB,1)) MB)"
+          # 验证 64 位 + DOVI 符号
+          $bytes = [System.IO.File]::ReadAllBytes($dll.FullName)
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if ($text -notmatch "apply_dolbyvision") { throw "DLL missing apply_dolbyvision (no libdovi)" }
+          Write-Host "DOVI check: apply_dolbyvision found ✅"
+          # 放到 composeApp 构建目录，供 packageExe 打包时复制
+          New-Item -ItemType Directory -Force -Path "composeApp/build/mpv-win" | Out-Null
+          Copy-Item $dll.FullName "composeApp/build/mpv-win/libmpv-2.dll"
+          # 也保留一份到仓库外的临时目录，供后续步骤
+          echo "MPV_DLL=$env:RUNNER_TEMP\mpv-dev\$($dll.Name)" >> $env:GITHUB_ENV
+
+      - name: Build desktop jar
+        run: ./gradlew.bat :composeApp:desktopJar "-Pkotlin.compiler.execution.strategy=in-process" --no-daemon
+
+      - name: Package Windows portable (jpackage app-image)
+        run: ./gradlew.bat :composeApp:packageAppImage "-Pkotlin.compiler.execution.strategy=in-process" --no-daemon
+
+      - name: Bundle libmpv-2.dll and build MSI
+        shell: pwsh
+        run: |
+          $launcher = Get-ChildItem -Path "composeApp/build/compose/binaries/main/app" -Recurse -Filter "Gome.exe" | Select-Object -First 1
+          if (-not $launcher) { throw "Gome.exe launcher not found in app-image" }
+          $appDir = $launcher.Directory.FullName
+          Write-Host "App dir: $appDir"
+          Copy-Item "composeApp/build/mpv-win/libmpv-2.dll" $appDir
+          # JNA 按以下顺序找 DLL：java.library.path → PATH → 当前目录。
+          # 安装后 exe 所在目录即程序目录，同目录放 DLL 即可加载。
+          # 从 build.gradle.kts 读取 packageVersion，保证 MSI 版本号跟代码一致
+          $ver = (Select-String -Path "composeApp/build.gradle.kts" -Pattern 'packageVersion\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          Write-Host "Package version: $ver"
+          # 用 jpackage 把 app-image 打成 MSI 安装包
+          # --win-upgrade-uuid 固定，保证新版 MSI 能覆盖安装旧版
+          $jpackage = Join-Path $env:JAVA_HOME "bin\jpackage.exe"
+          & $jpackage --type msi --app-image "$appDir" --name "Gome" --app-version "$ver" --vendor "Muse" --description "Gome PC - Emby client (Dolby Vision compatible)" --dest "composeApp/build/msi" --win-menu --win-shortcut --win-upgrade-uuid "f4df22d3-f181-42b3-a665-7384a90455a0"
+          $msi = Get-ChildItem -Path "composeApp/build/msi" -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "MSI not created" }
+          # 安装包文件名改为 Gome-win（跟仓库名一致），app 本体仍叫 Gome
+          $msiFinal = Join-Path "composeApp/build/msi" "Gome-win-$ver.msi"
+          Move-Item $msi.FullName $msiFinal -Force
+          Write-Host "MSI: $msiFinal ($([math]::Round((Get-Item $msiFinal).Length/1MB,1)) MB)"
+          echo "MSI_PATH=$msiFinal" >> $env:GITHUB_ENV
+          echo "PKG_VERSION=$ver" >> $env:GITHUB_ENV
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gome-win-${{ env.PKG_VERSION }}.msi
+          path: ${{ env.MSI_PATH }}
+          retention-days: 30
