@@ -1,0 +1,55 @@
+# Gradle
+.gradle/
+build/
+**/build/
+out/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Kotlin
+*.class
+
+# Logs
+*.log
+
+# Test outputs / screenshots (local verification only)
+*_test.png
+ui_shot_*.png
+danmaku_test.png
+canvas_wid_test.png
+login_test.png
+
+# Local test samples (large binaries, regenerate as needed)
+test-samples/
+
+# Local Maven repos (environment-specific)
+/local-repo-manual/
+/local-repo/
+
+# Third-party binaries (downloaded by CI, too large for git)
+/third-party/
+
+# Distribution outputs
+**/dist/
+
+# Temp
+/tmp/
