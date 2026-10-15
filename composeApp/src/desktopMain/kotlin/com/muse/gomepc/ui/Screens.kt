@@ -535,7 +535,7 @@ fun ArrowScrollRow(
                     .padding(start = 4.dp)
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(Color(0xCCFFFFFF))
+                    .background(Color(0xFFBFBFBF))
                     .clickable {
                         scope.launch {
                             val target = (listState.firstVisibleItemIndex - 3).coerceAtLeast(0)
@@ -554,7 +554,7 @@ fun ArrowScrollRow(
                     .padding(end = 4.dp)
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(Color(0xCCFFFFFF))
+                    .background(Color(0xFFBFBFBF))
                     .clickable {
                         scope.launch {
                             val target = listState.firstVisibleItemIndex + 3
