@@ -226,13 +226,16 @@ object YambyClient {
         fun epLabel(): String =
             if (type == "Episode" && episodeIdx > 0) {
                 val epLabel = "第${episodeIdx}集"
-                if (name.isNotEmpty() && name != epLabel) "$epLabel $name" else epLabel
+                // 去空格后比较，避免"第 1 集"和"第1集"被判为不同而重复拼接
+                val normName = name.replace(" ", "")
+                if (name.isNotEmpty() && normName != epLabel && !normName.startsWith(epLabel)) "$epLabel $name" else if (normName.startsWith(epLabel)) name else epLabel
             } else name
         /** 剧集面板标题：第4集 集名 */
         fun epPanelTitle(): String =
             if (type == "Episode" && episodeIdx > 0) {
                 val epLabel = "第${episodeIdx}集"
-                if (name.isNotEmpty() && name != epLabel) "$epLabel $name" else epLabel
+                val normName = name.replace(" ", "")
+                if (name.isNotEmpty() && normName != epLabel && !normName.startsWith(epLabel)) "$epLabel $name" else if (normName.startsWith(epLabel)) name else epLabel
             } else name
         /** 集数：Series 用 (RecursiveItemCount - ChildCount) 即总集数；Movie 返回 0 */
         val episodeCount: Int get() =

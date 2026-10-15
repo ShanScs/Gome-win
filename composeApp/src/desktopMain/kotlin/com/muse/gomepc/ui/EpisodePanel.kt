@@ -205,7 +205,8 @@ class EpisodePanel(
         }
 
         // 缩略图 (200x112, 56px圆角)，居中，白框/当前蓝框
-        val borderColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color.WHITE
+        // 白框用浅灰以便在白底上可见
+        val borderColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color(0xE0, 0xE0, 0xE0)
         val borderWidth = if (isCurrent) 3 else 2
         val thumbPanel = object : JPanel(null) {
             init {
