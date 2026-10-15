@@ -121,7 +121,7 @@ class AwtDanmakuPanel(
         } catch (_: Throwable) {
             Font("SansSerif", Font.BOLD, 30)
         }
-        Timer(33) {
+        Timer(16) {
             val vw = videoRectInParent?.invoke()?.width ?: width
             val vh = videoRectInParent?.invoke()?.height ?: height
             if (engine.enabled && vw > 0) {
@@ -129,7 +129,7 @@ class AwtDanmakuPanel(
                 engine.viewHeight = vh.toFloat()
                 val fontSize = (engine.fontSp * 1.5f).toInt().coerceAtLeast(12)
                 val fm = getFontMetrics(danmakuFont.deriveFont(fontSize.toFloat()))
-                engine.step(0.033f) { text -> fm.stringWidth(text).toFloat() }
+                engine.step(0.016f) { text -> fm.stringWidth(text).toFloat() }
             }
             repaint()
         }.start()
