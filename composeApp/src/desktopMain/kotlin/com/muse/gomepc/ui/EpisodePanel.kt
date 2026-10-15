@@ -106,7 +106,9 @@ class EpisodePanel(
             isOpaque = false
             viewport.isOpaque = false
             border = EmptyBorder(0, 6, 8, 6)
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            // 隐藏滚动条但保留滚轮滚动功能
+            verticalScrollBar.preferredSize = java.awt.Dimension(0, 0)
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             preferredSize = Dimension(320, 333)
             // 鼠标滚轮加速
