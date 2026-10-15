@@ -316,6 +316,17 @@ fun PlayerScreen(
     // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
     var danmakuPanelRef by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
+    var danmakuWindowRef by remember { mutableStateOf<javax.swing.JWindow?>(null) }
+    // 退出播放器时关闭弹幕窗口
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            try {
+                danmakuWindowRef?.isVisible = false
+                danmakuWindowRef?.dispose()
+            } catch (_: Throwable) { }
+            danmakuWindowRef = null
+        }
+    }
     /** 切换弹幕：永久禁用后再次启用=解除；否则翻转引擎开关 */
     fun toggleDanmaku() {
         if (prefs.danmakuDisabled) {
@@ -750,6 +761,7 @@ fun PlayerScreen(
                     val posTimer = javax.swing.Timer(500) { updatePos() }
                     posTimer.start()
                     danmakuPanelRef = danmakuPanel
+                    danmakuWindowRef = danmakuWindow
                     com.muse.gomepc.player.DebugLog.d("UI", "弹幕 JWindow 已设置")
 
                     // 工具栏：单例复用，首建/切集都走 refreshToolbar 刷新回调
