@@ -627,6 +627,10 @@ fun PlayerScreen(
                     com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
                 }
             } catch (_: Exception) { }
+            // 立即隐藏弹幕窗口，不等 DisposableEffect
+            try {
+                danmakuWindowRef?.isVisible = false
+            } catch (_: Throwable) { }
             onBack()
         },
         onFullscreen = { onFullscreen() },
