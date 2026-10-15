@@ -152,12 +152,12 @@ class EpisodePanel(
         // 先算好高度再显示，避免显示后resize导致卡死
         try {
             val ownerH = owner.height
-            val bottomBarH = 130
-            val margin = 12
-            val panelH = (ownerH - (bottomBarH + margin) * 2).coerceAtLeast(300)
+            // 背板上下到窗口边框都是 80px
+            val topBottomMargin = 80
+            val panelH = (ownerH - topBottomMargin * 2).coerceAtLeast(300)
             val ownerLoc = owner.locationOnScreen
             val x = ownerLoc.x + owner.width - PANEL_W - 12
-            val y = ownerLoc.y + (ownerH - panelH) / 2
+            val y = ownerLoc.y + topBottomMargin
             dlg.setSize(PANEL_W, panelH)
             dlg.setLocation(x, y)
         } catch (_: Throwable) {
