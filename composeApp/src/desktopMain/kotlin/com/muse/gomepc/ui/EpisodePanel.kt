@@ -42,8 +42,8 @@ class EpisodePanel(
     private var outsideClickListener: AWTEventListener? = null
 
     // dp = px
-    private val THUMB_W = 233
-    private val THUMB_H = 131
+    private val THUMB_W = 221
+    private val THUMB_H = 124
     private val THUMB_RADIUS = 36
     private val ROW_RADIUS = 36
     private val ROW_PAD_H = 3
@@ -106,7 +106,7 @@ class EpisodePanel(
             isOpaque = false
             viewport.isOpaque = false
             border = EmptyBorder(0, 6, 8, 6)
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_NEVER
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             preferredSize = Dimension(320, 333)
             // 鼠标滚轮加速
@@ -250,7 +250,8 @@ class EpisodePanel(
                 val url = YambyClient.imageUrl(ep.id, "Primary", 400)
                 val img = javax.imageio.ImageIO.read(java.net.URL(url))
                 if (img != null) {
-                    val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
+                    // 内图圆角比外框小4px，保证同心无批锋
+                    val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS - 4)
                     SwingUtilities.invokeLater { thumbLabel.icon = ImageIcon(rounded) }
                 }
             } catch (_: Exception) {
