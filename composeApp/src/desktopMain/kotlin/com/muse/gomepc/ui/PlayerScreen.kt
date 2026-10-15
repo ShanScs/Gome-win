@@ -206,7 +206,10 @@ fun PlayerScreen(
             onError = { msg ->
                 com.muse.gomepc.player.DebugLog.d("Danmaku", "加载失败: $msg")
             }
+            val allSources = prefs.danmakuSources
+            com.muse.gomepc.player.DebugLog.d("Danmaku", "所有弹幕源: $allSources")
             val urls = prefs.enabledDanmakuUrls()
+            com.muse.gomepc.player.DebugLog.d("Danmaku", "启用的URL: $urls")
             if (urls.isNotEmpty()) loadFromApiMulti(urls, itemName)
         }
     }
