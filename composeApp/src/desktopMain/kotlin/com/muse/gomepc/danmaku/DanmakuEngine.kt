@@ -239,7 +239,7 @@ postError(if (lastErr.isNotEmpty()) lastErr else "所有弹幕源均无结果")
 private fun doLoadFromApi(base: String, title: String, onErr: (String) -> Unit): Boolean {
 try {
 val cleanTitle = cleanTitleForSearch(title)
-Log.d("Danmaku", "弹幕API base: $base, 清洗后: $cleanTitle")
+com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕API base: $base, 清洗后: $cleanTitle")
 val client = OkHttpClient.Builder()
 // 直连不走系统代理（1:1 Android：VPN 开着时也能通）
 .proxy(java.net.Proxy.NO_PROXY)
@@ -277,7 +277,7 @@ val commentResp = client.newCall(Request.Builder().url(commentUrl).build()).exec
 val commentBody = commentResp.body?.string()?: ""
 commentResp.close()
 val list = parseDandanComments(commentBody)
-Log.d("Danmaku", "解析到 ${list.size} 条弹幕")
+com.muse.gomepc.player.DebugLog.d("Danmaku", "解析到 ${list.size} 条弹幕")
 if (list.isNotEmpty()) {
 pool.clear()
 pool.addAll(list)
