@@ -44,13 +44,14 @@ class EpisodePanel(
     // dp = px
     private val THUMB_W = 200
     private val THUMB_H = 112
-    private val THUMB_RADIUS = 14
-    private val ROW_RADIUS = 14
-    private val ROW_PAD_H = 12
-    private val ROW_PAD_V = 12
+    private val THUMB_RADIUS = 16
+    private val ROW_RADIUS = 20
+    private val ROW_PAD_H = 5
+    private val ROW_PAD_V = 8
     private val TITLE_SIZE = 14
-    private val TITLE_MARGIN_TOP = 8
-    private val PANEL_W = 340
+    private val TITLE_MARGIN_TOP = 6
+    private val PANEL_W = 227
+    private val CARD_SPACING = 10
 
     fun show() {
         dismiss()
@@ -95,16 +96,16 @@ class EpisodePanel(
             val wrapper = JPanel(BorderLayout()).apply {
                 isOpaque = false
                 alignmentX = Component.LEFT_ALIGNMENT
-                maximumSize = Dimension(PANEL_W - 24, row.preferredSize.height + 8)
+                maximumSize = Dimension(PANEL_W - 12, row.preferredSize.height + 8)
                 add(row, BorderLayout.CENTER)
             }
             listPanel.add(wrapper)
-            listPanel.add(Box.createVerticalStrut(8))
+            listPanel.add(Box.createVerticalStrut(CARD_SPACING))
         }
         val scroll = JScrollPane(listPanel).apply {
             isOpaque = false
             viewport.isOpaque = false
-            border = EmptyBorder(0, 12, 12, 12)
+            border = EmptyBorder(0, 6, 8, 6)
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             preferredSize = Dimension(320, 333)
@@ -193,9 +194,9 @@ class EpisodePanel(
                 alignmentX = Component.LEFT_ALIGNMENT
                 // 卡片高度：缩略图112 + 间距8 + 标题约20 + 上下padding
                 val rowH = ROW_PAD_V * 2 + THUMB_H + TITLE_MARGIN_TOP + 22
-                preferredSize = Dimension(PANEL_W - 48, rowH)
-                maximumSize = Dimension(PANEL_W - 48, rowH)
-                minimumSize = Dimension(PANEL_W - 48, rowH)
+                preferredSize = Dimension(PANEL_W - 12, rowH)
+                maximumSize = Dimension(PANEL_W - 12, rowH)
+                minimumSize = Dimension(PANEL_W - 12, rowH)
             }
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
