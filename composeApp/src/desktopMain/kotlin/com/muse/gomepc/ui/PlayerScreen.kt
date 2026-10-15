@@ -809,6 +809,54 @@ fun PlayerScreen(
                 Text("跳过片头", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
+        // 设片头按钮（前3分钟内显示，右下角）
+        val showIntroMark = timePos < 180 && timePos >= 0
+        if (showIntroMark) {
+            val curIntroSet = prefs.getSkipIntroSec(itemId) > 0
+            Box(
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = 140.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xCC000000).copy(alpha = if (curIntroSet) 1f else 0.7f))
+                    .clickable {
+                        val cur = prefs.getSkipIntroSec(itemId)
+                        if (cur > 0) {
+                            prefs.setSkipIntroSec(itemId, 0)
+                        } else {
+                            val sec = timePos.toInt().coerceAtLeast(0)
+                            if (sec > 0) prefs.setSkipIntroSec(itemId, sec)
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(if (curIntroSet) "片头✓" else "设片头", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        // 设片尾按钮（剩余3分钟内显示，右下角）
+        val showOutroMark = duration > 0 && (duration - timePos) < 180 && (duration - timePos) >= 0
+        if (showOutroMark) {
+            val curOutroSet = prefs.getSkipOutroSec(itemId) > 0
+            Box(
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = 190.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xCC000000).copy(alpha = if (curOutroSet) 1f else 0.7f))
+                    .clickable {
+                        val cur = prefs.getSkipOutroSec(itemId)
+                        if (cur > 0) {
+                            prefs.setSkipOutroSec(itemId, 0)
+                        } else {
+                            val remain = (duration - timePos).toInt().coerceAtLeast(0)
+                            if (remain > 0) prefs.setSkipOutroSec(itemId, remain)
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(if (curOutroSet) "片尾✓" else "设片尾", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
         // 下一集按钮（右下角，带倒计时）
         if (showNextEp) {
             Box(
@@ -902,37 +950,6 @@ fun PlayerScreen(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { showLogs = !showLogs }.padding(8.dp)
-                    )
-                    // 设片头/设片尾按钮：点一下记录当前秒数，再点取消
-                    val curIntro = prefs.getSkipIntroSec(itemId)
-                    Text(
-                        if (curIntro > 0) "片头✓" else "设片头",
-                        color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
-                            val sec = timePos.toInt()
-                            if (curIntro > 0) {
-                                prefs.setSkipIntroSec(itemId, 0)
-                            } else {
-                                prefs.setSkipIntroSec(itemId, sec)
-                            }
-                        }.padding(8.dp)
-                    )
-                    val curOutro = prefs.getSkipOutroSec(itemId)
-                    Text(
-                        if (curOutro > 0) "片尾✓" else "设片尾",
-                        color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
-                            val sec = timePos.toInt()
-                            if (curOutro > 0) {
-                                prefs.setSkipOutroSec(itemId, 0)
-                            } else {
-                                prefs.setSkipOutroSec(itemId, sec)
-                            }
-                        }.padding(8.dp)
                     )
                 }
             }
