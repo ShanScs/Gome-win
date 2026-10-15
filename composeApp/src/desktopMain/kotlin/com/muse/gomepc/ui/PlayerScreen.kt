@@ -370,16 +370,6 @@ fun PlayerScreen(
             } else {
                 videoUrl = urls.first()
             }
-            // 自动加载弹幕（对齐 Android：用剧名/集名从弹幕源加载）
-            try {
-                val danmakuUrls = prefs.enabledDanmakuUrls()
-                if (danmakuUrls.isNotEmpty()) {
-                    engine.loadFromApi(danmakuUrls.first(), itemName)
-                    if (!prefs.danmakuDisabled && !engine.isDanmakuOn()) {
-                        engine.setEnabled(true)
-                    }
-                }
-            } catch (_: Exception) { }
         } catch (e: Exception) {
             urlError = "获取播放地址失败：${e.message?.take(120)}"
         }

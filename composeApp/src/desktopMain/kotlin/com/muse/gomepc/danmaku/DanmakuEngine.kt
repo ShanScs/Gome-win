@@ -3,6 +3,7 @@ package com.muse.gomepc.danmaku
 import com.muse.gomepc.emby.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.Proxy
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import javax.swing.SwingUtilities
@@ -240,16 +241,8 @@ try {
 val cleanTitle = cleanTitleForSearch(title)
 Log.d("Danmaku", "弹幕API base: $base, 清洗后: $cleanTitle")
 val client = OkHttpClient.Builder()
-// 注意：不要强制 NO_PROXY，让系统代理生效（国内用户可能需要代理访问）
-// 强制 IPv4：Windows 上 Java 可能优先尝试 IPv6 导致超时
-.dns(object : okhttp3.Dns {
-    override fun lookup(hostname: String): List<java.net.InetAddress> {
-        val all = okhttp3.Dns.SYSTEM.lookup(hostname)
-        // IPv4 优先
-        val ipv4 = all.filter { it is java.net.Inet4Address }
-        return if (ipv4.isNotEmpty()) ipv4 else all
-    }
-})
+// 直连不走系统代理（1:1 Android：VPN 开着时也能通）
+.proxy(java.net.Proxy.NO_PROXY)
 .connectTimeout(30, TimeUnit.SECONDS)
 .readTimeout(30, TimeUnit.SECONDS)
 .build()
