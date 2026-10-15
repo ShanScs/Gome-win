@@ -44,7 +44,7 @@ class EpisodePanel(
     // dp = px
     private val THUMB_W = 200
     private val THUMB_H = 112
-    private val THUMB_RADIUS = 16
+    private val THUMB_RADIUS = 20
     private val ROW_RADIUS = 20
     private val ROW_PAD_H = 5
     private val ROW_PAD_V = 6
