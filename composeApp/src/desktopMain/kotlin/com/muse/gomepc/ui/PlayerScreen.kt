@@ -809,13 +809,13 @@ fun PlayerScreen(
                 Text("跳过片头", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
-        // 设片头按钮（前3分钟内显示，右下角）
+        // 设片头按钮（前3分钟内显示，左下角）
         val showIntroMark = timePos < 180 && timePos >= 0
         if (showIntroMark) {
             val curIntroSet = prefs.getSkipIntroSec(itemId) > 0
             Box(
-                Modifier.align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 140.dp)
+                Modifier.align(Alignment.BottomStart)
+                    .padding(start = 20.dp, bottom = 140.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xCC000000).copy(alpha = if (curIntroSet) 1f else 0.7f))
                     .clickable {
