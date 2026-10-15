@@ -42,16 +42,14 @@ class EpisodePanel(
     private var outsideClickListener: AWTEventListener? = null
 
     // dp = px
-    private val THUMB_W = 104
-    private val THUMB_H = 58
-    private val THUMB_RADIUS = 10
+    private val THUMB_W = 200
+    private val THUMB_H = 112
+    private val THUMB_RADIUS = 14
     private val ROW_RADIUS = 14
-    private val ROW_PAD_H = 10
-    private val ROW_PAD_V = 10
-    private val TEXT_MARGIN_START = 12
+    private val ROW_PAD_H = 12
+    private val ROW_PAD_V = 12
     private val TITLE_SIZE = 14
-    private val META_SIZE = 12
-    private val META_MARGIN_TOP = 5
+    private val TITLE_MARGIN_TOP = 8
     private val PANEL_W = 340
 
     fun show() {
@@ -186,16 +184,15 @@ class EpisodePanel(
     private fun createEpisodeRow(ep: EpisodeInfo, index: Int, isCurrent: Boolean): JPanel {
         val bgColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color.WHITE
         val titleColor = if (isCurrent) Color.WHITE else Color(0x1A, 0x1A, 0x1A)
-        val metaColor = if (isCurrent) Color(255, 255, 255) else Color(0x8E, 0x8E, 0x93)
         val row = object : JPanel() {
             init {
                 isOpaque = false
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 border = EmptyBorder(ROW_PAD_V, ROW_PAD_H, ROW_PAD_V, ROW_PAD_H)
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 alignmentX = Component.LEFT_ALIGNMENT
-                // 固定高度，防止被拉伸
-                val rowH = ROW_PAD_V * 2 + THUMB_H
+                // 卡片高度：缩略图112 + 间距8 + 标题约20 + 上下padding
+                val rowH = ROW_PAD_V * 2 + THUMB_H + TITLE_MARGIN_TOP + 22
                 preferredSize = Dimension(PANEL_W - 48, rowH)
                 maximumSize = Dimension(PANEL_W - 48, rowH)
                 minimumSize = Dimension(PANEL_W - 48, rowH)
@@ -213,12 +210,13 @@ class EpisodePanel(
             }
         }
 
-        // 缩略图 (104x58, 10dp圆角)，垂直居中
+        // 缩略图 (200x112, 14dp圆角)，居中
         val thumbPanel = JPanel(null).apply {
             isOpaque = false
             preferredSize = Dimension(THUMB_W, THUMB_H)
             maximumSize = Dimension(THUMB_W, THUMB_H)
             minimumSize = Dimension(THUMB_W, THUMB_H)
+            alignmentX = Component.CENTER_ALIGNMENT
         }
         val thumbLabel = JLabel().apply {
             setBounds(0, 0, THUMB_W, THUMB_H)
@@ -241,7 +239,7 @@ class EpisodePanel(
         // 异步加载并圆角裁剪
         Thread {
             try {
-                val url = YambyClient.imageUrl(ep.id, "Primary", 300)
+                val url = YambyClient.imageUrl(ep.id, "Primary", 400)
                 val img = javax.imageio.ImageIO.read(java.net.URL(url))
                 if (img != null) {
                     val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
@@ -253,41 +251,24 @@ class EpisodePanel(
         }.start()
 
         row.add(thumbPanel)
-        row.add(Box.createHorizontalStrut(TEXT_MARGIN_START))
+        row.add(Box.createVerticalStrut(TITLE_MARGIN_TOP))
 
-        // 文字区：10个汉字宽度，垂直居中
-        val textPanel = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        }
-        // 标题截断到10个汉字宽度
+        // 文字：只显示第几集的剧集名字，居中
         val titleText = truncateTo10(ep.name)
         val titleLabel = JLabel(titleText).apply {
             font = Font(Font.SANS_SERIF, Font.BOLD, TITLE_SIZE)
             foreground = titleColor
-            alignmentX = Component.LEFT_ALIGNMENT
+            alignmentX = Component.CENTER_ALIGNMENT
+            horizontalAlignment = SwingConstants.CENTER
         }
-        val metaLabel = JLabel(buildInfoLine(ep)).apply {
-            font = Font(Font.SANS_SERIF, Font.PLAIN, META_SIZE)
-            foreground = metaColor
-            border = EmptyBorder(META_MARGIN_TOP, 0, 0, 0)
-            alignmentX = Component.LEFT_ALIGNMENT
-        }
-        textPanel.add(titleLabel)
-        textPanel.add(metaLabel)
-        // 垂直居中：用BoxLayout的glue
-        val textWrapper = JPanel().apply {
+        // 限制宽度，居中
+        val titleWrapper = JPanel(FlowLayout(FlowLayout.CENTER, 0, 0)).apply {
             isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(Box.createVerticalGlue())
-            add(textPanel)
-            add(Box.createVerticalGlue())
+            alignmentX = Component.CENTER_ALIGNMENT
+            maximumSize = Dimension(THUMB_W, 24)
         }
-        // 限制文字区宽度为10em
-        textWrapper.preferredSize = Dimension((TITLE_SIZE * 10 * 1.1).toInt(), THUMB_H)
-        textWrapper.maximumSize = Dimension((TITLE_SIZE * 10 * 1.1).toInt(), THUMB_H)
-        row.add(textWrapper)
-        row.add(Box.createHorizontalGlue())
+        titleWrapper.add(titleLabel)
+        row.add(titleWrapper)
 
         row.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
