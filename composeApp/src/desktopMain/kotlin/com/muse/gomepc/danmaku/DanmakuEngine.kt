@@ -215,7 +215,7 @@ doLoadFromApi(url.trim().trimEnd('/'), title) { postError(it) }
 }.start()
 }
 
-/** 多源弹幕：按顺序尝试各 API，任一成功即停；全部失败才回调一次错误（1:1 Android） */
+/** 多源弹幕：并行尝试各 API，任一成功即停；全部失败才回调一次错误 */
 fun loadFromApiMulti(urls: List<String>, title: String = "") {
 val list = urls.map { it.trim().trimEnd('/') }.filter { it.isNotBlank() }
 if (list.isEmpty()) return
@@ -223,12 +223,26 @@ if (list.size == 1) {
 loadFromApi(list[0], title)
 return
 }
-Thread {
-var lastErr = ""
+val done = java.util.concurrent.atomic.AtomicBoolean(false)
+val lastErr = java.util.concurrent.atomic.AtomicReference("")
+val latch = java.util.concurrent.CountDownLatch(list.size)
 for (base in list) {
-if (doLoadFromApi(base, title) { lastErr = it }) return@Thread
+Thread {
+try {
+if (!done.get()) {
+val ok = doLoadFromApi(base, title) { lastErr.set(it) }
+if (ok) done.set(true)
 }
-postError(if (lastErr.isNotEmpty()) lastErr else "所有弹幕源均无结果")
+} catch (_: Exception) { } finally {
+latch.countDown()
+}
+}.start()
+}
+Thread {
+latch.await()
+if (!done.get()) {
+postError(if (lastErr.get().isNotEmpty()) lastErr.get() else "所有弹幕源均无结果")
+}
 }.start()
 }
 
@@ -243,8 +257,8 @@ com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕API base: $base, 清洗后: 
 val client = OkHttpClient.Builder()
 // 直连不走系统代理（1:1 Android：VPN 开着时也能通）
 .proxy(java.net.Proxy.NO_PROXY)
-.connectTimeout(30, TimeUnit.SECONDS)
-.readTimeout(30, TimeUnit.SECONDS)
+.connectTimeout(10, TimeUnit.SECONDS)
+.readTimeout(10, TimeUnit.SECONDS)
 .build()
 
 var animeId = ""
