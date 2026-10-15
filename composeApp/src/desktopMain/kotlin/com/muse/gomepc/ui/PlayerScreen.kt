@@ -723,17 +723,10 @@ fun PlayerScreen(
                 val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
                     ?: owner as? javax.swing.JFrame
                 if (root != null) {
-                    val videoRect = {
-                        if (canvas.isShowing) {
-                            try {
-                                val p = canvas.locationOnScreen
-                                val rp = root.locationOnScreen
-                                java.awt.Rectangle(p.x - rp.x, p.y - rp.y, canvas.width, canvas.height)
-                            } catch (_: Throwable) { null }
-                        } else null
-                    }
-                    // GlassPane：只放弹幕（工具栏临时拿掉，验证视频渲染）
-                    val danmakuPanel = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, videoRect) {
+                    // 弹幕用独立透明 JWindow（GlassPane 在某些窗口结构下不绘制）
+                    val danmakuWindow = javax.swing.JWindow(root)
+                    danmakuWindow.background = java.awt.Color(0, 0, 0, 0)
+                    val danmakuPanel = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, null) {
                         lastInteraction.set(System.currentTimeMillis())
                         javax.swing.SwingUtilities.invokeLater {
                             if (!controlsVisibleState.value) {
@@ -741,10 +734,23 @@ fun PlayerScreen(
                             }
                         }
                     }
-                    root.glassPane = danmakuPanel
-                    danmakuPanel.isVisible = true
+                    danmakuWindow.contentPane.add(danmakuPanel)
+                    // 跟随视频 Canvas 位置
+                    val updatePos = {
+                        try {
+                            if (canvas.isShowing) {
+                                val p = canvas.locationOnScreen
+                                danmakuWindow.setBounds(p.x, p.y, canvas.width, canvas.height)
+                                if (!danmakuWindow.isVisible) danmakuWindow.isVisible = true
+                            }
+                        } catch (_: Throwable) { }
+                    }
+                    updatePos()
+                    // 定时同步位置（窗口移动时）
+                    val posTimer = javax.swing.Timer(500) { updatePos() }
+                    posTimer.start()
                     danmakuPanelRef = danmakuPanel
-                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕 GlassPane 已设置")
+                    com.muse.gomepc.player.DebugLog.d("UI", "弹幕 JWindow 已设置")
 
                     // 工具栏：单例复用，首建/切集都走 refreshToolbar 刷新回调
                     toolbarRoot = root
