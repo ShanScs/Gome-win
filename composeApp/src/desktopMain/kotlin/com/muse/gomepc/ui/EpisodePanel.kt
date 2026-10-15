@@ -42,10 +42,10 @@ class EpisodePanel(
     private var outsideClickListener: AWTEventListener? = null
 
     // dp = px
-    private val THUMB_W = 200
-    private val THUMB_H = 112
-    private val THUMB_RADIUS = 56
-    private val ROW_RADIUS = 56
+    private val THUMB_W = 233
+    private val THUMB_H = 131
+    private val THUMB_RADIUS = 36
+    private val ROW_RADIUS = 36
     private val ROW_PAD_H = 3
     private val ROW_PAD_V = 4
     private val TITLE_SIZE = 14
@@ -70,7 +70,7 @@ class EpisodePanel(
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                 // 不透明背景 #FFFFFF 16dp圆角
                 g2.color = Color(255, 255, 255)
-                g2.fillRoundRect(0, 0, width, height, 16, 16)
+                g2.fillRoundRect(0, 0, width, height, 36, 36)
                 super.paintComponent(g)
             }
         }
