@@ -3,7 +3,6 @@ package com.muse.gomepc.danmaku
 import com.muse.gomepc.emby.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.net.Proxy
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import javax.swing.SwingUtilities
@@ -241,7 +240,7 @@ try {
 val cleanTitle = cleanTitleForSearch(title)
 Log.d("Danmaku", "弹幕API base: $base, 清洗后: $cleanTitle")
 val client = OkHttpClient.Builder()
-.proxy(Proxy.NO_PROXY)
+// 注意：不要强制 NO_PROXY，让系统代理生效（国内用户可能需要代理访问）
 .connectTimeout(30, TimeUnit.SECONDS)
 .readTimeout(30, TimeUnit.SECONDS)
 .build()
