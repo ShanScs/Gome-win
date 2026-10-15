@@ -47,11 +47,11 @@ class EpisodePanel(
     private val THUMB_RADIUS = 16
     private val ROW_RADIUS = 20
     private val ROW_PAD_H = 5
-    private val ROW_PAD_V = 8
+    private val ROW_PAD_V = 6
     private val TITLE_SIZE = 14
-    private val TITLE_MARGIN_TOP = 6
+    private val TITLE_MARGIN_TOP = 4
     private val PANEL_W = 227
-    private val CARD_SPACING = 10
+    private val CARD_SPACING = 8
 
     fun show() {
         dismiss()
@@ -80,7 +80,7 @@ class EpisodePanel(
         val titleLabel = JLabel("剧集").apply {
             font = Font(Font.SANS_SERIF, Font.BOLD, 17)
             foreground = Color(0x1A, 0x1A, 0x1A)
-            border = EmptyBorder(20, 20, 12, 20)
+            border = EmptyBorder(12, 20, 8, 20)
             alignmentX = Component.LEFT_ALIGNMENT
         }
         content.add(titleLabel)
