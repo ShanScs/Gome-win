@@ -50,7 +50,7 @@ class EpisodePanel(
     private val ROW_PAD_V = 6
     private val TITLE_SIZE = 14
     private val TITLE_MARGIN_TOP = 4
-    private val PANEL_W = 227
+    private val PANEL_W = 265
     private val CARD_SPACING = 8
 
     fun show() {
