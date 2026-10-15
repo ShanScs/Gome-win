@@ -505,6 +505,7 @@ private fun SectionHeader(title: String, action: String, onAction: (() -> Unit)?
 /**
  * 带左右箭头的横向滚动行（PC端无法触摸滑动，用箭头翻页）。
  * @param content 每一项的内容，参数为 item 索引
+ * @param initialCenterIndex 初始时居中显示的项索引（-1=不滚动）
  */
 @Composable
 fun ArrowScrollRow(
@@ -512,10 +513,29 @@ fun ArrowScrollRow(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(12.dp),
+    initialCenterIndex: Int = -1,
+    centerIndex: Int = -1,
     itemContent: @Composable (Int) -> Unit
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // 初始滚动到指定项居中
+    LaunchedEffect(initialCenterIndex, itemCount) {
+        if (initialCenterIndex in 0 until itemCount) {
+            // 居中：目标项放在可见区域中间
+            listState.scrollToItem(
+                index = (initialCenterIndex - 2).coerceAtLeast(0)
+            )
+        }
+    }
+    // 当 centerIndex 变化时滚动到居中（用于数据异步加载后）
+    LaunchedEffect(centerIndex, itemCount) {
+        if (centerIndex in 0 until itemCount && centerIndex != initialCenterIndex) {
+            listState.scrollToItem(
+                index = (centerIndex - 2).coerceAtLeast(0)
+            )
+        }
+    }
     // 是否可向左/右滚动
     val canScrollLeft by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
     val canScrollRight by remember { derivedStateOf { listState.canScrollForward } }
@@ -3564,12 +3584,16 @@ private fun formatEpDuration(ticks: Long): String {
 
 /** 集数缩略图卡（1:1 Android item_episode_card：180×100dp 圆角12dp） */
 @Composable
-private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, onClick: () -> Unit) {
+private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Boolean = false, onClick: () -> Unit) {
     Column(modifier = Modifier.width(180.dp).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier.width(180.dp).height(100.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFFE0E0E0))
+                .then(
+                    if (isSelected) Modifier.border(3.dp, Color(0xFF2F6FED), RoundedCornerShape(12.dp))
+                    else Modifier
+                )
         ) {
             EmbyImage(
                 url = YambyClient.imageUrl(ep.id, "Primary", 360),
@@ -3651,34 +3675,24 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
     var subtitleDialog by remember { mutableStateOf<Pair<List<String>, List<Int>>?>(null) }
     var toastMsg by remember { mutableStateOf<String?>(null) }
     val detailScope = rememberCoroutineScope()
+    // 选中的剧集索引（点击选集只选中加框，不进播放器；点播放按钮才进）
+    var selectedEpIndex by remember(itemId) { mutableStateOf(0) }
 
     LaunchedEffect(itemId, reloadKey) {
         try {
             error = null; item = null; epData = null
-            // 并行取详情、选集、进度，比串行快
+            // 并行取详情、选集，比串行快
             val dDeferred = async { Repo.itemDetailCached(itemId) }
             val epDeferred = async { Repo.episodes(itemId) }
-            val resumableDeferred = async {
-                try { com.muse.gomepc.emby.YambyClient.getResumableEpisodes(itemId) }
-                catch (_: Exception) { emptyList() }
-            }
             val d = dDeferred.await()
             item = d
             // 先显示基本信息
             isWatched = d.played
             isFav = d.isFavorite
             val epResult = epDeferred.await()
-            var eps = epResult.episodes
-            // 合并进度
-            val resumable = resumableDeferred.await()
-            if (resumable.isNotEmpty()) {
-                val map = resumable.associateBy { it.id }
-                eps = eps.map { ep ->
-                    val r = map[ep.id]
-                    if (r != null && r.playTicks > 0) ep.copy(playTicks = r.playTicks) else ep
-                }
-            }
-            epData = epResult.copy(episodes = eps)
+            val eps = epResult.episodes
+            // episodes 接口已带 playTicks，无需额外 getResumableEpisodes
+            epData = epResult
             // 1:1 安卓：重置版本/音轨/字幕选择
             selectedMediaSourceId = ""
             selectedAudioIndex = -1
@@ -3695,6 +3709,13 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
             val it = item!!
             val eps = seasonEps ?: epData!!.episodes
             val seasons = epData!!.seasons
+            // 进入详情页时，自动选中当前有进度的那集（没有则第一集）
+            LaunchedEffect(eps) {
+                if (eps.isNotEmpty()) {
+                    val idx = eps.indexOfFirst { it.playTicks > 0 }.takeIf { it >= 0 } ?: 0
+                    selectedEpIndex = idx.coerceIn(0, eps.size - 1)
+                }
+            }
             LaunchedEffect(seasonIdx) {
                 val data = epData ?: return@LaunchedEffect
                 if (seasons.isEmpty()) return@LaunchedEffect
@@ -3917,39 +3938,51 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                 Spacer(Modifier.height(14.dp))
                                 // 播放按钮 + 类型/简介
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier.width(200.dp).height(52.dp)
-                                            .shadow(4.dp, RoundedCornerShape(26.dp))
-                                            .clip(RoundedCornerShape(26.dp))
-                                            .background(Color.White)
-                                            .clickable {
-                                                // 优先播有进度的那集，没有则播第一集
-                                                val target = eps.firstOrNull { it.playTicks > 0 }
-                                                    ?: eps.firstOrNull() ?: return@clickable
-                                                val curItem = item ?: return@clickable
-                                                onPlay(curItem, target)
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        // 用有进度的那集来显示按钮进度（剧本身没progress）
-                                        val progEp = eps.firstOrNull { it.playTicks > 0 }
-                                        val p = if (progEp != null && progEp.runTicks > 0) {
-                                            (progEp.playTicks.toFloat() / progEp.runTicks.toFloat()).coerceIn(0f, 1f)
-                                        } else it.progress
-                                        if (p != null && p > 0f) {
-                                            Box(
-                                                modifier = Modifier.fillMaxWidth(p.coerceIn(0f, 1f))
-                                                    .fillMaxHeight()
-                                                    .align(Alignment.CenterStart)
-                                                    .background(Color(0xFF34C759).copy(alpha = 0.25f))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Box(
+                                            modifier = Modifier.width(200.dp).height(52.dp)
+                                                .shadow(4.dp, RoundedCornerShape(26.dp))
+                                                .clip(RoundedCornerShape(26.dp))
+                                                .background(Color.White)
+                                                .clickable {
+                                                    // 播选中的那集
+                                                    val target = eps.getOrNull(selectedEpIndex)
+                                                        ?: eps.firstOrNull() ?: return@clickable
+                                                    val curItem = item ?: return@clickable
+                                                    onPlay(curItem, target)
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            // 用选中的那集来显示按钮进度
+                                            val progEp = eps.getOrNull(selectedEpIndex)
+                                            val p = if (progEp != null && progEp.runTicks > 0 && progEp.playTicks > 0) {
+                                                (progEp.playTicks.toFloat() / progEp.runTicks.toFloat()).coerceIn(0f, 1f)
+                                            } else it.progress
+                                            if (p != null && p > 0f) {
+                                                Box(
+                                                    modifier = Modifier.fillMaxWidth(p.coerceIn(0f, 1f))
+                                                        .fillMaxHeight()
+                                                        .align(Alignment.CenterStart)
+                                                        .background(Color(0xFF34C759).copy(alpha = 0.25f))
+                                                )
+                                            }
+                                            Text(
+                                                if (p != null && p > 0f) "继续播放" else "▶ 播放",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = GomeTheme.TextPrimary
                                             )
                                         }
-                                        Text(
-                                            if (p != null && p > 0f) "继续播放" else "▶ 播放",
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = GomeTheme.TextPrimary
-                                        )
+                                        // 播放按钮下方显示将要播放的是第几集
+                                        val selEp = eps.getOrNull(selectedEpIndex)
+                                        if (selEp != null && eps.size > 1) {
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                "第${selEp.index}集",
+                                                fontSize = 12.sp,
+                                                color = Color(0xE6FFFFFF)
+                                            )
+                                        }
                                     }
                                     Spacer(Modifier.width(16.dp))
                                     Column(Modifier.weight(1f)) {
@@ -4036,13 +4069,20 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                             ArrowScrollRow(
                                 itemCount = eps.size,
                                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp)
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                initialCenterIndex = selectedEpIndex,
+                                centerIndex = selectedEpIndex
                             ) { idx ->
                                 val ep = eps[idx]
-                                EpisodeThumbCard(ep = ep, isCurrent = idx == 0, onClick = {
-                                    val curItem = item ?: return@EpisodeThumbCard
-                                    onPlay(curItem, ep)
-                                })
+                                EpisodeThumbCard(
+                                    ep = ep,
+                                    isCurrent = ep.playTicks > 0,
+                                    isSelected = idx == selectedEpIndex,
+                                    onClick = {
+                                        // 点击选集只选中加框，不进播放器
+                                        selectedEpIndex = idx
+                                    }
+                                )
                             }
                         }
                     }

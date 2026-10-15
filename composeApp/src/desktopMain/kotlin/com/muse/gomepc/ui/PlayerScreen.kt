@@ -903,6 +903,37 @@ fun PlayerScreen(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { showLogs = !showLogs }.padding(8.dp)
                     )
+                    // 设片头/设片尾按钮：点一下记录当前秒数，再点取消
+                    val curIntro = prefs.getSkipIntroSec(itemId)
+                    Text(
+                        if (curIntro > 0) "片头✓" else "设片头",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            val sec = timePos.toInt()
+                            if (curIntro > 0) {
+                                prefs.setSkipIntroSec(itemId, 0)
+                            } else {
+                                prefs.setSkipIntroSec(itemId, sec)
+                            }
+                        }.padding(8.dp)
+                    )
+                    val curOutro = prefs.getSkipOutroSec(itemId)
+                    Text(
+                        if (curOutro > 0) "片尾✓" else "设片尾",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            val sec = timePos.toInt()
+                            if (curOutro > 0) {
+                                prefs.setSkipOutroSec(itemId, 0)
+                            } else {
+                                prefs.setSkipOutroSec(itemId, sec)
+                            }
+                        }.padding(8.dp)
+                    )
                 }
             }
         }
