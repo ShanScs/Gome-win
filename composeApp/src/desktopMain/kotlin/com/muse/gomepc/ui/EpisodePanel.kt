@@ -44,9 +44,9 @@ class EpisodePanel(
     // dp = px
     private val THUMB_W = 200
     private val THUMB_H = 112
-    private val THUMB_RADIUS = 28
-    private val ROW_RADIUS = 28
-    private val ROW_PAD_H = 5
+    private val THUMB_RADIUS = 56
+    private val ROW_RADIUS = 56
+    private val ROW_PAD_H = 3
     private val ROW_PAD_V = 4
     private val TITLE_SIZE = 14
     private val TITLE_MARGIN_TOP = 2
@@ -80,7 +80,7 @@ class EpisodePanel(
         val titleLabel = JLabel("剧集").apply {
             font = Font(Font.SANS_SERIF, Font.BOLD, 17)
             foreground = Color(0x1A, 0x1A, 0x1A)
-            border = EmptyBorder(8, 20, 6, 20)
+            border = EmptyBorder(4, 20, 4, 20)
             alignmentX = Component.LEFT_ALIGNMENT
         }
         content.add(titleLabel)
@@ -184,7 +184,7 @@ class EpisodePanel(
 
     private fun createEpisodeRow(ep: EpisodeInfo, index: Int, isCurrent: Boolean): JPanel {
         val bgColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color.WHITE
-        val titleColor = if (isCurrent) Color.WHITE else Color(0x1A, 0x1A, 0x1A)
+        val titleColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color(0x1A, 0x1A, 0x1A)
         val row = object : JPanel() {
             init {
                 isOpaque = false
@@ -199,28 +199,34 @@ class EpisodePanel(
                 minimumSize = Dimension(PANEL_W - 12, rowH)
             }
             override fun paintComponent(g: Graphics) {
-                val g2 = g as Graphics2D
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                // 每集独立小卡片：白底圆角14+阴影；当前集蓝底
-                g2.color = bgColor
-                g2.fillRoundRect(0, 0, width, height, ROW_RADIUS, ROW_RADIUS)
-                // 阴影
-                g2.color = Color(0, 0, 0, 15)
-                g2.drawRoundRect(0, 0, width - 1, height - 1, ROW_RADIUS, ROW_RADIUS)
+                // 取消小卡片背景：透明，不画圆角矩形
                 super.paintComponent(g)
             }
         }
 
-        // 缩略图 (200x112, 14dp圆角)，居中
-        val thumbPanel = JPanel(null).apply {
-            isOpaque = false
-            preferredSize = Dimension(THUMB_W, THUMB_H)
-            maximumSize = Dimension(THUMB_W, THUMB_H)
-            minimumSize = Dimension(THUMB_W, THUMB_H)
-            alignmentX = Component.CENTER_ALIGNMENT
+        // 缩略图 (200x112, 56px圆角)，居中，白框/当前蓝框
+        val borderColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color.WHITE
+        val borderWidth = if (isCurrent) 3 else 2
+        val thumbPanel = object : JPanel(null) {
+            init {
+                isOpaque = false
+                preferredSize = Dimension(THUMB_W + 8, THUMB_H + 8)
+                maximumSize = Dimension(THUMB_W + 8, THUMB_H + 8)
+                minimumSize = Dimension(THUMB_W + 8, THUMB_H + 8)
+                alignmentX = Component.CENTER_ALIGNMENT
+            }
+            override fun paintComponent(g: Graphics) {
+                super.paintComponent(g)
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = borderColor
+                g2.stroke = BasicStroke(borderWidth.toFloat())
+                val inset = borderWidth / 2
+                g2.drawRoundRect(inset, inset, width - borderWidth, height - borderWidth, THUMB_RADIUS, THUMB_RADIUS)
+            }
         }
         val thumbLabel = JLabel().apply {
-            setBounds(0, 0, THUMB_W, THUMB_H)
+            setBounds(4, 4, THUMB_W, THUMB_H)
             horizontalAlignment = SwingConstants.CENTER
             verticalAlignment = SwingConstants.CENTER
         }
