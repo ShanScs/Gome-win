@@ -32,7 +32,6 @@ import com.muse.gomepc.ui.DetailScreen
 import com.muse.gomepc.ui.DockBar
 import com.muse.gomepc.ui.FavoritesScreen
 import com.muse.gomepc.ui.GomeTheme
-import com.muse.gomepc.ui.GridScreen
 import com.muse.gomepc.ui.HomeScreen
 import com.muse.gomepc.ui.LibraryScreen
 import com.muse.gomepc.ui.LoginScreen
@@ -42,6 +41,8 @@ import com.muse.gomepc.ui.HomeDataCache
 import com.muse.gomepc.ui.ResumeListScreen
 import com.muse.gomepc.ui.Screen
 import com.muse.gomepc.ui.SearchScreen
+import com.muse.gomepc.ui.LibSortDialog
+import com.muse.gomepc.ui.ServerPopupDialog
 import com.muse.gomepc.ui.SettingsScreen
 import com.muse.gomepc.ui.TitleBarConfig
 import com.muse.gomepc.ui.TitleLeftIcon
@@ -227,6 +228,10 @@ fun GomeApp(
     }
 
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+    // 首页服务器图标弹窗状态
+    var showServerPopup by remember { mutableStateOf(false) }
+    // 媒体库排序弹窗状态
+    var showLibSort by remember { mutableStateOf(false) }
     // 初始界面（截图测试用）：-Dui.screen=detail|player
     val initial = remember {
         when (System.getProperty("ui.screen", "home")) {
@@ -271,8 +276,8 @@ fun GomeApp(
                 window = owner,
                 config = TitleBarConfig(
                     left = listOf(
-                        TitleLeftIcon.App { screen = Screen.Home },
-                        TitleLeftIcon.Server { screen = Screen.Grid },
+                        TitleLeftIcon.App { screen = Screen.Settings },
+                        TitleLeftIcon.Server { screen = Screen.Home },
                         TitleLeftIcon.Back { screen = Screen.Detail(p.itemId) }
                     )
                 ),
@@ -327,7 +332,7 @@ fun GomeApp(
                 is Screen.Home -> HomeScreen(
                     onItemClick = { openDetail(it) { s -> screen = s } },
                     onResumeMore = { screen = Screen.ResumeList },
-                    onServerIconClick = { screen = Screen.Grid },
+                    onServerIconClick = { screen = Screen.Settings },
                     onLibraryClick = { lib -> screen = Screen.Library(lib.id, lib.name) },
                     listState = homeListState
                 )
@@ -343,13 +348,10 @@ fun GomeApp(
                     gridState = libraryGridState,
                     sortRequestKey = libSortRequest
                 )
-                is Screen.Grid -> GridScreen(
-                    onItemClick = { openDetail(it) { s -> screen = s } },
-                    onServerSelected = { screen = Screen.Home }
-                )
                 is Screen.Search -> SearchScreen(onItemClick = { openDetail(it) { s -> screen = s } })
                 is Screen.Favorites -> FavoritesScreen(onItemClick = { openDetail(it) { s -> screen = s } })
                 is Screen.Settings -> SettingsScreen(
+                    onServerSelected = { screen = Screen.Home },
                     onLogout = {
                         loggedIn = false
                         demoMode = false
@@ -421,14 +423,14 @@ fun GomeApp(
         is Screen.Home -> TitleBarConfig(
             left = listOf(
                 TitleLeftIcon.App { screen = Screen.Settings },
-                TitleLeftIcon.Server { screen = Screen.Grid },
+                TitleLeftIcon.Server { showServerPopup = true },
                 TitleLeftIcon.Favorites { screen = Screen.Favorites }
             )
         )
         is Screen.Detail -> TitleBarConfig(
             left = listOf(
                 TitleLeftIcon.App { screen = Screen.Settings },
-                TitleLeftIcon.Server { screen = Screen.Grid },
+                TitleLeftIcon.Server { screen = Screen.Home },
                 TitleLeftIcon.Back { screen = Screen.Home }
             )
         )
@@ -442,15 +444,15 @@ fun GomeApp(
         )
         is Screen.Settings -> TitleBarConfig(
             left = listOf(
-                TitleLeftIcon.App { screen = Screen.Home },
-                TitleLeftIcon.Server { screen = Screen.Grid },
+                TitleLeftIcon.App { screen = Screen.Settings },
+                TitleLeftIcon.Server { screen = Screen.Home },
                 TitleLeftIcon.Favorites { screen = Screen.Favorites }
             )
         )
         else -> TitleBarConfig(
             left = listOf(
                 TitleLeftIcon.App { screen = Screen.Settings },
-                TitleLeftIcon.Server { screen = Screen.Grid },
+                TitleLeftIcon.Server { screen = Screen.Home },
                 TitleLeftIcon.Back { screen = Screen.Home }
             )
         )
@@ -470,5 +472,20 @@ fun GomeApp(
             modifier = Modifier.align(Alignment.TopCenter)
         )
         // Dock已删除（用户要求）
+    }
+    // 首页服务器图标弹窗：媒体库排序 + 切换服务器
+    if (showServerPopup) {
+        ServerPopupDialog(
+            onDismiss = { showServerPopup = false },
+            onServerSelected = { screen = Screen.Home },
+            onSortClick = {
+                showServerPopup = false
+                showLibSort = true
+            }
+        )
+    }
+    // 媒体库排序弹窗
+    if (showLibSort) {
+        LibSortDialog(onDismiss = { showLibSort = false })
     }
 }

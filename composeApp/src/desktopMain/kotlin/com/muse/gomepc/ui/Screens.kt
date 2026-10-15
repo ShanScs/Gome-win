@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -38,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.emby.Prefs
 import com.muse.gomepc.emby.YambyClient
@@ -75,7 +79,6 @@ import androidx.compose.material3.Switch
 /** 导航目标 */
 sealed interface Screen {
     data object Home : Screen
-    data object Grid : Screen
     data object Search : Screen
     data object Favorites : Screen
     data object Settings : Screen
@@ -396,7 +399,19 @@ fun HomeScreen(
     when {
         error != null -> ErrorBox(error!!, onRetry = { HomeDataCache.retry() })
         libs == null -> LoadingBox()
-        else -> LazyColumn(
+        else -> {
+            // 应用用户自定义的媒体库排序
+            val orderedLibs = remember(libs, Prefs.libOrder) {
+                val order = Prefs.libOrder.split(",").filter { it.isNotBlank() }
+                if (order.isEmpty()) libs!!
+                else {
+                    val libMap = libs!!.associateBy { it.id }
+                    val sorted = order.mapNotNull { libMap[it] }
+                    val remaining = libs!!.filter { it.id !in order.toSet() }
+                    sorted + remaining
+                }
+            }
+            LazyColumn(
             modifier = Modifier.fillMaxSize().background(Color.White),
             contentPadding = PaddingValues(bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -419,16 +434,14 @@ fun HomeScreen(
                 item {
                     Column(Modifier.padding(horizontal = 20.dp)) {
                         SectionHeader("继续观看", "更多", onAction = onResumeMore)
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(resume!!) { item ->
-                                ResumeCard(item, onClick = { onItemClick(item) })
-                            }
+                        ArrowScrollRow(itemCount = resume!!.size) { idx ->
+                            ResumeCard(resume!![idx], onClick = { onItemClick(resume!![idx]) })
                         }
                     }
                 }
             }
             // 媒体库横排（对齐 Android：tvLibTitle + rvLibs）
-            if (libs!!.isNotEmpty()) {
+            if (orderedLibs.isNotEmpty()) {
                 item {
                     Column(Modifier.padding(horizontal = 20.dp)) {
                         Text(
@@ -438,37 +451,35 @@ fun HomeScreen(
                             color = GomeTheme.TextPrimary,
                             modifier = Modifier.padding(top = 18.dp)
                         )
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.padding(top = 8.dp),
-                            contentPadding = PaddingValues(end = 12.dp)
-                        ) {
-                            items(libs!!) { lib ->
-                                LibraryCard(
-                                    lib = lib,
-                                    posters = (libItems[lib.id] ?: emptyList()).take(4),
-                                    onClick = { onLibraryClick(lib) }
-                                )
-                            }
+                        ArrowScrollRow(
+                            itemCount = orderedLibs.size,
+                            contentPadding = PaddingValues(end = 12.dp),
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) { idx ->
+                            val lib = orderedLibs[idx]
+                            LibraryCard(
+                                lib = lib,
+                                posters = (libItems[lib.id] ?: emptyList()).take(4),
+                                onClick = { onLibraryClick(lib) }
+                            )
                         }
                     }
                 }
             }
-            libs!!.forEach { lib ->
+            orderedLibs.forEach { lib ->
                 val items = libItems[lib.id] ?: emptyList()
                 if (items.isNotEmpty()) {
                     item {
                         Column(Modifier.padding(horizontal = 20.dp)) {
                             SectionHeader(lib.name, "更多", onAction = { onLibraryClick(lib) })
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(items) { item ->
-                                    ItemCard(item, onClick = { onItemClick(item) })
-                                }
+                            ArrowScrollRow(itemCount = items.size) { idx ->
+                                ItemCard(items[idx], onClick = { onItemClick(items[idx]) })
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -488,6 +499,73 @@ private fun SectionHeader(title: String, action: String, onAction: (() -> Unit)?
             modifier = Modifier.padding(8.dp)
                 .clickable(enabled = onAction != null) { onAction?.invoke() }
         )
+    }
+}
+
+/**
+ * 带左右箭头的横向滚动行（PC端无法触摸滑动，用箭头翻页）。
+ * @param content 每一项的内容，参数为 item 索引
+ */
+@Composable
+fun ArrowScrollRow(
+    itemCount: Int,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(12.dp),
+    itemContent: @Composable (Int) -> Unit
+) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // 是否可向左/右滚动
+    val canScrollLeft by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+    val canScrollRight by remember { derivedStateOf { listState.canScrollForward } }
+    Box(modifier = modifier) {
+        LazyRow(
+            state = listState,
+            horizontalArrangement = horizontalArrangement,
+            contentPadding = contentPadding,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(itemCount) { idx -> itemContent(idx) }
+        }
+        // 左箭头
+        if (canScrollLeft) {
+            Box(
+                Modifier.align(Alignment.CenterStart)
+                    .padding(start = 4.dp)
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xCCFFFFFF))
+                    .clickable {
+                        scope.launch {
+                            val target = (listState.firstVisibleItemIndex - 3).coerceAtLeast(0)
+                            listState.animateScrollToItem(target)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("‹", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
+            }
+        }
+        // 右箭头
+        if (canScrollRight) {
+            Box(
+                Modifier.align(Alignment.CenterEnd)
+                    .padding(end = 4.dp)
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xCCFFFFFF))
+                    .clickable {
+                        scope.launch {
+                            val target = listState.firstVisibleItemIndex + 3
+                            listState.animateScrollToItem(target)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("›", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
+            }
+        }
     }
 }
 
@@ -889,27 +967,17 @@ fun LibraryScreen(
     }
 }
 
-/** 宫格：媒体库卡片，点击进入该库 */
-@Composable
-fun GridScreen(
-    onItemClick: (UiMediaItem) -> Unit,
-    onServerSelected: () -> Unit = {}
-) {
-    // 资源库页就是服务器选择器：本地数据，无网络刷新，点击服务器进主页
-    ServerCardsGrid(
-        modifier = Modifier.fillMaxSize().background(Color.White),
-        onServerSelected = onServerSelected
-    )
-}
-
 /**
  * 资源库页：服务器卡片网格 + 短剧入口 + 添加。
  * 对齐 Android activity_resource.xml：28sp标题+锁/更多按钮+搜索框+双列卡片+右下角FAB。
+ * 注：已搬到设置页"服务器"tab，此函数保留供设置页嵌入使用。
  */
 @Composable
 private fun ServerCardsGrid(
     modifier: Modifier = Modifier,
-    onServerSelected: () -> Unit
+    onServerSelected: () -> Unit,
+    showTitle: Boolean = true,
+    topPadding: Dp = 76.dp
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var switching by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -937,18 +1005,23 @@ private fun ServerCardsGrid(
     Box(modifier) {
         Column(Modifier.fillMaxSize()) {
             // 顶栏：标题（右上角锁/更多图标已删，用户要求；顶部留出统一透明标题栏高度）
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .padding(start = 20.dp, top = 76.dp, end = 12.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "资源库",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = GomeTheme.TextPrimary,
-                    modifier = Modifier.weight(1f)
-                )
+            // 嵌入设置页时不显示标题（左侧tab已有"服务器"）
+            if (showTitle) {
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(start = 20.dp, top = topPadding, end = 12.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "资源库",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GomeTheme.TextPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            } else {
+                Spacer(Modifier.height(topPadding))
             }
             // 搜索框：48dp 高，bg_search_box 圆角 28dp（对齐安卓）
             Row(
@@ -1196,6 +1269,214 @@ private fun serverTint(name: String): Color {
         green = (g * (1 - m) + 255 * m).toInt().coerceIn(0, 255),
         blue = (b * (1 - m) + 255 * m).toInt().coerceIn(0, 255)
     )
+}
+
+/** 媒体库排序弹窗：上下移动调整首页媒体库顺序 */
+@Composable
+fun LibSortDialog(
+    onDismiss: () -> Unit
+) {
+    var libs by remember { mutableStateOf(HomeDataCache.libs ?: emptyList()) }
+
+    // 初始化时按当前排序显示
+    LaunchedEffect(Unit) {
+        val order = Prefs.libOrder.split(",").filter { it.isNotBlank() }
+        if (order.isNotEmpty()) {
+            val libMap = libs.associateBy { it.id }
+            val sorted = order.mapNotNull { libMap[it] }
+            val remaining = libs.filter { it.id !in order.toSet() }
+            libs = sorted + remaining
+        }
+    }
+
+    fun saveOrder() {
+        Prefs.libOrder = libs.joinToString(",") { it.id }
+    }
+
+    MaoDiDialog(onDismiss = onDismiss) {
+        Column(Modifier.width(320.dp).heightIn(max = 480.dp)) {
+            Text(
+                "媒体库排序",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+            )
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(libs.size) { index ->
+                    val lib = libs[index]
+                    Row(
+                        Modifier.fillMaxWidth().height(48.dp)
+                            .background(Color(0xFFF2F1F6), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            lib.name,
+                            fontSize = 16.sp,
+                            color = Color.Black,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        // 上移
+                        if (index > 0) {
+                            Text(
+                                "↑",
+                                fontSize = 20.sp,
+                                color = Color(0xFF2F6FED),
+                                modifier = Modifier.clickable {
+                                    libs = libs.toMutableList().also {
+                                        val tmp = it[index]
+                                        it[index] = it[index - 1]
+                                        it[index - 1] = tmp
+                                    }
+                                }.padding(8.dp)
+                            )
+                        }
+                        // 下移
+                        if (index < libs.size - 1) {
+                            Text(
+                                "↓",
+                                fontSize = 20.sp,
+                                color = Color(0xFF2F6FED),
+                                modifier = Modifier.clickable {
+                                    libs = libs.toMutableList().also {
+                                        val tmp = it[index]
+                                        it[index] = it[index + 1]
+                                        it[index + 1] = tmp
+                                    }
+                                }.padding(8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Text(
+                    "取消",
+                    fontSize = 16.sp,
+                    color = Color(0xFF8E8E93),
+                    modifier = Modifier.clickable { onDismiss() }.padding(8.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "保存",
+                    fontSize = 16.sp,
+                    color = Color(0xFF2F6FED),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable {
+                        saveOrder()
+                        onDismiss()
+                    }.padding(8.dp)
+                )
+            }
+        }
+    }
+}
+
+/** 首页服务器图标弹窗：媒体库排序 + 切换服务器卡片 */
+@Composable
+fun ServerPopupDialog(
+    onDismiss: () -> Unit,
+    onServerSelected: () -> Unit,
+    onSortClick: () -> Unit
+) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var switching by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var servers by remember { mutableStateOf(Prefs.getServers()) }
+
+    MaoDiDialog(onDismiss = onDismiss) {
+        Column(Modifier.width(340.dp).heightIn(max = 500.dp)) {
+            Text(
+                "服务器",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Black,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+            )
+            // 媒体库排序行
+            Row(
+                Modifier.fillMaxWidth().height(48.dp)
+                    .clickable { onSortClick() }
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("媒体库排序", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
+                Text("›", fontSize = 20.sp, color = Color(0xFFC7C7CC))
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Spacer(Modifier.height(8.dp))
+            // 服务器卡片列表
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(servers, key = { it.key() }) { server ->
+                    val isCurrent = Prefs.serverName == server.name
+                    ServerCard(
+                        server = server,
+                        movies = 0,
+                        series = 0,
+                        lastUsed = 0L,
+                        isCurrent = isCurrent,
+                        onClick = {
+                            if (switching) return@ServerCard
+                            val isSame = server.host == Prefs.host &&
+                                server.port == Prefs.port &&
+                                server.path == Prefs.path &&
+                                server.username == Prefs.username
+                            if (isSame && Prefs.isLoggedIn()) {
+                                onServerSelected()
+                                onDismiss()
+                                return@ServerCard
+                            }
+                            switching = true
+                            scope.launch {
+                                try {
+                                    Prefs.protocol = server.protocol
+                                    Prefs.host = server.host
+                                    Prefs.port = server.port
+                                    Prefs.path = server.path
+                                    Prefs.username = server.username
+                                    Prefs.clearLogin()
+                                    YambyClient.login(server.username, server.password)
+                                    try {
+                                        val sn = YambyClient.getServerName()
+                                        Prefs.serverName = if (sn.isNotEmpty()) sn else server.name
+                                    } catch (_: Exception) {
+                                        Prefs.serverName = server.name
+                                    }
+                                    Prefs.rememberCurrentServer(server.password)
+                                    Prefs.touchServerLastUsed(server.key())
+                                } catch (_: Exception) {
+                                    Prefs.serverName = server.name
+                                } finally {
+                                    switching = false
+                                    onServerSelected()
+                                    onDismiss()
+                                }
+                            }
+                        },
+                        onLongClick = {},
+                        onAvatarClick = {}
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Text(
+                    "取消",
+                    fontSize = 16.sp,
+                    color = Color(0xFF2F6FED),
+                    modifier = Modifier.clickable { onDismiss() }.padding(8.dp)
+                )
+            }
+        }
+    }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -2316,7 +2597,8 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
 @Composable
 fun SettingsScreen(
     onLogout: () -> Unit = {},
-    onToggleDemo: (Boolean) -> Unit = {}
+    onToggleDemo: (Boolean) -> Unit = {},
+    onServerSelected: () -> Unit = {}
 ) {
     val prefs = com.muse.gomepc.emby.Prefs
     // 弹窗状态
@@ -2427,7 +2709,7 @@ fun SettingsScreen(
                     .background(Color.White, RoundedCornerShape(16.dp))
                     .padding(12.dp)
             ) {
-                listOf("播放", "界面", "字幕", "网络", "关于").forEachIndexed { i, s ->
+                listOf("服务器", "播放", "界面", "字幕", "网络", "关于").forEachIndexed { i, s ->
                     val sel = i == selectedTab
                     Box(
                         Modifier.fillMaxWidth().padding(vertical = 3.dp)
@@ -2448,12 +2730,21 @@ fun SettingsScreen(
                 }
             }
         }
+        if (selectedTab == 0) {
+            // ===== 服务器：从资源库搬过来，嵌入设置页第一排 =====
+            ServerCardsGrid(
+                modifier = Modifier.weight(4f).fillMaxHeight(),
+                onServerSelected = onServerSelected,
+                showTitle = false,
+                topPadding = 0.dp
+            )
+        } else {
         LazyColumn(
             Modifier.weight(4f).fillMaxHeight(),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             when (selectedTab) {
-                0 -> {
+                1 -> {
                     // ===== 播放卡片 =====
                     item { SettingGroupTitle("播放") }
         item {
@@ -2485,7 +2776,7 @@ fun SettingsScreen(
             }
         }
                 }
-                1 -> {
+                2 -> {
         // ===== 界面卡片 =====
         item { SettingGroupTitle("界面") }
         item {
@@ -2509,7 +2800,7 @@ fun SettingsScreen(
             }
         }
                 }
-                2 -> {
+                3 -> {
                     item { SettingGroupTitle("字幕") }
                     item {
                         SettingCard {
@@ -2519,7 +2810,7 @@ fun SettingsScreen(
                         }
                     }
                 }
-                3 -> {
+                4 -> {
                     item { SettingGroupTitle("网络") }
                     item {
                         SettingCard {
@@ -2529,7 +2820,7 @@ fun SettingsScreen(
                         }
                     }
                 }
-                4 -> {
+                5 -> {
         // ===== 关于卡片 =====
         item { SettingGroupTitle("关于") }
         item {
@@ -2547,6 +2838,7 @@ fun SettingsScreen(
         }
                 }
             }
+        }
     }
     }
 }
@@ -3741,18 +4033,16 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                 CircularProgressIndicator(color = GomeTheme.Accent)
                             }
                         } else if (eps.isNotEmpty()) {
-                            LazyRow(
+                            ArrowScrollRow(
+                                itemCount = eps.size,
                                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(eps.size) { idx ->
-                                    val ep = eps[idx]
-                                    EpisodeThumbCard(ep = ep, isCurrent = idx == 0, onClick = {
-                                        val curItem = item ?: return@EpisodeThumbCard
-                                        onPlay(curItem, ep)
-                                    })
-                                }
+                                contentPadding = PaddingValues(horizontal = 16.dp)
+                            ) { idx ->
+                                val ep = eps[idx]
+                                EpisodeThumbCard(ep = ep, isCurrent = idx == 0, onClick = {
+                                    val curItem = item ?: return@EpisodeThumbCard
+                                    onPlay(curItem, ep)
+                                })
                             }
                         }
                     }

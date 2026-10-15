@@ -49,6 +49,28 @@ object Prefs {
     var protocol: String
         get() = get("protocol", "http")
         set(v) = put("protocol", v)
+
+    /** 首页媒体库排序：逗号分隔的库ID列表，空表示默认顺序 */
+    var libOrder: String
+        get() = get("libOrder", "")
+        set(v) = put("libOrder", v)
+
+    /** 手动跳过片头秒数（按剧集 seriesId 存，0=不跳） */
+    fun getSkipIntroSec(seriesId: String): Int =
+        get("skip_intro_$seriesId", "0").toIntOrNull() ?: 0
+
+    fun setSkipIntroSec(seriesId: String, sec: Int) {
+        put("skip_intro_$seriesId", sec.toString())
+    }
+
+    /** 手动跳过片尾秒数（按剧集 seriesId 存，0=不跳）：片尾最后 X 秒显示"下一集"按钮 */
+    fun getSkipOutroSec(seriesId: String): Int =
+        get("skip_outro_$seriesId", "0").toIntOrNull() ?: 0
+
+    fun setSkipOutroSec(seriesId: String, sec: Int) {
+        put("skip_outro_$seriesId", sec.toString())
+    }
+
     var host: String
         get() = get("host", "")
         set(v) = put("host", v)

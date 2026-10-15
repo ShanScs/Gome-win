@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -219,31 +220,71 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
     }
 }
 
-/** App 图标：蓝底圆角方块 + 白色 G */
+/** APP图标：对齐安卓——黑圆角方块+天蓝几何G/C环+薄荷播放三角 */
 @Composable
 private fun AppGlyph() {
-    Box(
+    Canvas(
         Modifier.size(26.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF2F6FED)),
-        contentAlignment = Alignment.Center
+            .background(Color.Black)
     ) {
-        Text("G", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        val w = size.width
+        val h = size.height
+        val cx = w / 2f
+        val cy = h / 2f
+        // 天蓝几何 G/C 环
+        val ringColor = Color(0xFF4FC3F7)  // 天蓝
+        val ringRadius = w * 0.28f
+        val strokeWidth = w * 0.09f
+        // 画圆环（留缺口形成G形）
+        drawArc(
+            color = ringColor,
+            startAngle = 40f,
+            sweepAngle = 280f,
+            useCenter = false,
+            topLeft = Offset(cx - ringRadius, cy - ringRadius),
+            size = androidx.compose.ui.geometry.Size(ringRadius * 2, ringRadius * 2),
+            style = Stroke(width = strokeWidth)
+        )
+        // 薄荷播放三角
+        val mintColor = Color(0xFF7FFFD4)  // 薄荷
+        val triSize = w * 0.14f
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(cx - triSize * 0.4f, cy - triSize * 0.7f)
+            lineTo(cx + triSize * 0.8f, cy)
+            lineTo(cx - triSize * 0.4f, cy + triSize * 0.7f)
+            close()
+        }
+        drawPath(path, mintColor)
     }
 }
 
-/** 服务器图标：圆形 + 服务器名首字（沿用主页样式） */
+/** 服务器图标：显示真实服务器图标（图标库自动匹配），加载失败时显示首字 */
 @Composable
 private fun ServerGlyph() {
+    val serverName = Prefs.serverName
+    val serverKey = try {
+        Prefs.currentServerKey()
+    } catch (_: Exception) { null }
     Box(
         Modifier.size(26.dp)
             .clip(CircleShape)
             .background(Color.White),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            Prefs.serverName.take(1).uppercase().ifEmpty { "影" },
-            fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2F6FED)
+        ServerIcon(
+            serverName = serverName,
+            serverKey = serverKey,
+            modifier = Modifier.size(26.dp),
+            contentScale = ContentScale.Crop,
+            fallback = {
+                Text(
+                    serverName.take(1).uppercase().ifEmpty { "影" },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2F6FED)
+                )
+            }
         )
     }
 }

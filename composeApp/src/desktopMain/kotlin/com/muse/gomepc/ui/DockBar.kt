@@ -43,7 +43,7 @@ private val DockIndicatorH: Dp = 56.dp
 private data class DockTab(val label: String, val kind: NavKind, val screen: Screen)
 
 private fun dockTabs(): List<DockTab> = listOf(
-    DockTab("资源库", NavKind.GRID, Screen.Grid),
+    DockTab("设置", NavKind.GRID, Screen.Settings),
     DockTab("主页", NavKind.HOME, Screen.Home),
     DockTab("搜索", NavKind.SEARCH, Screen.Search),
     DockTab("收藏", NavKind.FAVORITE, Screen.Favorites),

@@ -218,6 +218,36 @@ fun PlayerScreen(
     val timePosRef = remember { java.util.concurrent.atomic.AtomicReference(0.0) }
     androidx.compose.runtime.LaunchedEffect(timePos) { timePosRef.set(timePos) }
     var duration by remember { mutableStateOf(0.0) }
+    // 跳过片头/片尾状态
+    var showSkipIntro by remember { mutableStateOf(false) }
+    var showNextEp by remember { mutableStateOf(false) }
+    var nextEpCountdown by remember { mutableStateOf(5) }
+    var introSkipped by remember(episodeId) { mutableStateOf(false) }
+    // 监听播放进度，更新跳过按钮显示
+    androidx.compose.runtime.LaunchedEffect(timePos, duration) {
+        val seriesId = itemId // 用 itemId 作为 seriesId
+        val manualIntro = prefs.getSkipIntroSec(seriesId)
+        val manualOutro = prefs.getSkipOutroSec(seriesId)
+        // 片头：未跳过且在片头范围内
+        showSkipIntro = !introSkipped && manualIntro > 0 && timePos < manualIntro && timePos >= 0
+        // 片尾：剩余时间小于设定值且有下一集
+        val remain = duration - timePos
+        showNextEp = manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
+    }
+    // 下一集倒计时
+    androidx.compose.runtime.LaunchedEffect(showNextEp) {
+        if (showNextEp) {
+            nextEpCountdown = 5
+            while (nextEpCountdown > 0 && showNextEp) {
+                kotlinx.coroutines.delay(1000)
+                nextEpCountdown--
+            }
+            if (showNextEp && nextEpCountdown <= 0) {
+                // 自动跳下一集
+                onSwitchEpisode?.invoke("", episodeIndex + 1, 0.0)
+            }
+        }
+    }
     var volume by remember { mutableStateOf(80f) }
     var dragging by remember { mutableStateOf(false) }
     var dragPos by remember { mutableStateOf(0f) }
@@ -340,6 +370,16 @@ fun PlayerScreen(
             } else {
                 videoUrl = urls.first()
             }
+            // 自动加载弹幕（对齐 Android：用剧名/集名从弹幕源加载）
+            try {
+                val danmakuUrls = prefs.enabledDanmakuUrls()
+                if (danmakuUrls.isNotEmpty()) {
+                    engine.loadFromApi(danmakuUrls.first(), itemName)
+                    if (!prefs.danmakuDisabled && !engine.isDanmakuOn()) {
+                        engine.setEnabled(true)
+                    }
+                }
+            } catch (_: Exception) { }
         } catch (e: Exception) {
             urlError = "获取播放地址失败：${e.message?.take(120)}"
         }
@@ -731,6 +771,51 @@ fun PlayerScreen(
             lastInteraction = lastInteraction,
             onCanvasReadyOnce = onCanvasReadyStable,
         )
+
+        // 跳过片头按钮（右下角，控制条上方）
+        if (showSkipIntro) {
+            Box(
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = 90.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xCC000000))
+                    .clickable {
+                        val seriesId = itemId
+                        val sec = prefs.getSkipIntroSec(seriesId)
+                        if (sec > 0) {
+                            player.seek(sec.toDouble())
+                            introSkipped = true
+                            showSkipIntro = false
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("跳过片头", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        // 下一集按钮（右下角，带倒计时）
+        if (showNextEp) {
+            Box(
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = 90.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xCC000000))
+                    .clickable {
+                        showNextEp = false
+                        onSwitchEpisode?.invoke("", episodeIndex + 1, 0.0)
+                    }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    if (nextEpCountdown > 0) "跳到下一集 ($nextEpCountdown)" else "跳到下一集",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
 
         // 底控制条（M玻璃，可自动隐藏）— 浮在视频上
         if (controlsVisible) {
