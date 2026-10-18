@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.net.Proxy
 import okhttp3.Request
@@ -148,7 +149,7 @@ object YambyClient {
     /** URL 拼装统一走 HttpUrl.Builder（P1-E11）。extra 里的值按已编码处理（如 SearchTerm），其余为普通安全字符。 */
     private fun url(path: String, extra: String = ""): String {
         val rawBase = base()
-        val parsed = HttpUrl.parse(rawBase + path)
+        val parsed = (rawBase + path).toHttpUrlOrNull()
         if (parsed == null) {
             // base 非法时回退旧拼接，由连接层报错（不静默吞掉）
             val ap = authParamsWithToken()
@@ -724,7 +725,7 @@ object YambyClient {
         if (itemId.isBlank()) return ""
         val width = w.coerceIn(1, 4096)
         val imgType = type.ifBlank { "Primary" }
-        val b = HttpUrl.parse(base())?.newBuilder() ?: return ""
+        val b = base().toHttpUrlOrNull()?.newBuilder() ?: return ""
         b.addPathSegment("Items")
             .addPathSegment(itemId)
             .addPathSegment("Images")
@@ -924,8 +925,8 @@ object YambyClient {
      */
     suspend fun diagnoseUrl(rawUrl: String): String = withContext(Dispatchers.IO) {
         try {
-            val target = HttpUrl.parse(rawUrl) ?: return@withContext "请求异常:地址无效"
-            val baseHttp = try { HttpUrl.parse(base()) } catch (_: Exception) { null }
+            val target = rawUrl.toHttpUrlOrNull() ?: return@withContext "请求异常:地址无效"
+            val baseHttp = try { base().toHttpUrlOrNull() } catch (_: Exception) { null }
             val sameOrigin = baseHttp != null &&
                 target.scheme == baseHttp.scheme && target.host == baseHttp.host && target.port == baseHttp.port
             val reqBuilder = Request.Builder()
@@ -968,7 +969,7 @@ object YambyClient {
     private fun resolveUrl(u: String): String {
         if (u.isEmpty()) return ""
         val absolute = if (u.startsWith("http", true)) u else base() + u
-        val parsed = HttpUrl.parse(absolute) ?: return ""
+        val parsed = absolute.toHttpUrlOrNull() ?: return ""
         val b = parsed.newBuilder()
         for (name in listOf("X-Emby-Token", "api_key", "X-Emby-Client", "X-Emby-Device-Name", "X-Emby-Device-Id", "X-Emby-Client-Version")) {
             b.removeAllQueryParameters(name)
@@ -983,9 +984,9 @@ object YambyClient {
      */
     private fun strmSourceUrl(path: String): String {
         if (path.isEmpty() || !path.startsWith("http", true)) return ""
-        val parsed = HttpUrl.parse(path) ?: return ""
+        val parsed = path.toHttpUrlOrNull() ?: return ""
         if (!isLoopbackHost(parsed.host)) return path
-        val server = HttpUrl.parse(base()) ?: return path
+        val server = base().toHttpUrlOrNull() ?: return path
         return parsed.newBuilder().host(server.host).build().toString()
     }
 
