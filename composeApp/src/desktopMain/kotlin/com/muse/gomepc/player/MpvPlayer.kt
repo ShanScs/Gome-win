@@ -52,6 +52,8 @@ class MpvPlayer {
     @Volatile private var lastTimePos = 0.0
     @Volatile private var lastDuration = 0.0
     @Volatile private var lastPaused = false
+    /** 本文件是否已执行过自动选字幕（只选一次，用户手动切后不再覆盖）。 */
+    @Volatile private var autoSubSelectedForFile = false
 
     val timePos: Double get() = lastTimePos
     val duration: Double get() = lastDuration
@@ -138,6 +140,7 @@ class MpvPlayer {
     /** 播放。返回 null=命令已发送，否则为错误信息。 */
     fun play(url: String): String? {
         val ctx = handle ?: return "not initialized"
+        autoSubSelectedForFile = false // 新文件：允许自动选一次默认字幕
         val lib = LibMpv.INSTANCE
         val r = lib.mpv_command(ctx, arrayOf("loadfile", url, "replace", null))
         return if (r < 0) lib.mpv_error_string(r) else null
@@ -195,6 +198,87 @@ class MpvPlayer {
         }
     }
 
+    /**
+     * 自动选默认简体中文字幕，每个文件只执行一次，绝不覆盖用户手动切换。
+     *
+     * 优先级：简体中文（100）> 通用中文（50）> 繁体中文（10）> 其他（0，不选）。
+     *  - 简体：lang 为 chi-Hans / zh-Hans / zh-CN / cmn-Hans 等，或标题含“简体”/“简中”/“Simplified”/“CHS”
+     *  - 通用：lang 为 zh / chi / zho 等，或标题含“中文”/“Chinese”（且不含繁体标记）
+     *  - 繁体：lang 为 zh-Hant / zh-TW / zh-HK 等，或标题含“繁体”/“繁體”/“Traditional”/“CHT”
+     * 无中文轨时不动（保持 mpv 原行为，不强制）。
+     * 轨道列表尚未就绪（count==0）时返回 false，不置标志，等 TRACKS_CHANGED 再试。
+     */
+    fun selectDefaultChineseSubtitle(): Boolean {
+        if (autoSubSelectedForFile) return true
+        val ctx = handle ?: return false
+        return try {
+            val count = getPropertyDouble("track-list/count")?.toInt() ?: 0
+            if (count <= 0) return false // 轨道还没就绪，等 TRACKS_CHANGED 再试
+            val currentSidId = getPropertyString("sid")?.toIntOrNull()
+            var currentScore = 0
+            var bestId: Int? = null
+            var bestScore = 0
+            for (i in 0 until count) {
+                if (getPropertyString("track-list/$i/type") != "sub") continue
+                val id = getPropertyDouble("track-list/$i/id")?.toInt() ?: continue
+                val lang = getPropertyString("track-list/$i/lang") ?: ""
+                val title = getPropertyString("track-list/$i/title") ?: ""
+                val score = scoreChineseSub(lang, title)
+                if (id == currentSidId) currentScore = score
+                if (score > bestScore) {
+                    bestScore = score
+                    bestId = id
+                }
+            }
+            autoSubSelectedForFile = true
+            if (bestId == null || bestScore <= 0) {
+                DebugLog.d("Sub", "无中文字幕轨，保持原选择")
+                return false
+            }
+            if (bestId == currentSidId || currentScore >= 100) {
+                // 当前已是简体中文（mpv 自己已选对），不重复设置
+                DebugLog.d("Sub", "当前字幕已是简体中文 (sid=$currentSidId)，不重复设置")
+                return true
+            }
+            LibMpv.INSTANCE.mpv_set_property_string(ctx, "sid", bestId.toString())
+            DebugLog.d("Sub", "自动选默认简体中文字幕: sid=$bestId (score=$bestScore)")
+            true
+        } catch (e: Throwable) {
+            DebugLog.d("Sub", "自动选字幕失败: ${e.message}")
+            false
+        }
+    }
+
+    /** 中文字幕评分：简体 100 > 通用中文 50 > 繁体 10 > 其他 0。 */
+    private fun scoreChineseSub(lang: String, title: String): Int {
+        val l = lang.trim().lowercase().replace('_', '-')
+        val t = title
+        // 简体：先判，避免“中文简体”被通用中文抢走
+        val simplifiedLang = l in setOf(
+            "chi-hans", "zh-hans", "zh-cn", "zh-hans-cn", "chi-hans-cn",
+            "cmn-hans", "zh-sg", "zh-my"
+        )
+        val simplifiedTitle = t.contains("简体") || t.contains("简中") ||
+            t.contains("Simplified", ignoreCase = true) ||
+            t.contains("CHS", ignoreCase = true)
+        if (simplifiedLang || simplifiedTitle) return 100
+        // 繁体：后判，避免“中文繁体”被通用中文抢走
+        val traditionalLang = l in setOf(
+            "zh-hant", "chi-hant", "zh-tw", "zh-hk", "zh-mo", "cmn-hant"
+        )
+        val traditionalTitle = t.contains("繁体") || t.contains("繁體") ||
+            t.contains("Traditional", ignoreCase = true) ||
+            t.contains("CHT", ignoreCase = true)
+        if (traditionalLang || traditionalTitle) return 10
+        // 通用中文
+        val genericLang = l in setOf("zh", "chi", "zho", "cn", "chinese") ||
+            l.startsWith("zh-") || l.startsWith("chi-") ||
+            l.startsWith("zho-") || l.startsWith("cmn-")
+        val genericTitle = t.contains("中文") || t.contains("Chinese", ignoreCase = true)
+        if (genericLang || genericTitle) return 50
+        return 0
+    }
+
     private fun eventLoop() {
         val lib = LibMpv.INSTANCE
         val ctx = handle ?: return
@@ -214,7 +298,14 @@ class MpvPlayer {
             when (ev.event_id) {
                 MpvEventId.NONE -> { /* 超时 */ }
                 MpvEventId.SHUTDOWN -> running = false
-                MpvEventId.FILE_LOADED -> listener?.onFileLoaded()
+                MpvEventId.FILE_LOADED -> {
+                    selectDefaultChineseSubtitle()
+                    listener?.onFileLoaded()
+                }
+                MpvEventId.TRACKS_CHANGED -> {
+                    // 外挂字幕可能晚于 FILE_LOADED 加载；只在还没选过时补一次
+                    selectDefaultChineseSubtitle()
+                }
                 MpvEventId.END_FILE -> listener?.onEndFile()
                 MpvEventId.PAUSE -> {
                     lastPaused = true
