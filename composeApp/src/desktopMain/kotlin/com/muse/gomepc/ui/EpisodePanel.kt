@@ -125,18 +125,8 @@ class EpisodePanel(
             preferredSize = Dimension(320, 333)
             // 鼠标滚轮加速
             verticalScrollBar.unitIncrement = 40
-            // 滚轮方向修正：实测本面板滚轮方向是反的（滚轮向下，内容却向上）。
-            // 显式处理滚轮并取反 delta；关掉默认滚轮处理，避免重复滚动。
-            // 只改本面板，不影响其他列表。
-            isWheelScrollingEnabled = false
-            addMouseWheelListener { e ->
-                val bar = verticalScrollBar
-                if (e.scrollType == java.awt.event.MouseWheelEvent.WHEEL_BLOCK_SCROLL) {
-                    bar.value = bar.value - e.wheelRotation * bar.visibleAmount
-                } else {
-                    bar.value = bar.value - e.unitsToScroll * bar.unitIncrement
-                }
-            }
+            // 滚轮用 JScrollPane 默认处理（Windows 标准：滚轮向下 → 看后面的集，滚轮向上 → 看前面的集）。
+            // 1.0.342 曾加过一个自定义处理把 delta 取反，那是错的——它把标准方向改反了，这里恢复默认。
         }
         content.add(scroll)
 
