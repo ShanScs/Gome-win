@@ -1,6 +1,7 @@
 package com.muse.gomepc.ui
 
 import com.muse.gomepc.emby.YambyClient
+import java.util.Locale
 
 /**
  * UI 统一模型：屏蔽 MockItem 与 YambyClient.Item 的差异。
@@ -83,13 +84,15 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
     val isEp = type == "Episode"
     return UiMediaItem(
         id = id,
-        name = if (isEp && seriesName.isNotEmpty()) seriesName else name,
+        // 剧集单集保留自己的集名（不要用系列名覆盖）；名字为空时才回退系列名
+        name = name.ifEmpty { seriesName },
         year = if (year > 0) year.toString() else "",
-        rating = if (communityRating > 0) "%.1f".format(communityRating) else null,
+        rating = if (communityRating > 0) String.format(Locale.US, "%.1f", communityRating) else null,
         overview = overview,
         libName = libName,
         imageUrl = YambyClient.imageUrl(posterId, "Primary", 400),
-        backdropUrl = YambyClient.imageUrl(id, "Backdrop", 800),
+        // 背景大图用剧的 Backdrop（单集自己通常没有 Backdrop）
+        backdropUrl = YambyClient.imageUrl(posterId, "Backdrop", 800),
         progress = progress,
         badge = badge,
         subtitle = if (isEp) epLabel() else "",
@@ -124,7 +127,8 @@ fun MockItem.toUi(): UiMediaItem = UiMediaItem(
     overview = overview,
     libName = libName,
     imageUrl = null,
-    hue = hue
+    hue = hue,
+    progress = progress
 )
 
 /** MockEpisode → UiEpisode（演示模式） */
