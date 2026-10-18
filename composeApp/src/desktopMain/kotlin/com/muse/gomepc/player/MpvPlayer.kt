@@ -69,6 +69,11 @@ class MpvPlayer : Closeable {
         fun onLog(prefix: String, level: String, text: String) {}
         /** mpv 收到 SHUTDOWN 事件（播放器正在关闭）。默认空实现。 */
         fun onShutdown() {}
+        /**
+         * END_FILE reason=ERROR（地址/流失败）：默认转发给 onError；
+         * PlayerScreen 重写它以自动切换备用地址（首个 DirectStreamUrl 失败时切 Static 兜底）。
+         */
+        fun onEndFileError(msg: String) { onError(msg) }
     }
 
     /** 轨道信息（listTracks 返回）。 */
@@ -615,7 +620,11 @@ class MpvPlayer : Closeable {
                             try { l?.onEndFile() } catch (_: Throwable) { }
                         }
                         if (reason == MpvEndFileReason.ERROR) {
-                            reportError("播放失败 (END_FILE reason=error): ${libErrorString(lib, errCode)}")
+                            val errMsg = "播放失败 (END_FILE reason=error): ${libErrorString(lib, errCode)}"
+                            dispatchOnEdt {
+                                // 有专属回调时走它（PlayerScreen 自动切备用地址），否则走通用 onError
+                                try { l?.onEndFileError(errMsg) } catch (_: Throwable) { }
+                            }
                         }
                     }
                     MpvEventId.PAUSE -> {
