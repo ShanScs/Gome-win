@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.danmaku.DanmakuEngine
 import com.muse.gomepc.player.MpvPlayer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.muse.gomepc.player.Win32Util
 import java.awt.event.ComponentAdapter
@@ -50,7 +51,9 @@ import kotlin.math.roundToInt
 
 fun formatTime(sec: Double): String {
     val s = sec.coerceAtLeast(0.0).roundToInt()
-    return "%02d:%02d".format(s / 60, s % 60)
+    val h = s / 3600
+    return if (h > 0) "%d:%02d:%02d".format(h, (s % 3600) / 60, s % 60)
+    else "%02d:%02d".format(s / 60, s % 60)
 }
 
 /** 播放/暂停小按钮（Canvas 绘制，避免字体缺字形） */
@@ -182,6 +185,12 @@ fun PlayerScreen(
     hwdec: String = defaultHwdec(),
     /** 断点续播位置（秒），0=从头播 */
     startPositionSec: Double = 0.0,
+    /** 详情页选的版本（MediaSourceId），空=默认版本 */
+    mediaSourceId: String = "",
+    /** 详情页选的音轨序号（同类音轨中的第 N 条），-1=未选择 */
+    audioIndex: Int = -1,
+    /** 详情页选的字幕序号（同类字幕中的第 N 条），-1=关闭字幕，-2=未选择（走 mpv 默认） */
+    subtitleIndex: Int = -2,
     onBack: () -> Unit,
     onFullscreen: () -> Unit,
     onSwitchEpisode: ((episodeId: String, episodeIndex: Int, resumeSec: Double) -> Unit)? = null
@@ -208,6 +217,18 @@ fun PlayerScreen(
             }
         }
     }
+    // 弹幕组新接口（已落地）：setCurrentTime / onSeek / 带集号的 loadFromApiMulti，直接调用。
+    // 注意：引擎的 episodeIndex 是 0 起（内部按 episodes.number == episodeIndex + 1 匹配），
+    // 而本页 episodeIndex 参数是 1-based 的 UiEpisode.index，传之前减 1；若按 1-based 直传会取到下一集的弹幕。
+    fun engineSetCurrentTime(sec: Float) {
+        try { engine.setCurrentTime(sec) } catch (_: Exception) { }
+    }
+    fun engineOnSeek() {
+        try { engine.onSeek() } catch (_: Exception) { }
+    }
+    fun engineLoadFromApiMulti(urls: List<String>, title: String, epIndex1Based: Int) {
+        try { engine.loadFromApiMulti(urls, title, (epIndex1Based - 1).coerceAtLeast(0)) } catch (_: Exception) { }
+    }
     // 弹幕按集加载：remember 只跑一次，切集不会重拉（旧 bug：切集后池子还是上一集的、首次失败后永不重试）。
     // 放到 LaunchedEffect(episodeId)，首播和每次切集都清池重拉；引擎实例不变，JWindow 面板继续引用同一引擎。
     androidx.compose.runtime.LaunchedEffect(episodeId) {
@@ -215,9 +236,10 @@ fun PlayerScreen(
         com.muse.gomepc.player.DebugLog.d("Danmaku", "所有弹幕源: $allSources")
         val urls = prefs.enabledDanmakuUrls()
         com.muse.gomepc.player.DebugLog.d("Danmaku", "启用的URL: $urls")
+        // 无条件先清空：无源时旧集弹幕也不能残留
+        engine.setDanmakuList(emptyList())
         if (urls.isNotEmpty()) {
-            engine.setDanmakuList(emptyList())
-            engine.loadFromApiMulti(urls, itemName)
+            engineLoadFromApiMulti(urls, itemName, episodeIndex)
         }
     }
     var inited by remember { mutableStateOf(false) }
@@ -244,6 +266,19 @@ fun PlayerScreen(
         val remain = duration - timePos
         showNextEp = manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
     }
+    // 取剧集列表（带缓存）：放倒计时前面，自动跳集要从这里查下一集的真实 id
+    var episodeList by remember { mutableStateOf<List<UiEpisode>>(emptyList()) }
+    LaunchedEffect(itemId) {
+        try {
+            val data = Repo.episodes(itemId)
+            episodeList = data.episodes
+        } catch (_: Exception) { }
+    }
+    /** 按当前位置找下一集；找不到则返回 null（调用方不切集，绝不传空 episodeId） */
+    fun nextEpisode(): UiEpisode? {
+        val curIdx = episodeList.indexOfFirst { it.id == episodeId }
+        return if (curIdx >= 0) episodeList.getOrNull(curIdx + 1) else null
+    }
     // 下一集倒计时
     androidx.compose.runtime.LaunchedEffect(showNextEp) {
         if (showNextEp) {
@@ -253,8 +288,11 @@ fun PlayerScreen(
                 nextEpCountdown--
             }
             if (showNextEp && nextEpCountdown <= 0) {
-                // 自动跳下一集
-                onSwitchEpisode?.invoke("", episodeIndex + 1, 0.0)
+                // 自动跳下一集：从 episodeList 查真实 id，查不到就不切
+                val next = nextEpisode()
+                if (next != null) {
+                    onSwitchEpisode?.invoke(next.id, next.index, 0.0)
+                }
             }
         }
     }
@@ -306,6 +344,7 @@ fun PlayerScreen(
                 resumeApplied = true
                 if (startPositionSec < dur - 60) {
                     player.seek(startPositionSec)
+                    engineOnSeek()
                     com.muse.gomepc.player.DebugLog.d("UI", "断点续播成功 seek 到 $startPositionSec 秒")
                 } else {
                     com.muse.gomepc.player.DebugLog.d("UI", "续播跳过: 接近片尾 startPositionSec=$startPositionSec dur=$dur")
@@ -324,9 +363,13 @@ fun PlayerScreen(
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
     var danmakuPanelRef by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
     var danmakuWindowRef by remember { mutableStateOf<javax.swing.JWindow?>(null) }
+    // 弹幕位置同步 Timer：保存引用，退出/切集时 stop，避免每个 Canvas 建一个永不停的 Timer
+    var danmakuPosTimer by remember { mutableStateOf<javax.swing.Timer?>(null) }
     // 退出播放器时关闭弹幕窗口
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
+            try { danmakuPosTimer?.stop() } catch (_: Throwable) { }
+            danmakuPosTimer = null
             try {
                 danmakuWindowRef?.isVisible = false
                 danmakuWindowRef?.dispose()
@@ -345,10 +388,13 @@ fun PlayerScreen(
             engine.setEnabled(on)
             danmakuUiOn = on
         }
-        // 手动重开时若池子为空（此前加载失败），重拉一次，给瞬时失败一个恢复入口
-        if (danmakuUiOn && engine.danmakuCount() == 0) {
+        // 手动重开时立即重载（工具栏开关后弹幕要马上回来，不等下次切集）
+        if (danmakuUiOn) {
             val urls = prefs.enabledDanmakuUrls()
-            if (urls.isNotEmpty()) engine.loadFromApiMulti(urls, itemName)
+            if (urls.isNotEmpty()) {
+                engine.setDanmakuList(emptyList())
+                engineLoadFromApiMulti(urls, itemName, episodeIndex)
+            }
         }
         javax.swing.SwingUtilities.invokeLater {
             danmakuPanelRef?.isVisible = danmakuUiOn
@@ -385,12 +431,18 @@ fun PlayerScreen(
     }
 
 
-    // 取播放地址
-    LaunchedEffect(episodeId) {
+    // 取播放地址（urlRetryKey：错误层点"重试"时重拉）
+    var urlRetryKey by remember { mutableStateOf(0) }
+    LaunchedEffect(episodeId, urlRetryKey) {
         try {
-            // 上报正在播放（Emby 播放记录）
-            Repo.reportPlaying(episodeId)
-            val urls = Repo.playbackUrls(episodeId)
+            // 上报正在播放（Emby 播放记录），带详情页选的版本
+            Repo.reportPlaying(episodeId, mediaSourceId)
+            // 详情页选了版本时按版本取流，否则默认取流
+            val urls = if (mediaSourceId.isNotEmpty()) {
+                Repo.playbackUrlsForSource(episodeId, mediaSourceId)
+            } else {
+                Repo.playbackUrls(episodeId)
+            }
             if (urls.isEmpty()) {
                 urlError = "没有可用播放地址"
             } else {
@@ -401,30 +453,7 @@ fun PlayerScreen(
         }
     }
 
-    // 退出时上报停止（含最终进度），并更新本地缓存（详情页只刷新进度不重拉）
-    androidx.compose.runtime.DisposableEffect(episodeId) {
-        onDispose {
-            try {
-                val ticks = (timePosRef.get() * 10_000_000).toLong()
-                if (ticks > 0) {
-                    kotlinx.coroutines.runBlocking {
-                        com.muse.gomepc.emby.YambyClient.reportStopped(episodeId, ticks)
-                    }
-                    // 只更新缓存里的进度，不清缓存不调服务器
-                    com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
-                }
-            } catch (_: Exception) { }
-        }
-    }
-
-    // 取剧集列表（带缓存）
-    var episodeList by remember { mutableStateOf<List<UiEpisode>>(emptyList()) }
-    LaunchedEffect(itemId) {
-        try {
-            val data = Repo.episodes(itemId)
-            episodeList = data.episodes
-        } catch (_: Exception) { }
-    }
+    // 取剧集列表已在上方（倒计时前面）声明，供自动跳集/工具栏上下集使用
 
     // 网速监测：用 mpv 的音视频码率估算
     var netSpeedText by remember { mutableStateOf("") }
@@ -443,6 +472,8 @@ fun PlayerScreen(
                         else -> "%.0f B/s".format(total)
                     }
                 } else ""
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) { break }
         }
     }
@@ -471,6 +502,8 @@ fun PlayerScreen(
                     // 3. 严格的 NaN 和有效值保护
                     if (!sec.isNaN() && sec >= 0) {
                         timePos = sec
+                        // 弹幕按播放进度对齐：把 timePos 喂给弹幕引擎
+                        engineSetCurrentTime(sec.toFloat())
                     }
                     if (!dur.isNaN() && dur > 0) {
                         duration = dur
@@ -492,13 +525,18 @@ fun PlayerScreen(
         val p = player
         setupPlayerListener(p)
         onDispose {
-            // 上报停止（1:1 Android）：切集或退出时把当前进度同步到服务器
+            // 上报停止（1:1 Android）：切集或退出时把当前进度同步到服务器。
+            // 全文件仅此一处 reportStopped（旧的 runBlocking 版已删，避免重复上报+主线程网络卡顿）。
+            // 用 timePosRef 取最新位置（直接读 timePos 是 DisposableEffect 创建时的旧值）。
             try {
-                val ticks = (timePos * 10_000_000).toLong()
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    try {
-                        com.muse.gomepc.emby.YambyClient.reportStopped(episodeId, ticks)
-                    } catch (_: Throwable) { }
+                val ticks = (timePosRef.get() * 10_000_000).toLong()
+                if (ticks > 0) {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        try {
+                            com.muse.gomepc.emby.YambyClient.reportStopped(episodeId, ticks)
+                        } catch (_: Throwable) { }
+                    }
+                    com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
                 }
             } catch (_: Throwable) { }
             try { p.destroy() } catch (_: Throwable) { }
@@ -520,6 +558,8 @@ fun PlayerScreen(
                 SwingUtilities.invokeLater {
                     initError = "wid: ${e.message}"
                     initializing = false
+                    // 初始化失败：mpvInitDone 复位，否则永久无法重试
+                    mpvInitDone = false
                 }
                 return@Thread
             }
@@ -533,6 +573,8 @@ fun PlayerScreen(
                 initializing = false
                 if (err != null) {
                     initError = err
+                    // 初始化失败：mpvInitDone 复位，错误层"重试"按钮才能再次初始化
+                    mpvInitDone = false
                     com.muse.gomepc.player.DebugLog.d("UI", "播放器初始化失败: $err")
                 } else {
                     inited = true
@@ -549,6 +591,8 @@ fun PlayerScreen(
                     }
                     if (playErr != null) {
                         initError = "play: $playErr"
+                        // play 失败同样复位，允许重试
+                        mpvInitDone = false
                     } else {
                         com.muse.gomepc.player.DebugLog.d("UI", "开始播放")
                         // 上报开始播放（1:1 Android）
@@ -556,7 +600,7 @@ fun PlayerScreen(
                             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                                 try {
                                     com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放: episodeId=$episodeId")
-                                    val err = com.muse.gomepc.emby.YambyClient.reportPlaying(episodeId)
+                                    val err = com.muse.gomepc.emby.YambyClient.reportPlaying(episodeId, mediaSourceId)
                                     if (err != null) {
                                         com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放失败: $err")
                                     } else {
@@ -573,6 +617,62 @@ fun PlayerScreen(
         }.start()
     }
 
+    /** 详情页选的音轨/字幕：按序号取 mpv track-list 里同类第 N 条的 id 再设 aid/sid */
+    fun applyTrackSelection() {
+        try {
+            val count = player.getPropertyDouble("track-list/count")?.toInt() ?: return
+            fun trackIdsOf(type: String): List<Int> {
+                val ids = mutableListOf<Int>()
+                for (i in 0 until count) {
+                    if (player.getPropertyString("track-list/$i/type") != type) continue
+                    player.getPropertyDouble("track-list/$i/id")?.toInt()?.let { ids.add(it) }
+                }
+                return ids
+            }
+            if (audioIndex >= 0) {
+                trackIdsOf("audio").getOrNull(audioIndex)?.let {
+                    player.setProperty("aid", it.toString())
+                }
+            }
+            when {
+                subtitleIndex == -1 -> player.setProperty("sid", "no")
+                subtitleIndex >= 0 -> trackIdsOf("sub").getOrNull(subtitleIndex)?.let {
+                    player.setProperty("sid", it.toString())
+                }
+                // subtitleIndex == -2：未选择，走 mpv 默认，不动 sid
+            }
+        } catch (_: Exception) { }
+    }
+
+    /** 错误层"重试"：取地址失败重拉地址；初始化失败复位后重新初始化 */
+    fun retryPlayback() {
+        if (urlError != null) {
+            urlError = null
+            videoUrl = null
+            urlRetryKey++
+        } else {
+            initError = null
+            mpvInitDone = false
+            initializing = false
+            tryInitPlayer()
+        }
+    }
+
+    // 文件加载完成后应用详情页选的音轨/字幕（track-list 刚出来可能为空，延迟再试一次）
+    LaunchedEffect(fileLoaded) {
+        if (!fileLoaded) return@LaunchedEffect
+        try {
+            kotlinx.coroutines.delay(300)
+            applyTrackSelection()
+            if (player.getPropertyDouble("track-list/count") == null) {
+                kotlinx.coroutines.delay(1500)
+                applyTrackSelection()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) { }
+    }
+
     // videoUrl 就绪后尝试初始化（canvas 可能先就绪）
     LaunchedEffect(videoUrl) {
         tryInitPlayer()
@@ -581,28 +681,36 @@ fun PlayerScreen(
     // 定期上报播放进度（1:1 Android：每10秒上报一次）
     LaunchedEffect(episodeId) {
         while (true) {
-            kotlinx.coroutines.delay(10_000)
             try {
-                if (inited && initError.isNullOrEmpty()) {
-                    val ticks = (timePos * 10_000_000).toLong()
-                    val isPaused = paused
-                    try {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            val err = com.muse.gomepc.emby.YambyClient.reportProgress(episodeId, ticks, isPaused)
-                            if (err != null) {
-                                com.muse.gomepc.player.DebugLog.d("UI", "定期上报进度失败: $err")
-                            } else {
-                                com.muse.gomepc.player.DebugLog.d("UI", "定期上报进度成功: ticks=$ticks")
-                            }
-                        }
-                        // 同步更新本地剧集缓存（详情页只刷新进度用，不依赖退出时上报）
+                kotlinx.coroutines.delay(10_000)
+                try {
+                    if (inited && initError.isNullOrEmpty()) {
+                        val ticks = (timePos * 10_000_000).toLong()
+                        val isPaused = paused
                         try {
-                            com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
-                        } catch (_: Exception) { }
-                    } catch (e: Throwable) {
-                        com.muse.gomepc.player.DebugLog.d("UI", "定期上报进度异常: ${e.message}")
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                val err = com.muse.gomepc.emby.YambyClient.reportProgress(episodeId, ticks, isPaused)
+                                if (err != null) {
+                                    com.muse.gomepc.player.DebugLog.d("UI", "定期上报进度失败: $err")
+                                } else {
+                                    com.muse.gomepc.player.DebugLog.d("UI", "定期上报进度成功: ticks=$ticks")
+                                }
+                            }
+                            // 同步更新本地剧集缓存（详情页只刷新进度用，不依赖退出时上报）
+                            try {
+                                com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
+                            } catch (_: Exception) { }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            com.muse.gomepc.player.DebugLog.d("UI", "定期上报进度异常: ${e.message}")
+                        }
                     }
-                }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) { }
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Throwable) { }
         }
     }
@@ -650,7 +758,7 @@ fun PlayerScreen(
         getPaused = { paused },
         getTimePos = { if (dragging) dragPos.toDouble() else timePos },
         getDuration = { duration },
-        onSeek = { player.seek(it) },
+        onSeek = { player.seek(it); engineOnSeek() },
         getNetSpeed = { netSpeedText },
         onToggleDanmaku = { toggleDanmaku() },
         isDanmakuEnabled = { danmakuUiOn },
@@ -693,14 +801,15 @@ fun PlayerScreen(
             {
                 val curIdx = episodeList.indexOfFirst { it.id == episodeId }
                 val prev = if (curIdx > 0) episodeList.getOrNull(curIdx - 1) else null
-                if (prev != null) onSwitchEpisode(prev.id, curIdx - 1, prev.playTicks / 10_000_000.0)
+                // episodeIndex 统一 1-based：传 UiEpisode.index，不是 0-based 位置
+                if (prev != null) onSwitchEpisode(prev.id, prev.index, prev.playTicks / 10_000_000.0)
             }
         } else null,
         onNext = if (onSwitchEpisode != null) {
             {
                 val curIdx = episodeList.indexOfFirst { it.id == episodeId }
                 val next = if (curIdx >= 0) episodeList.getOrNull(curIdx + 1) else null
-                if (next != null) onSwitchEpisode(next.id, curIdx + 1, next.playTicks / 10_000_000.0)
+                if (next != null) onSwitchEpisode(next.id, next.index, next.playTicks / 10_000_000.0)
             }
         } else null,
         onPlaylist = if (onSwitchEpisode != null && episodeList.isNotEmpty()) {
@@ -716,11 +825,14 @@ fun PlayerScreen(
                     }
                     val curPos = infos.indexOfFirst { it.id == episodeId }.takeIf { it >= 0 } ?: 0
                     EpisodePanel(root, infos, curPos) { ep, idx ->
-                        onSwitchEpisode(ep.id, idx, ep.playTicks / 10_000_000.0)
+                        // EpisodePanel 回调的 idx 是 0-based 位置，传回的 episodeIndex 用 ep.index（1-based）
+                        onSwitchEpisode(ep.id, ep.index, ep.playTicks / 10_000_000.0)
                     }.show()
                 }
             }
-        } else null
+        } else null,
+        getVolume = { volume },
+        onVolumeChange = { volume = it }
         )
     }
     // 切集：重置本集播放状态 + 刷新浮动工具栏（新 player/新上下集回调）。
@@ -744,7 +856,7 @@ fun PlayerScreen(
         refreshToolbar()
     }
 
-    val onCanvasReadyStable = remember {
+    val onCanvasReadyStable = remember(player, episodeId) {
         { canvas: java.awt.Canvas ->
             try {
                 val root = javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame
@@ -773,9 +885,11 @@ fun PlayerScreen(
                         } catch (_: Throwable) { }
                     }
                     updatePos()
-                    // 定时同步位置（窗口移动时）
+                    // 定时同步位置（窗口移动时）：先停旧 Timer，避免切集后多个 Timer 并存
+                    danmakuPosTimer?.stop()
                     val posTimer = javax.swing.Timer(500) { updatePos() }
                     posTimer.start()
+                    danmakuPosTimer = posTimer
                     danmakuPanelRef = danmakuPanel
                     danmakuWindowRef = danmakuWindow
                     com.muse.gomepc.player.DebugLog.d("UI", "弹幕 JWindow 已设置")
@@ -811,6 +925,7 @@ fun PlayerScreen(
                         val sec = prefs.getSkipIntroSec(seriesId)
                         if (sec > 0) {
                             player.seek(sec.toDouble())
+                            engineOnSeek()
                             introSkipped = true
                             showSkipIntro = false
                         }
@@ -869,16 +984,19 @@ fun PlayerScreen(
                 Text(if (curOutroSet) "片尾✓" else "设片尾", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
-        // 下一集按钮（右下角，带倒计时）
+        // 下一集按钮（右下角，带倒计时；与"跳过片头"按钮错开，避免重叠点不到）
         if (showNextEp) {
             Box(
                 Modifier.align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 90.dp)
+                    .padding(end = 20.dp, bottom = 150.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xCC000000))
                     .clickable {
                         showNextEp = false
-                        onSwitchEpisode?.invoke("", episodeIndex + 1, 0.0)
+                        val next = nextEpisode()
+                        if (next != null) {
+                            onSwitchEpisode?.invoke(next.id, next.index, 0.0)
+                        }
                     }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
@@ -924,6 +1042,7 @@ fun PlayerScreen(
                                 val pos = dragPos.toDouble()
                                 com.muse.gomepc.player.DebugLog.d("UI", "进度条拖动 seek 到 $pos 秒")
                                 player.seek(pos)
+                                engineOnSeek()
                             } catch (e: Throwable) {
                                 com.muse.gomepc.player.DebugLog.d("UI", "进度条 seek 失败: ${e.message}")
                             }
@@ -997,6 +1116,50 @@ fun PlayerScreen(
             }
         }
         } // if (controlsVisible) 顶栏
+
+        // 失败常驻错误层：之前失败只在顶栏显示一行小红字，控制条自动隐藏后用户看不到且无重试入口
+        if (initError != null || urlError != null) {
+            Box(
+                Modifier.fillMaxSize().background(Color(0xB3000000)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Text(
+                        urlError ?: "播放器初始化失败：$initError",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Row {
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF2F6FED))
+                                .clickable { retryPlayback() }
+                                .padding(horizontal = 24.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("重试", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF555555))
+                                .clickable(onClick = onBack)
+                                .padding(horizontal = 24.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("返回", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
 
         // mpv 日志浮层（诊断用）
         if (showLogs) {
