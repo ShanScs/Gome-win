@@ -206,8 +206,11 @@ class EpisodePanel(
             }
         }
 
-        // 缩略图 (200x112, 56px圆角)，居中，白框/当前蓝框
+        // 缩略图 (221x124, arc 36)，居中，白框/当前蓝框
         // 白框用浅灰以便在白底上可见
+        // 边框与图片用同一个圆角形状（同一 rect + 同一 arc）：旧代码边框画在
+        // (1,1,226,129) arc 36，图片却放在 (3,3,221,124) arc 30，两个圆角
+        // 不同心不等大，边框四个角与图片角错开，看起来像批锋/毛刺。
         val borderColor = if (isCurrent) Color(0x2F, 0x7C, 0xF6) else Color(0xE0, 0xE0, 0xE0)
         val borderWidth = if (isCurrent) 3 else 2
         val thumbPanel = object : JPanel(null) {
@@ -218,18 +221,19 @@ class EpisodePanel(
                 minimumSize = Dimension(THUMB_W + 8, THUMB_H + 8)
                 alignmentX = Component.CENTER_ALIGNMENT
             }
-            override fun paintComponent(g: Graphics) {
-                super.paintComponent(g)
+            override fun paint(g: Graphics) {
+                super.paint(g)
+                // 在子组件之后画边框：边框完整压在图片边缘上，与图片同心同弧，
+                // 选中/未选中都用同一形状，只变颜色和线宽。
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                 g2.color = borderColor
                 g2.stroke = BasicStroke(borderWidth.toFloat())
-                val inset = borderWidth / 2
-                g2.drawRoundRect(inset, inset, width - borderWidth, height - borderWidth, THUMB_RADIUS, THUMB_RADIUS)
+                g2.drawRoundRect(4, 4, THUMB_W, THUMB_H, THUMB_RADIUS, THUMB_RADIUS)
             }
         }
         val thumbLabel = JLabel().apply {
-            setBounds(3, 3, THUMB_W, THUMB_H)
+            setBounds(4, 4, THUMB_W, THUMB_H)
             horizontalAlignment = SwingConstants.CENTER
             verticalAlignment = SwingConstants.CENTER
         }
@@ -252,8 +256,8 @@ class EpisodePanel(
                 val url = YambyClient.imageUrl(ep.id, "Primary", 400)
                 val img = javax.imageio.ImageIO.read(java.net.URL(url))
                 if (img != null) {
-                    // 内图圆角与边框内沿同心（边框3px时内沿圆角约30）
-                    val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS - 6)
+                    // 内图与边框用同一圆角（同一 rect + 同一 arc = THUMB_RADIUS），同心无批锋
+                    val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
                     SwingUtilities.invokeLater { thumbLabel.icon = ImageIcon(rounded) }
                 }
             } catch (_: Exception) {
