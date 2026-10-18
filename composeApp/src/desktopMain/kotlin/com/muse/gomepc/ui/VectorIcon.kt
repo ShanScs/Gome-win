@@ -254,7 +254,9 @@ class VectorIcon private constructor(
         val num = rx * rx * ry * ry - rx * rx * dy * dy - ry * ry * dx * dx
         val den = rx * rx * dy * dy + ry * ry * dx * dx
         var co = if (den == 0.0) 0.0 else kotlin.math.sqrt(kotlin.math.max(0.0, num / den))
-        if (largeArc == sweep) co = -co
+        // SVG F.6.5.2：largeArc 与 sweep 不同取负号（验算：M20 3 a17 17 0 1 0
+        // 必须得圆心 (20,20) 而非 (20,-14)，否则按钮外圈整体上浮 34 单位）
+        if (largeArc != sweep) co = -co
         val cxp = co * rx * dy / ry
         val cyp = -co * ry * dx / rx
         val cx = (x0 + x1) / 2.0 + cxp
@@ -271,8 +273,10 @@ class VectorIcon private constructor(
         val uy = (dy - cyp) / ry
         val vx = (-dx - cxp) / rx
         val vy = (-dy - cyp) / ry
-        var startAngle = angle(1.0, 0.0, ux, uy)
-        var sweepAngle = angle(ux, uy, vx, vy)
+        // (ux,uy) 是圆心→终点，(vx,vy) 是圆心→起点：起角必须用起点向量，
+        // 扫掠角必须是从起点到终点。写反会画出补弧（整圆变小弧、圆圈消失）。
+        var startAngle = angle(1.0, 0.0, vx, vy)
+        var sweepAngle = angle(vx, vy, ux, uy)
         if (!sweep && sweepAngle > 0) sweepAngle -= 2 * Math.PI
         if (sweep && sweepAngle < 0) sweepAngle += 2 * Math.PI
         // 按 ≤90° 切段，每段用三次贝塞尔逼近圆弧
