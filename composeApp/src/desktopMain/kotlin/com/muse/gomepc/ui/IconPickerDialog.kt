@@ -49,11 +49,21 @@ fun IconPickerDialog(
 ) {
     var allIcons by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
     var query by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
-        val list = withContext(Dispatchers.IO) { ServerIconHelper.getIconList() }
+    LaunchedEffect(reloadKey) {
+        loading = true
+        loadError = false
+        val list = try {
+            withContext(Dispatchers.IO) { ServerIconHelper.getIconList() }
+        } catch (_: Exception) {
+            emptyList()
+        }
         allIcons = list
+        // 图标库为空 = 拉取失败或无数据，给出错误态与重试入口，而不是静默显示"共 0 个图标"
+        loadError = list.isEmpty()
         loading = false
     }
 
@@ -85,11 +95,33 @@ fun IconPickerDialog(
                     shape = RoundedCornerShape(8.dp)
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    if (loading) "加载中…" else "共 ${filtered.size} 个图标",
-                    fontSize = 12.sp,
-                    color = GomeTheme.TextSecondary
-                )
+                if (loadError && !loading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "图标库加载失败，请检查网络",
+                            fontSize = 12.sp,
+                            color = androidx.compose.ui.graphics.Color(0xFFE53935),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            "重试",
+                            fontSize = 12.sp,
+                            color = GomeTheme.Accent,
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .clickable { reloadKey++ }
+                        )
+                    }
+                } else {
+                    Text(
+                        if (loading) "加载中…" else "共 ${filtered.size} 个图标",
+                        fontSize = 12.sp,
+                        color = GomeTheme.TextSecondary
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(5),
@@ -117,13 +149,14 @@ fun IconPickerDialog(
                     color = androidx.compose.ui.graphics.Color(0xFFFF3B30),
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
+                        // padding 在 clickable 之前：padding 区域也要可点
+                        .padding(8.dp)
                         .clickable {
                             try {
                                 Prefs.setCustomIconUrl(serverKey, "")
                             } catch (_: Exception) {}
                             onPicked("")
                         }
-                        .padding(8.dp)
                 )
             }
         }
