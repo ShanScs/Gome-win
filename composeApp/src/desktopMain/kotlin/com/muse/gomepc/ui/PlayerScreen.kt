@@ -492,6 +492,39 @@ fun PlayerScreen(
     // canvas 有实际尺寸 + 拿到播放地址后才 init mpv（0x0 时无法渲染）
     // 监听器跟随当前 episode 的 player：切集时旧 player 销毁、新 player 重新挂监听
     var initializing by remember(episodeId) { mutableStateOf(false) }
+    /**
+     * 尝试下一个备用播放地址（首个 DirectStreamUrl 失败时自动切 Static 兜底）。
+     * 返回 null = 已切到下一个地址并开始播放；返回错误信息 = 已无备用地址。
+     * 注意：不改 videoUrl 状态（避免 LaunchedEffect(videoUrl) 重复 play），直接调 player.play。
+     * 注意：必须定义在 setupPlayerListener 之前——Kotlin 局部函数不能前向引用。
+     */
+    fun tryAdvanceUrl(reason: String): String? {
+        val list = videoUrls
+        val next = videoUrlIndex + 1
+        if (next >= list.size) {
+            return "全部 ${list.size} 个播放地址均失败，最后错误：$reason"
+        }
+        videoUrlIndex = next
+        fileLoaded = false
+        initError = null
+        urlError = null
+        timePos = 0.0
+        duration = 0.0
+        val nextUrl = list[next]
+        com.muse.gomepc.player.DebugLog.d("UI", "备用地址 ${next + 1}/${list.size} 开始播放（上一个失败：$reason）")
+        val playErr = try {
+            player.play(nextUrl)
+        } catch (e: Throwable) {
+            "play异常: ${e.message}"
+        }
+        if (playErr != null) {
+            // 同步 play 失败：递归尝试再下一个
+            return tryAdvanceUrl("play: $playErr")
+        }
+        playAttempt++
+        return null
+    }
+
     // 提取 listener 设置为函数，确保 tryInitPlayer 里也能调用（避免时序问题）
     fun setupPlayerListener(p: MpvPlayer) {
         p.listener = object : MpvPlayer.Listener {
@@ -564,61 +597,6 @@ fun PlayerScreen(
         }
     }
 
-    /**
-     * 尝试下一个备用播放地址（首个 DirectStreamUrl 失败时自动切 Static 兜底）。
-     * 返回 null = 已切到下一个地址并开始播放；返回错误信息 = 已无备用地址。
-     * 注意：不改 videoUrl 状态（避免 LaunchedEffect(videoUrl) 重复 play），直接调 player.play。
-     */
-    fun tryAdvanceUrl(reason: String): String? {
-        val list = videoUrls
-        val next = videoUrlIndex + 1
-        if (next >= list.size) {
-            return "全部 ${list.size} 个播放地址均失败，最后错误：$reason"
-        }
-        videoUrlIndex = next
-        fileLoaded = false
-        initError = null
-        urlError = null
-        timePos = 0.0
-        duration = 0.0
-        val nextUrl = list[next]
-        com.muse.gomepc.player.DebugLog.d("UI", "备用地址 ${next + 1}/${list.size} 开始播放（上一个失败：$reason）")
-        val playErr = try {
-            player.play(nextUrl)
-        } catch (e: Throwable) {
-            "play异常: ${e.message}"
-        }
-        if (playErr != null) {
-            // 同步 play 失败：递归尝试再下一个
-            return tryAdvanceUrl("play: $playErr")
-        }
-        playAttempt++
-        return null
-    }
-
-    /**
-     * 播放指定地址：播放器已初始化则直接 play；未初始化则走 tryInitPlayer（初始化成功后会播放当前地址）。
-     * 供 LaunchedEffect(videoUrl) 与重试使用——已初始化的播放器绝不能再 init（会报 "already initialized"）。
-     */
-    fun tryPlay(url: String?) {
-        if (url == null) return
-        if (inited) {
-            val playErr = try {
-                player.play(url)
-            } catch (e: Throwable) {
-                "play异常: ${e.message}"
-            }
-            if (playErr != null) {
-                val advErr = tryAdvanceUrl("play: $playErr")
-                if (advErr != null) initError = advErr
-            } else {
-                playAttempt++
-            }
-            return
-        }
-        tryInitPlayer()
-    }
-
     // 尝试初始化播放器：canvas 和 videoUrl 都就绪且未初始化过才执行
     fun tryInitPlayer() {
         val canvas = pendingCanvas
@@ -634,6 +612,8 @@ fun PlayerScreen(
             }
         }
         if (!shouldStart) return
+        // canvas 在 synchronized lambda 里判空，智能转换进不了 Thread lambda（两个不同 lambda），这里显式收窄为非空。
+        val c = canvas ?: return
         com.muse.gomepc.player.DebugLog.d("UI", "开始初始化播放器, url=$url")
         Thread {
             // 画布就绪 + 初始化最多试 3 次：布局/peer 创建可能慢于 URL 返回，
@@ -644,15 +624,15 @@ fun PlayerScreen(
             for (attempt in 0..2) {
                 // 等画布就绪：每 250ms 查一次，最多等 5s
                 var waited = 0
-                while (!canvas.isDisplayable && waited < 5000) {
+                while (!c.isDisplayable && waited < 5000) {
                     try { Thread.sleep(250) } catch (_: InterruptedException) { break }
                     waited += 250
                 }
-                if (!canvas.isDisplayable) {
+                if (!c.isDisplayable) {
                     lastErr = "视频画布未就绪（Canvas 未显示），请点重试"
                 } else {
                     val wid: Long = try {
-                        val id = Win32Util.nativeWindowId(canvas)
+                        val id = Win32Util.nativeWindowId(c)
                         if (id == 0L) {
                             lastErr = "视频画布句柄无效（wid=0），请点重试"
                             -1L
@@ -735,6 +715,30 @@ fun PlayerScreen(
                 }
             }
         }.start()
+    }
+
+    /**
+     * 播放指定地址：播放器已初始化则直接 play；未初始化则走 tryInitPlayer（初始化成功后会播放当前地址）。
+     * 供 LaunchedEffect(videoUrl) 与重试使用——已初始化的播放器绝不能再 init（会报 "already initialized"）。
+     * 注意：必须定义在 tryInitPlayer 之后——Kotlin 局部函数不能前向引用。
+     */
+    fun tryPlay(url: String?) {
+        if (url == null) return
+        if (inited) {
+            val playErr = try {
+                player.play(url)
+            } catch (e: Throwable) {
+                "play异常: ${e.message}"
+            }
+            if (playErr != null) {
+                val advErr = tryAdvanceUrl("play: $playErr")
+                if (advErr != null) initError = advErr
+            } else {
+                playAttempt++
+            }
+            return
+        }
+        tryInitPlayer()
     }
 
     /** 详情页选的音轨/字幕：按序号取 mpv track-list 里同类第 N 条的 id 再设 aid/sid */
