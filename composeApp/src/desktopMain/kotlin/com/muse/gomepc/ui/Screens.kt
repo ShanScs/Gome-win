@@ -76,20 +76,43 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 
+/** 详情页选的播放选项：版本/音轨/字幕，随 onPlay 一起传给播放器 */
+data class PlaybackSelection(
+    /** 选的版本 MediaSourceId，空=默认版本 */
+    val mediaSourceId: String = "",
+    /** 选的音轨序号（同类音轨中的第 N 条），-1=未选择 */
+    val audioIndex: Int = -1,
+    /** 选的字幕序号（同类字幕中的第 N 条），-1=关闭字幕，-2=未选择 */
+    val subtitleIndex: Int = -2
+)
+
+/** 首页媒体库排序版本号：Prefs.libOrder 不是 Compose 状态，排序保存后递增它触发重组 */
+private var libOrderVersion by mutableStateOf(0)
+
 /** 导航目标 */
 sealed interface Screen {
     data object Home : Screen
     data object Search : Screen
     data object Favorites : Screen
     data object Settings : Screen
-    data class Detail(val itemId: String) : Screen
+    data class Detail(
+        val itemId: String,
+        /** 当前正在播的那集（从播放器返回时传入，详情页用它标"当前集"，而不是用 playTicks 猜） */
+        val currentEpisodeId: String? = null
+    ) : Screen
     data class Player(
         val itemId: String,
         val itemName: String,
         val episodeId: String,
         val episodeIndex: Int,
         /** 断点续播位置（秒），0=从头播 */
-        val startPositionSec: Double = 0.0
+        val startPositionSec: Double = 0.0,
+        /** 详情页选的版本 MediaSourceId，空=默认版本 */
+        val mediaSourceId: String = "",
+        /** 详情页选的音轨序号，-1=未选择 */
+        val audioIndex: Int = -1,
+        /** 详情页选的字幕序号，-1=关闭字幕，-2=未选择 */
+        val subtitleIndex: Int = -2
     ) : Screen
     data object ResumeList : Screen
     data class Library(val libId: String, val libName: String) : Screen
@@ -401,7 +424,8 @@ fun HomeScreen(
         libs == null -> LoadingBox()
         else -> {
             // 应用用户自定义的媒体库排序
-            val orderedLibs = remember(libs, Prefs.libOrder) {
+            // libOrderVersion：Prefs.libOrder 不是 Compose 状态，排序保存后递增版本号触发重组
+            val orderedLibs = remember(libs, libOrderVersion) {
                 val order = Prefs.libOrder.split(",").filter { it.isNotBlank() }
                 if (order.isEmpty()) libs!!
                 else {
@@ -605,6 +629,8 @@ fun ResumeListScreen(
         try {
             error = null; items = null
             items = Repo.resumeItems()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.message ?: "未知错误"
         }
@@ -670,17 +696,32 @@ private fun BannerCarousel(
 ) {
     if (items.isEmpty()) return
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { items.size })
+    // 用户拖动时暂停自动轮播（否则自动滚动与手动滑动打架）
+    var autoPaused by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState) {
+        pagerState.interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is androidx.compose.foundation.interaction.DragInteraction.Start -> autoPaused = true
+                is androidx.compose.foundation.interaction.DragInteraction.Stop,
+                is androidx.compose.foundation.interaction.DragInteraction.Cancel -> autoPaused = false
+            }
+        }
+    }
     // 自动轮播：每 5 秒切换
     androidx.compose.runtime.LaunchedEffect(pagerState) {
         while (true) {
             kotlinx.coroutines.delay(5000)
-            val next = (pagerState.currentPage + 1) % items.size
-            pagerState.animateScrollToPage(next)
+            if (!autoPaused) {
+                val next = (pagerState.currentPage + 1) % items.size
+                pagerState.animateScrollToPage(next)
+            }
         }
     }
     Box(modifier = Modifier.fillMaxWidth()) {
         androidx.compose.foundation.pager.HorizontalPager(
             state = pagerState,
+            // 按条目 id 做 key，列表变化时页面不串位
+            key = { items[it].id },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(640.dp)
@@ -881,8 +922,8 @@ private fun LibraryCollageCell(item: UiMediaItem?, modifier: Modifier = Modifier
 /** 排序选项：显示名 → (SortBy, SortOrder, 箭头)，对齐 Android LibraryFragment */
 private val librarySortOptions = listOf(
     "更新日期" to Triple("DateLastContentAdded", "Descending", "↓"),
+    // "最新上线"与"创建日期"曾是同一 (DateCreated, Descending) 重复项，去重只留一个
     "最新上线" to Triple("DateCreated", "Descending", "↓"),
-    "创建日期" to Triple("DateCreated", "Descending", "↓"),
     "公众评分" to Triple("CommunityRating", "Descending", "↓"),
     "标题" to Triple("SortName", "Ascending", "↑"),
     "首映日期" to Triple("PremiereDate", "Descending", "↓"),
@@ -903,17 +944,18 @@ fun LibraryScreen(
     sortRequestKey: Int = 0
 ) {
     var libItems by remember { mutableStateOf<List<UiMediaItem>?>(null) }
-    var selectedSort by remember { mutableStateOf(5) }  // 默认：首映日期 ↓（对齐 Android）
+    var selectedSort by remember { mutableStateOf(4) }  // 默认：首映日期 ↓（对齐 Android；去重后索引 4）
     var showSortDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(libId, selectedSort) {
         libItems = null
         try {
             val (_, triple) = librarySortOptions[selectedSort]
-            // 分页取全量，不再只取 60 条
-            libItems = Repo.libraryItems(libId, triple.first, triple.second)
-        }
-        catch (_: Exception) { libItems = emptyList() }
+            // 分页取全量，不再只取 60 条；libName 由调用方透传，不再为查名字多发 libraries 请求
+            libItems = Repo.libraryItems(libId, triple.first, triple.second, libName = libName)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) { libItems = emptyList() }
     }
     // 统一透明标题栏的排序图标 → 打开排序弹窗
     LaunchedEffect(sortRequestKey) {
@@ -933,7 +975,7 @@ fun LibraryScreen(
                 modifier = Modifier.fillMaxSize(),
                 state = gridState ?: androidx.compose.foundation.lazy.grid.rememberLazyGridState()
             ) {
-                items(libItems!!) { item ->
+                items(libItems!!, key = { it.id }) { item ->
                     ItemCard(item, onClick = { onItemClick(item) })
                 }
             }
@@ -988,6 +1030,53 @@ fun LibraryScreen(
 }
 
 /**
+ * 切换服务器：先快照旧配置，登录成功后再写回新配置并记入列表；
+ * 登录失败时恢复旧配置、不导航、不清空旧登录态。
+ * 旧代码先写 Prefs 再登录，失败后旧服务器配置已丢且照常跳首页。
+ * 返回 null=成功，否则为失败原因。
+ */
+private suspend fun trySwitchServer(server: ServerEntry): String? {
+    val p = Prefs
+    val oldProtocol = p.protocol
+    val oldHost = p.host
+    val oldPort = p.port
+    val oldPath = p.path
+    val oldUsername = p.username
+    val oldServerName = p.serverName
+    val oldToken = p.token
+    val oldUserId = p.userId
+    return try {
+        p.protocol = server.protocol
+        p.host = server.host
+        p.port = server.port
+        p.path = server.path
+        p.username = server.username
+        p.clearLogin()
+        YambyClient.login(server.username, server.password)
+        try {
+            val sn = YambyClient.getServerName()
+            p.serverName = if (sn.isNotEmpty()) sn else server.name
+        } catch (_: Exception) {
+            p.serverName = server.name
+        }
+        p.rememberCurrentServer(server.password)
+        p.touchServerLastUsed(server.key())
+        null
+    } catch (e: Exception) {
+        // 失败回滚旧配置
+        p.protocol = oldProtocol
+        p.host = oldHost
+        p.port = oldPort
+        p.path = oldPath
+        p.username = oldUsername
+        p.serverName = oldServerName
+        p.token = oldToken
+        p.userId = oldUserId
+        e.message ?: "登录失败"
+    }
+}
+
+/**
  * 资源库页：服务器卡片网格 + 短剧入口 + 添加。
  * 对齐 Android activity_resource.xml：28sp标题+锁/更多按钮+搜索框+双列卡片+右下角FAB。
  * 注：已搬到设置页"服务器"tab，此函数保留供设置页嵌入使用。
@@ -1002,6 +1091,7 @@ private fun ServerCardsGrid(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var switching by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var servers by remember { mutableStateOf(Prefs.getServers()) }
+    var switchError by remember { mutableStateOf<String?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     // 应用锁弹窗状态
@@ -1084,6 +1174,15 @@ private fun ServerCardsGrid(
                     }
                 }
             }
+            // 切换服务器失败提示（失败不跳首页，旧配置已回滚）
+            if (switchError != null) {
+                Text(
+                    switchError!!,
+                    fontSize = 13.sp,
+                    color = Color(0xFFE53935),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
             // 卡片网格
             if (filtered.isEmpty()) {
                 Box(
@@ -1127,32 +1226,12 @@ private fun ServerCardsGrid(
                                 }
                                 switching = true
                                 scope.launch {
-                                    try {
-                                        // 对齐安卓 switchTo：更新连接信息、清登录态、重新登录
-                                        Prefs.protocol = server.protocol
-                                        Prefs.host = server.host
-                                        Prefs.port = server.port
-                                        Prefs.path = server.path
-                                        Prefs.username = server.username
-                                        Prefs.clearLogin()
-                                        YambyClient.login(server.username, server.password)
-                                        try {
-                                            val sn = YambyClient.getServerName()
-                                            if (sn.isNotEmpty()) {
-                                                Prefs.serverName = sn
-                                            } else {
-                                                Prefs.serverName = server.name
-                                            }
-                                        } catch (_: Exception) {
-                                            Prefs.serverName = server.name
-                                        }
-                                        Prefs.rememberCurrentServer(server.password)
-                                        Prefs.touchServerLastUsed(server.key())
-                                    } catch (_: Exception) {
-                                        Prefs.serverName = server.name
-                                    } finally {
-                                        switching = false
+                                    val errMsg = trySwitchServer(server)
+                                    switching = false
+                                    if (errMsg == null) {
                                         onServerSelected()
+                                    } else {
+                                        switchError = "切换失败：$errMsg"
                                     }
                                 }
                             },
@@ -1311,6 +1390,8 @@ fun LibSortDialog(
 
     fun saveOrder() {
         Prefs.libOrder = libs.joinToString(",") { it.id }
+        // 递增版本号，触发 HomeScreen 重组应用新排序
+        libOrderVersion++
     }
 
     MaoDiDialog(onDismiss = onDismiss) {
@@ -1408,6 +1489,8 @@ fun ServerPopupDialog(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var switching by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var servers by remember { mutableStateOf(Prefs.getServers()) }
+    // 切换服务器失败提示
+    var switchError by remember { mutableStateOf<String?>(null) }
 
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(340.dp).heightIn(max = 500.dp)) {
@@ -1430,6 +1513,15 @@ fun ServerPopupDialog(
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
             Spacer(Modifier.height(8.dp))
+            // 切换服务器失败提示（失败不跳首页，旧配置已回滚）
+            if (switchError != null) {
+                Text(
+                    switchError!!,
+                    fontSize = 13.sp,
+                    color = Color(0xFFE53935),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                )
+            }
             // 服务器卡片列表
             androidx.compose.foundation.lazy.LazyColumn(
                 modifier = Modifier.weight(1f, fill = false),
@@ -1456,28 +1548,13 @@ fun ServerPopupDialog(
                             }
                             switching = true
                             scope.launch {
-                                try {
-                                    Prefs.protocol = server.protocol
-                                    Prefs.host = server.host
-                                    Prefs.port = server.port
-                                    Prefs.path = server.path
-                                    Prefs.username = server.username
-                                    Prefs.clearLogin()
-                                    YambyClient.login(server.username, server.password)
-                                    try {
-                                        val sn = YambyClient.getServerName()
-                                        Prefs.serverName = if (sn.isNotEmpty()) sn else server.name
-                                    } catch (_: Exception) {
-                                        Prefs.serverName = server.name
-                                    }
-                                    Prefs.rememberCurrentServer(server.password)
-                                    Prefs.touchServerLastUsed(server.key())
-                                } catch (_: Exception) {
-                                    Prefs.serverName = server.name
-                                } finally {
-                                    switching = false
+                                val errMsg = trySwitchServer(server)
+                                switching = false
+                                if (errMsg == null) {
                                     onServerSelected()
                                     onDismiss()
+                                } else {
+                                    switchError = "切换失败：$errMsg"
                                 }
                             }
                         },
@@ -1675,11 +1752,18 @@ private fun AddServerDialog(
     }
     var showBackupCard by remember { mutableStateOf(false) }
     var showPasswordCard by remember { mutableStateOf(false) }
+    // 表单校验错误（旧代码校验失败时静默无反馈，用户以为按钮坏了）
+    var formError by remember { mutableStateOf<String?>(null) }
+    // 删除二次确认
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    // 协议切换时自动跟随默认端口（对齐安卓）
+    // 协议切换时自动跟随默认端口（对齐安卓），但只在当前端口是默认值/空白时跟随；
+    // 用户手改过的端口（如 8096）不能被协议切换悄悄覆盖
     fun onProtocolChange(https: Boolean) {
         useHttps = https
-        port = if (https) "443" else "80"
+        if (port.isBlank() || port == "80" || port == "443") {
+            port = if (https) "443" else "80"
+        }
     }
 
     androidx.compose.material3.AlertDialog(
@@ -1828,12 +1912,30 @@ private fun AddServerDialog(
                 ServerField("路径(可选,无则留空)", path) { path = it }
                 ServerField("用户名", username) { username = it }
                 ServerField("密码", password, isPassword = true) { password = it }
+                // 校验错误提示
+                if (formError != null) {
+                    Text(
+                        formError!!,
+                        fontSize = 13.sp,
+                        color = Color(0xFFE53935),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         },
         confirmButton = {
             androidx.compose.material3.Button(
                 onClick = {
-                    if (host.isNotBlank() && username.isNotBlank()) {
+                    // 校验：逐项给反馈，不再静默失败
+                    val portNum = port.trim().toIntOrNull()
+                    formError = when {
+                        host.isBlank() -> "请填写服务器地址"
+                        host.any { it.isWhitespace() } -> "服务器地址不能含空格"
+                        username.isBlank() -> "请填写用户名"
+                        portNum == null || portNum !in 1..65535 -> "端口必须是 1~65535 的数字"
+                        else -> null
+                    }
+                    if (formError == null) {
                         val bd = backupDraft
                         val newEntry = ServerEntry(
                             name = serverName.ifBlank { existing?.name?.ifEmpty { host } ?: host },
@@ -1871,13 +1973,10 @@ private fun AddServerDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 删除按钮（仅编辑模式）：红色文字
+                // 删除按钮（仅编辑模式）：红色文字，点后二次确认（旧代码一点即删，无确认）
                 if (isEdit) {
                     androidx.compose.material3.TextButton(
-                        onClick = {
-                            Prefs.removeServer(existing.key())
-                            onAdded()
-                        }
+                        onClick = { showDeleteConfirm = true }
                     ) {
                         Text("删除", color = Color(0xFFFF3B30))
                     }
@@ -1892,6 +1991,27 @@ private fun AddServerDialog(
             }
         }
     )
+
+    // 删除二次确认
+    if (showDeleteConfirm && existing != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("删除服务器") },
+            text = { Text("删除「${existing.name.ifEmpty { existing.host }}」？该操作不可撤销。") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        Prefs.removeServer(existing.key())
+                        showDeleteConfirm = false
+                        onAdded()
+                    }
+                ) { Text("删除", color = Color(0xFFFF3B30)) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
+    }
 }
 
 /** 备用线路子卡片（对齐安卓 showBackupCard）。点保存只暂存，主框点保存才真正写入。 */
@@ -2154,7 +2274,9 @@ private fun ServerSelectorDialog(
                 androidx.compose.material3.Divider(color = Color(0xFFEFEFF4))
                 // 各服务器
                 servers.forEach { server ->
-                    val key = "${server.protocol}://${server.host}:${server.port}${server.path}"
+                    // key 用 ServerEntry.key()（与 Prefs.currentServerKey 同格式），旧的 protocol://host:port+path
+                    // 永远对不上当前服务器，选中"当前服务器"也路由不到
+                    val key = server.key()
                     val displayName = server.name.ifEmpty { server.host }
                     ServerOptionRow(
                         name = displayName,
@@ -2276,6 +2398,8 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
             // 保存到历史
             Prefs.addSearchHistory(q)
             history = Prefs.getSearchHistory()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             results = emptyList()
         }
@@ -2442,7 +2566,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(results!!) { item ->
+                    items(results!!, key = { it.id }) { item ->
                         ItemCard(item, onClick = { onItemClick(item) })
                     }
                 }
@@ -2461,6 +2585,8 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
         items = null
         try {
             items = Repo.favorites()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             items = emptyList()
         }
@@ -2494,7 +2620,7 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(list) { item ->
+                            items(list, key = { it.id }) { item ->
                                 ItemCard(item, onClick = { onItemClick(item) })
                             }
                         }
@@ -2532,6 +2658,8 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
         searching = true
         try {
             results = Repo.search(q)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             results = emptyList()
         }
@@ -2604,7 +2732,7 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(results!!) { item ->
+                    items(results!!, key = { it.id }) { item ->
                         ItemCard(item, onClick = { onItemClick(item) })
                     }
                 }
@@ -3514,7 +3642,8 @@ private fun DetailSingleChoiceDialog(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selected by remember { mutableStateOf(checkedIndex.coerceIn(0, names.size - 1)) }
+    // checkedIndex=-1 表示"未选择"，不预勾任何一项（旧代码 coerceIn(0..) 会把未选择显示成选中第一项）
+    var selected by remember { mutableStateOf(checkedIndex) }
     Box(
         Modifier.fillMaxSize().background(Color(0x66000000)).clickable(onClick = onDismiss),
         contentAlignment = Alignment.Center
@@ -3654,7 +3783,13 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
 
 /** 详情页（1:1 Android activity_detail） */
 @Composable
-fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpisode) -> Unit) {
+fun DetailScreen(
+    itemId: String,
+    onBack: () -> Unit,
+    onPlay: (UiMediaItem, UiEpisode, PlaybackSelection) -> Unit,
+    /** 当前正在播的那集（从播放器返回时传入），用于标"当前集" */
+    currentEpisodeId: String? = null
+) {
     var item by remember(itemId) { mutableStateOf<UiMediaItem?>(null) }
     var epData by remember(itemId) { mutableStateOf<EpisodeData?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -3669,7 +3804,8 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
     var isFav by remember(itemId) { mutableStateOf(false) }
     var selectedMediaSourceId by remember(itemId) { mutableStateOf("") }
     var selectedAudioIndex by remember(itemId) { mutableStateOf(-1) }
-    var selectedSubtitleIndex by remember(itemId) { mutableStateOf(-1) }
+    // 字幕 -2=未选择（走 mpv 默认），-1=用户选了"关闭字幕"，>=0=同类字幕中的序号
+    var selectedSubtitleIndex by remember(itemId) { mutableStateOf(-2) }
     var versionDialog by remember { mutableStateOf<Pair<List<String>, List<String>>?>(null) }
     var audioDialog by remember { mutableStateOf<Pair<List<String>, List<Int>>?>(null) }
     var subtitleDialog by remember { mutableStateOf<Pair<List<String>, List<Int>>?>(null) }
@@ -3677,6 +3813,8 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
     val detailScope = rememberCoroutineScope()
     // 选中的剧集索引（点击选集只选中加框，不进播放器；点播放按钮才进）
     var selectedEpIndex by remember(itemId) { mutableStateOf(0) }
+    // 自动选中只做一次：首次进详情页时选中带进度的那集；切季/刷新时不再自动重选，避免覆盖用户选择
+    var autoSelected by remember(itemId) { mutableStateOf(false) }
 
     LaunchedEffect(itemId, reloadKey) {
         try {
@@ -3696,7 +3834,9 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
             // 1:1 安卓：重置版本/音轨/字幕选择
             selectedMediaSourceId = ""
             selectedAudioIndex = -1
-            selectedSubtitleIndex = -1
+            selectedSubtitleIndex = -2
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.message ?: "未知错误"
         }
@@ -3709,9 +3849,10 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
             val it = item!!
             val eps = seasonEps ?: epData!!.episodes
             val seasons = epData!!.seasons
-            // 进入详情页时，自动选中当前有进度的那集（没有则第一集）
+            // 进入详情页时，自动选中当前有进度的那集（没有则第一集）；只做一次
             LaunchedEffect(eps) {
-                if (eps.isNotEmpty()) {
+                if (!autoSelected && eps.isNotEmpty()) {
+                    autoSelected = true
                     val idx = eps.indexOfFirst { it.playTicks > 0 }.takeIf { it >= 0 } ?: 0
                     selectedEpIndex = idx.coerceIn(0, eps.size - 1)
                 }
@@ -3724,6 +3865,10 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                 seasonLoading = true
                 try {
                     seasonEps = Repo.seasonEpisodes(itemId, s.id)
+                    // 切季重置选集索引：新季从第 1 集开始选，不沿用旧季的选中位置
+                    selectedEpIndex = 0
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (_: Exception) {
                     seasonEps = emptyList()
                 }
@@ -3797,9 +3942,28 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
+                                            val prevWatched = isWatched
+                                            val prevEpData = epData
                                             isWatched = !isWatched
-                                            try { YambyClient.setPlayed(tid, isWatched) } catch (_: Exception) { }
-                                            toastMsg = if (isWatched) "已标记为看过" else "已取消标记"
+                                            // 乐观更新本地选集数据（列表里的已看勾同步变）
+                                            epData = prevEpData?.copy(
+                                                episodes = prevEpData.episodes.map { ep ->
+                                                    if (ep.id == tid) ep.copy(played = isWatched) else ep
+                                                }
+                                            )
+                                            try {
+                                                // Repo.setPlayed 返回 Boolean（true=服务器 2xx 确认成功），失败直接抛走回滚；
+                                                // 成功时 Repo 已失效对应缓存。Emby 组已把 setPlayed 改为返回 Boolean，不再需要读回校验。
+                                                if (!Repo.setPlayed(tid, isWatched)) throw Exception("服务器未生效")
+                                                toastMsg = if (isWatched) "已标记为看过" else "已取消标记"
+                                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                                throw e
+                                            } catch (_: Exception) {
+                                                // 失败回滚：按钮状态 + 选集数据一起还原
+                                                isWatched = prevWatched
+                                                epData = prevEpData
+                                                toastMsg = "标记失败，已回滚"
+                                            }
                                         }
                                     }
                                     // 收藏
@@ -3808,9 +3972,19 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                         tint = Color.White
                                     ) {
                                         detailScope.launch {
+                                            val prevFav = isFav
                                             isFav = !isFav
-                                            try { YambyClient.setFavorite(it.id, isFav) } catch (_: Exception) { }
-                                            toastMsg = if (isFav) "已收藏" else "已取消收藏"
+                                            try {
+                                                // Repo.setFavorite 返回 Boolean（true=服务器 2xx 确认成功），失败直接抛走回滚；
+                                                // 成功时 Repo 已失效详情缓存。Emby 组已把 setFavorite 改为返回 Boolean，不再需要读回校验。
+                                                if (!Repo.setFavorite(it.id, isFav)) throw Exception("服务器未生效")
+                                                toastMsg = if (isFav) "已收藏" else "已取消收藏"
+                                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                                throw e
+                                            } catch (_: Exception) {
+                                                isFav = prevFav
+                                                toastMsg = "收藏失败，已回滚"
+                                            }
                                         }
                                     }
                                     // 合集→版本选择
@@ -3945,11 +4119,19 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                                 .clip(RoundedCornerShape(26.dp))
                                                 .background(Color.White)
                                                 .clickable {
-                                                    // 播选中的那集
+                                                    // 播选中的那集，带上版本/音轨/字幕选择
                                                     val target = eps.getOrNull(selectedEpIndex)
                                                         ?: eps.firstOrNull() ?: return@clickable
                                                     val curItem = item ?: return@clickable
-                                                    onPlay(curItem, target)
+                                                    onPlay(
+                                                        curItem,
+                                                        target,
+                                                        PlaybackSelection(
+                                                            mediaSourceId = selectedMediaSourceId,
+                                                            audioIndex = selectedAudioIndex,
+                                                            subtitleIndex = selectedSubtitleIndex
+                                                        )
+                                                    )
                                                 },
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -4076,7 +4258,9 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                 val ep = eps[idx]
                                 EpisodeThumbCard(
                                     ep = ep,
-                                    isCurrent = ep.playTicks > 0,
+                                    // "当前集"用外部传入的 currentEpisodeId 判断，不要用 playTicks>0 猜
+                                    // （有进度 ≠ 正在播，之前几乎所有有进度的集都显示"当前"蓝条）
+                                    isCurrent = currentEpisodeId != null && ep.id == currentEpisodeId,
                                     isSelected = idx == selectedEpIndex,
                                     onClick = {
                                         // 点击选集只选中加框，不进播放器
@@ -4100,7 +4284,7 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                items(it.people) { person ->
+                                items(it.people, key = { person -> person.id }) { person ->
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier.width(64.dp)
@@ -4152,13 +4336,14 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                 }
                 // 版本选择弹窗（1:1 安卓 showVersionDialog）
                 versionDialog?.let { (names, ids) ->
-                    val checked = ids.indexOf(selectedMediaSourceId).coerceAtLeast(0)
+                    // 未选择时 checked=-1（不预勾第一项）；旧代码 coerceAtLeast(0) 会把未选择显示成选中第一项
+                    val checked = ids.indexOf(selectedMediaSourceId)
                     DetailSingleChoiceDialog(
                         title = "选择版本", names = names, checkedIndex = checked,
                         onSelect = { which ->
                             selectedMediaSourceId = ids[which]
                             selectedAudioIndex = -1
-                            selectedSubtitleIndex = -1
+                            selectedSubtitleIndex = -2
                             toastMsg = "已选: ${names[which]}"
                             versionDialog = null
                         },
@@ -4166,12 +4351,14 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                     )
                 }
                 // 音轨选择弹窗（1:1 安卓 showAudioDialog）
-                audioDialog?.let { (names, idxs) ->
-                    val checked = idxs.indexOf(selectedAudioIndex).coerceAtLeast(0)
+                audioDialog?.let { (names, _) ->
+                    // 播放器按"同类音轨中的序号"选轨，这里传序号（which），不传 Emby 流 Index
+                    // （流 Index 是全文件流编号，与 mpv track-list 里的同类序号对不上）
+                    val checked = selectedAudioIndex
                     DetailSingleChoiceDialog(
                         title = "选择音轨", names = names, checkedIndex = checked,
                         onSelect = { which ->
-                            selectedAudioIndex = idxs[which]
+                            selectedAudioIndex = which
                             toastMsg = "已选: ${names[which]}"
                             audioDialog = null
                         },
@@ -4179,12 +4366,17 @@ fun DetailScreen(itemId: String, onBack: () -> Unit, onPlay: (UiMediaItem, UiEpi
                     )
                 }
                 // 字幕选择弹窗（1:1 安卓 showSubtitleDialog）
-                subtitleDialog?.let { (names, idxs) ->
-                    val checked = idxs.indexOf(selectedSubtitleIndex).coerceAtLeast(0)
+                subtitleDialog?.let { (names, _) ->
+                    // names[0]="关闭字幕"；其余按同类字幕序号映射：which-1（-1=关闭，-2=未选）
+                    val checked = when (selectedSubtitleIndex) {
+                        -2 -> -1
+                        -1 -> 0
+                        else -> selectedSubtitleIndex + 1
+                    }
                     DetailSingleChoiceDialog(
                         title = "选择字幕", names = names, checkedIndex = checked,
                         onSelect = { which ->
-                            selectedSubtitleIndex = idxs[which]
+                            selectedSubtitleIndex = if (which == 0) -1 else which - 1
                             toastMsg = "已选: ${names[which]}"
                             subtitleDialog = null
                         },
