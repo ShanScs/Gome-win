@@ -64,6 +64,9 @@ class AwtToolbarPanel(
     private lateinit var posLabel: ShadowLabel
     private lateinit var durLabel: ShadowLabel
     private lateinit var seekBar: SeekBar
+    private lateinit var volumeBar: VolumeBar
+    private var refreshTimer: javax.swing.Timer? = null
+    private var tipTimer: javax.swing.Timer? = null
 
     private lateinit var playBtn: PlButton
     private var isLocked = false
@@ -80,6 +83,35 @@ class AwtToolbarPanel(
     private var onPlaylistCb: (() -> Unit)? = onPlaylist
     private var getNetSpeedCb: (() -> String)? = getNetSpeed
     private var getTopTitleCb: (() -> String)? = getTopTitle
+    // 单例复用时必须更新：切集后旧的 onBack 会回到旧集、旧 itemName 会显示旧剧名
+    private var onBackCb: () -> Unit = onBack
+    private var itemNameState: String = itemName
+    private var onVolumeChangeCb: ((Float) -> Unit)? = null
+
+    /** 单例复用时更新返回回调（切集后返回上报错集的根因） */
+    fun updateBackCallback(cb: () -> Unit) {
+        onBackCb = cb
+    }
+
+    /** 单例复用时更新剧名 */
+    fun updateItemName(name: String) {
+        itemNameState = name
+    }
+
+    /** 单例复用时更新音量变化回调（音量单一状态源：面板拖动 → 回写 PlayerScreen 的 volume） */
+    fun updateVolumeCallback(cb: ((Float) -> Unit)?) {
+        onVolumeChangeCb = cb
+    }
+
+    /** 单例复用时同步音量（PlayerScreen 的 volume 是唯一状态源；变化小于 0.5 不重绘） */
+    fun updateVolume(vol: Float) {
+        if (!::volumeBar.isInitialized) return
+        val frac = (vol / 100f).coerceIn(0f, 1f)
+        if (kotlin.math.abs(volumeBar.volFrac - frac) > 0.005f) {
+            volumeBar.volFrac = frac
+            volumeBar.repaint()
+        }
+    }
 
     /** 切集时更新 player 引用（旧 player 已销毁） */
     fun updatePlayer(p: MpvPlayer) {
@@ -430,10 +462,22 @@ class AwtToolbarPanel(
         buildTopBar()
         buildBottomBar()
 
-        // 定时刷新 UI
-        Timer(500) {
+        // 定时刷新 UI（保存引用，面板隐藏/销毁时可 stop，避免 Timer 永不停）
+        startRefreshTimer()
+    }
+
+    /** 启动刷新 Timer（已在跑则不重复启动） */
+    fun startRefreshTimer() {
+        if (refreshTimer?.isRunning == true) return
+        refreshTimer = Timer(500) {
             SwingUtilities.invokeLater { refresh() }
-        }.start()
+        }.apply { start() }
+    }
+
+    /** 停止刷新 Timer（工具栏隐藏时调用，避免后台空转） */
+    fun stopRefreshTimer() {
+        try { refreshTimer?.stop() } catch (_: Exception) { }
+        refreshTimer = null
     }
 
     private fun toolButton(
@@ -452,14 +496,14 @@ class AwtToolbarPanel(
         }
 
         // 左：关闭 32dp（ic_pl_close 无圆圈，borderless）
-        val backBtn = toolButton("ic_pl_close", "关闭", onClick = onBack)
+        val backBtn = toolButton("ic_pl_close", "关闭", onClick = { onBackCb() })
         val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
             isOpaque = false
             add(backBtn)
         }
 
         // 中：标题 20sp 白加粗居中，maxWidth 280dp，阴影
-        titleLabel = ShadowLabel(itemName, 20, bold = true).apply {
+        titleLabel = ShadowLabel(itemNameState, 20, bold = true).apply {
             horizontalAlignment = SwingConstants.CENTER
             preferredSize = Dimension(280, 36)
             maximumSize = Dimension(280, 36)
@@ -521,9 +565,10 @@ class AwtToolbarPanel(
         // 左组：全屏 + 音量（用户要求）
         val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply { isOpaque = false }
         leftGroup.add(toolButton("ic_pl_fullscreen", "全屏") { onFullscreen() })
-        // 音量条（样式同进度条）
-        val volumeBar = VolumeBar { vol ->
+        // 音量条（样式同进度条；拖动后回写 PlayerScreen 的 volume 单一状态源）
+        volumeBar = VolumeBar { vol ->
             player.setProperty("volume", vol.toString())
+            onVolumeChangeCb?.invoke(vol / 100f)
         }
         leftGroup.add(volumeBar)
 
@@ -587,7 +632,7 @@ class AwtToolbarPanel(
         // 标题（280dp 截断省略）：优先显示"第X集 集名"，无则用剧名
         try {
             val fm = titleLabel.getFontMetrics(titleLabel.font)
-            var t = getTopTitleCb?.invoke()?.takeIf { it.isNotBlank() } ?: itemName
+            var t = getTopTitleCb?.invoke()?.takeIf { it.isNotBlank() } ?: itemNameState
             if (fm.stringWidth(t) > 280) {
                 while (t.isNotEmpty() && fm.stringWidth("$t…") > 280) t = t.dropLast(1)
                 t += "…"
@@ -713,11 +758,13 @@ class AwtToolbarPanel(
             val owner = SwingUtilities.getWindowAncestor(this) ?: return
             tipPopup?.dismiss()
             tipPopup = null
+            try { tipTimer?.stop() } catch (_: Exception) { }
+            tipTimer = null
             val anchor = anchorTooltip?.let { findButtonByTooltip(it) } ?: this
             val popup = FrostedPopup(owner, anchor)
             popup.show(listOf(FrostedPopup.Row(label = msg, enabled = false)), width = 160)
             tipPopup = popup
-            Timer(1500) {
+            tipTimer = Timer(1500) {
                 try {
                     if (tipPopup === popup) {
                         popup.dismiss()
@@ -741,6 +788,30 @@ class AwtToolbarPanel(
                 iconName = "ic_pl_info",
                 action = { showMediaInfo() }
             ),
+            // 倍速 / 画面比例 / 旋转 / 投屏 / 锁定：之前只有实现没有入口，是死代码，现接入更多菜单
+            FrostedPopup.Row(
+                label = "倍速：${speedOptions[speedIndex]}x",
+                iconName = "ic_pl_speed",
+                action = { cycleSpeed() }
+            ),
+            FrostedPopup.Row(
+                label = "画面比例：${aspectModes[aspectIndex].second}",
+                iconName = "ic_pl_aspect",
+                action = { cycleAspect() }
+            ),
+            FrostedPopup.Row(
+                label = "旋转：${rotateModes[rotateIndex]}°",
+                action = { cycleRotate() }
+            ),
+            FrostedPopup.Row(
+                label = "投屏",
+                action = { showCastDialog() }
+            ),
+            FrostedPopup.Row(
+                label = if (isLocked) "解锁" else "锁定",
+                iconName = "ic_pl_lock",
+                action = { toggleLock() }
+            ),
             FrostedPopup.Row(
                 label = "打开日志目录",
                 iconName = "ic_pl_info",
@@ -759,7 +830,7 @@ class AwtToolbarPanel(
     /** 视频信息弹窗 */
     private fun showMediaInfo() {
         val info = StringBuilder()
-        info.append("标题: $itemName\n")
+        info.append("标题: $itemNameState\n")
         info.append("时长: ${formatTime(getDuration())}\n")
         info.append("当前: ${formatTime(getTimePos())}\n")
         info.append("速度: ${player.getPropertyDouble("speed") ?: 1.0}x\n")
@@ -846,7 +917,7 @@ class AwtToolbarPanel(
 
         // 整个 32×32 都是点击区域，不只线条
         override fun contains(x: Int, y: Int): Boolean {
-            return x in 0..width && y in 0..height
+            return x in 0 until width && y in 0 until height
         }
     }
 
@@ -997,7 +1068,7 @@ class AwtToolbarPanel(
         }
 
         override fun contains(x: Int, y: Int): Boolean {
-            return x in 0..width && y in 0..height
+            return x in 0 until width && y in 0 until height
         }
     }
 
