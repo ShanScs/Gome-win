@@ -3,6 +3,7 @@ package com.muse.gomepc.ui
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * 主页数据磁盘缓存：媒体库列表、继续观看、最新、每个库的条目。
@@ -16,8 +17,14 @@ object HomeDiskCache {
         return File(home, ".gome/home_cache").apply { mkdirs() }
     }
 
+    /** key 的 SHA-256 十六进制：旧的"替换非法字符+截断 48"会把不同服务器截成同名而串号 */
+    private fun sha256Hex(s: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
     private fun dir(serverKey: String): File {
-        val safe = serverKey.replace(Regex("[^a-zA-Z0-9]"), "_").take(48).ifEmpty { "default" }
+        val safe = sha256Hex(serverKey)
         return File(baseDir(), safe).apply { mkdirs() }
     }
 
@@ -124,15 +131,13 @@ object HomeDiskCache {
 
     fun saveLibItems(serverKey: String, libId: String, items: List<UiMediaItem>) {
         try {
-            val safeId = libId.replace(Regex("[^a-zA-Z0-9]"), "_").take(32)
-            saveItems(serverKey, "lib_$safeId.json", items)
+            saveItems(serverKey, "lib_${sha256Hex(libId)}.json", items)
         } catch (_: Exception) {}
     }
 
     fun loadLibItems(serverKey: String, libId: String): List<UiMediaItem>? {
         return try {
-            val safeId = libId.replace(Regex("[^a-zA-Z0-9]"), "_").take(32)
-            loadItems(serverKey, "lib_$safeId.json")
+            loadItems(serverKey, "lib_${sha256Hex(libId)}.json")
         } catch (_: Exception) { null }
     }
 }
