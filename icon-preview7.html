@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body { margin: 0; font-family: sans-serif; }
+.bg { background: linear-gradient(135deg, #2c3e50 0%, #4a6491 100%); padding: 30px 20px; }
+.row { display: flex; gap: 24px; margin: 16px 0; align-items: flex-start; flex-wrap: wrap; }
+.btn { text-align: center; color: white; }
+.ring { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; border: 2.5px solid white;
+  background: rgba(255,255,255,0.18); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.ring svg { width: 30px; height: 30px; }
+.label { font-size: 13px; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+.ver { font-size: 11px; color: #ffd54f; margin-bottom: 4px; }
+h2 { color: white; border-bottom: 1px solid rgba(255,255,255,0.25); padding-bottom: 8px; font-size: 16px; }
+h3 { color: #ffd54f; font-size: 14px; margin: 20px 0 8px 0; }
+</style></head><body>
+<div class="bg">
+<h2>版本 / 音频 / 字幕 图标优化对比</h2>
+
+<h3>版本（胶片）</h3>
+<div class="row">
+<div class="btn"><div class="ver">旧版</div><div class="ring"><svg viewBox="0 0 24 24"><path fill="white" d="M4,4h16c1.1,0 2,0.9 2,2v12c0,1.1 -0.9,2 -2,2H4c-1.1,0 -2,-0.9 -2,-2V6c0,-1.1 0.9,-2 2,-2z"/><rect x="5" y="7" width="2.5" height="2.5" fill="rgba(0,0,0,0.55)"/><rect x="5" y="11" width="2.5" height="2.5" fill="rgba(0,0,0,0.55)"/><rect x="5" y="15" width="2.5" height="2.5" fill="rgba(0,0,0,0.55)"/><rect x="16.5" y="7" width="2.5" height="2.5" fill="rgba(0,0,0,0.55)"/><rect x="16.5" y="11" width="2.5" height="2.5" fill="rgba(0,0,0,0.55)"/><rect x="16.5" y="15" width="2.5" height="2.5" fill="rgba(0,0,0,0.55)"/><rect x="9.5" y="10" width="5" height="4" fill="rgba(0,0,0,0.55)"/></svg></div><div class="label">版本</div></div>
+<div class="btn"><div class="ver">新版A·简洁胶片</div><div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7,5v14M17,5v14M3,10h4M3,14h4M17,10h4M17,14h4"/></svg></div><div class="label">版本</div></div>
+<div class="btn"><div class="ver">新版B·胶片+播放</div><div class="ring"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="white" stroke-width="2"/><path d="M7,5v14M17,5v14" stroke="white" stroke-width="2"/><path d="M10.5,9.5l5,2.5l-5,2.5z" fill="white"/></svg></div><div class="label">版本</div></div>
+</div>
+
+<h3>音频（耳机）</h3>
+<div class="row">
+<div class="btn"><div class="ver">旧版</div><div class="ring"><svg viewBox="0 0 24 24" fill="white"><path d="M12,3C7.03,3 3,7.03 3,12v5c0,1.1 0.9,2 2,2h2c1.1,0 2,-0.9 2,-2v-4c0,-1.1 -0.9,-2 -2,-2H5v-1c0,-3.87 3.13,-7 7,-7s7,3.13 7,7v1h-2c-1.1,0 -2,0.9 -2,2v4c0,1.1 0.9,2 2,2h2c1.1,0 2,-0.9 2,-2v-5C21,7.03 16.97,3 12,3z"/></svg></div><div class="label">音频</div></div>
+<div class="btn"><div class="ver">新版A·线条耳机</div><div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M4,15v-3a8,8 0 0,1 16,0v3"/><rect x="3" y="14" width="4" height="7" rx="1.5"/><rect x="17" y="14" width="4" height="7" rx="1.5"/></svg></div><div class="label">音频</div></div>
+<div class="btn"><div class="ver">新版B·耳机+音波</div><div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M5,16v-2a7,7 0 0,1 14,0v2"/><rect x="4" y="15" width="3.5" height="6" rx="1.5" fill="white" stroke="none"/><rect x="16.5" y="15" width="3.5" height="6" rx="1.5" fill="white" stroke="none"/><path d="M10,10.5a3.5,3.5 0 0,1 0,3M13.5,9a6,6 0 0,1 0,6" stroke-width="1.6"/></svg></div><div class="label">音频</div></div>
+</div>
+
+<h3>字幕</h3>
+<div class="row">
+<div class="btn"><div class="ver">旧版</div><div class="ring"><svg viewBox="0 0 24 24" fill="white"><path d="M4,4h16c1.1,0 2,0.9 2,2v12c0,1.1 -0.9,2 -2,2H4c-1.1,0 -2,-0.9 -2,-2V6c0,-1.1 0.9,-2 2,-2z"/><rect x="6" y="9" width="12" height="1.8" fill="rgba(0,0,0,0.55)"/><rect x="6" y="12.5" width="8" height="1.8" fill="rgba(0,0,0,0.55)"/></svg></div><div class="label">字幕</div></div>
+<div class="btn"><div class="ver">新版A·CC</div><div class="ring"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3" fill="none" stroke="white" stroke-width="2"/><text x="12" y="16.5" text-anchor="middle" font-size="9" font-weight="bold" fill="white" font-family="sans-serif">CC</text></svg></div><div class="label">字幕</div></div>
+<div class="btn"><div class="ver">新版B·字幕条</div><div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7,11h10M7,14.5h6" stroke-width="1.8"/></svg></div><div class="label">字幕</div></div>
+</div>
+
+<p style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:24px;">选一下：版本要A还是B？音频要A还是B？字幕要A还是B？例如回复"版本B 音频A 字幕A"。</p>
+</div>
+</body></html>
