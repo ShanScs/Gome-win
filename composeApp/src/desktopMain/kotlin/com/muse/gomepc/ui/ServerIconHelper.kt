@@ -37,7 +37,12 @@ object ServerIconHelper {
         // 注意：不要强制 NO_PROXY，让系统代理生效（国内用户可能需要代理访问 GitHub）
         .build()
 
+    /** 单个图标下载上限 5MB */
+    private const val MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024
+
     @Volatile private var iconMap: Map<String, String>? = null
+    // 图标库拉取失败的负缓存：60 秒内不再重复请求，避免每次解析图标都打一次网络
+    @Volatile private var iconMapFailedAt: Long = 0L
 
     private fun iconDir(): File {
         val dir = File(System.getProperty("user.home"), ".gome/server_icons")
@@ -45,20 +50,22 @@ object ServerIconHelper {
         return dir
     }
 
-    private fun cacheFileFor(serverName: String): File {
-        val safe = serverName.replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "_")
-            .take(32).ifEmpty { "default" }
-        return File(iconDir(), "$safe.png")
+    private fun sha256Hex(s: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
-    private fun cacheFileForManual(key: String): File {
-        val safe = key.replace(Regex("[^a-zA-Z0-9]"), "_").take(32)
-        return File(iconDir(), "manual_$safe.png")
-    }
+    /**
+     * 磁盘缓存文件：按图标 URL 的 SHA-256 命名。旧的"服务器名截断 32 字符"会让不同图标
+     * 撞到同一个文件（选择器全部预览图相同）；按 URL 哈希则一 URL 一文件，永不冲突。
+     */
+    private fun cacheFileForUrl(url: String): File =
+        File(iconDir(), "url_${sha256Hex(url)}.png")
 
-    /** 拉取图标库 name->url，失败返回空 map */
+    /** 拉取图标库 name->url，失败返回空 map（60 秒内负缓存，不重复请求） */
     suspend fun ensureMap(): Map<String, String> {
         iconMap?.let { return it }
+        if (System.currentTimeMillis() - iconMapFailedAt < 60_000) return emptyMap()
         return withContext(Dispatchers.IO) {
             try {
                 val req = Request.Builder()
@@ -66,27 +73,40 @@ object ServerIconHelper {
                     .header("User-Agent", "GomePC")
                     .build()
                 client.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@withContext emptyMap<String, String>()
-                    val text = resp.body?.string() ?: return@withContext emptyMap<String, String>()
+                    if (!resp.isSuccessful) {
+                        iconMapFailedAt = System.currentTimeMillis()
+                        return@withContext emptyMap<String, String>()
+                    }
+                    val text = resp.body?.string() ?: run {
+                        iconMapFailedAt = System.currentTimeMillis()
+                        return@withContext emptyMap<String, String>()
+                    }
                     val arr = try {
                         org.json.JSONObject(text).getJSONArray("icons")
                     } catch (_: Exception) {
                         // 兼容顶层就是数组的格式
-                        try { JSONArray(text) } catch (_: Exception) { return@withContext emptyMap<String, String>() }
+                        try { JSONArray(text) } catch (_: Exception) {
+                            iconMapFailedAt = System.currentTimeMillis()
+                            return@withContext emptyMap<String, String>()
+                        }
                     }
                     val map = mutableMapOf<String, String>()
                     for (i in 0 until arr.length()) {
-                        val o = arr.getJSONObject(i)
-                        val name = o.optString("name", "").trim()
-                        val url = o.optString("url", "").trim()
-                        if (name.isNotEmpty() && url.isNotEmpty()) {
-                            map[name.lowercase()] = url
-                        }
+                        // 逐条容错：一条脏数据不拖垮整个图标库
+                        try {
+                            val o = arr.getJSONObject(i)
+                            val name = o.optString("name", "").trim()
+                            val url = o.optString("url", "").trim()
+                            if (name.isNotEmpty() && url.isNotEmpty()) {
+                                map[name.lowercase()] = url
+                            }
+                        } catch (_: Exception) { continue }
                     }
                     iconMap = map
                     map
                 }
             } catch (_: Exception) {
+                iconMapFailedAt = System.currentTimeMillis()
                 emptyMap()
             }
         }
@@ -113,9 +133,11 @@ object ServerIconHelper {
         for ((name, url) in map) {
             if (norm(name) == target) return url
         }
+        // 子串匹配必须有长度保护：短名（如 "a"、"tv"）会被几乎所有名字包含而误匹配
+        if (target.length < 3) return null
         for ((name, url) in map) {
             val n = norm(name)
-            if (n.isNotEmpty() && (n.contains(target) || target.contains(n))) return url
+            if (n.length >= 3 && (n.contains(target) || target.contains(n))) return url
         }
         return null
     }
@@ -129,12 +151,30 @@ object ServerIconHelper {
                     .build()
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@withContext null
-                    resp.body?.bytes()
+                    val stream = resp.body?.byteStream() ?: return@withContext null
+                    stream.use { readUpTo(it, MAX_DOWNLOAD_BYTES) }
                 }
             } catch (_: Exception) {
                 null
             }
         }
+    }
+
+    /** 带上限读取：超限返回 null（防超大文件撑爆内存） */
+    private fun readUpTo(input: java.io.InputStream, maxBytes: Int): ByteArray? {
+        return try {
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > maxBytes) return null
+                out.write(buf, 0, n)
+            }
+            out.toByteArray()
+        } catch (_: Exception) { null }
     }
 
     private fun decode(bytes: ByteArray): ImageBitmap? {
@@ -145,7 +185,8 @@ object ServerIconHelper {
         }
     }
 
-    private suspend fun loadFileCached(url: String, cached: File): ImageBitmap? {
+    private suspend fun loadFileCached(url: String): ImageBitmap? {
+        val cached = cacheFileForUrl(url)
         if (cached.exists()) {
             try {
                 val bmp = withContext(Dispatchers.IO) { decode(cached.readBytes()) }
@@ -167,11 +208,11 @@ object ServerIconHelper {
      * 解析服务器图标。优先级：手动指定 > 自动匹配 > null（调用方显示默认占位）。
      */
     suspend fun resolveIcon(serverName: String, serverKey: String?): ImageBitmap? {
-        // 1. 手动指定的图标
-        if (!serverKey.isNullOrBlank()) {
+        // 1. 手动指定的图标（serverKey 为空/非法时跳过，不用旧 key 的缓存）
+        if (!serverKey.isNullOrBlank() && isValidServerKey(serverKey)) {
             val customUrl = try { Prefs.getCustomIconUrl(serverKey) } catch (_: Exception) { "" }
             if (customUrl.isNotEmpty()) {
-                val bmp = loadFileCached(customUrl, cacheFileForManual(serverKey))
+                val bmp = loadFileCached(customUrl)
                 if (bmp != null) return bmp
             }
         }
@@ -179,13 +220,21 @@ object ServerIconHelper {
         if (serverName.isBlank()) return null
         val map = ensureMap()
         val url = findIconUrl(serverName, map) ?: return null
-        return loadFileCached(url, cacheFileFor(serverName))
+        return loadFileCached(url)
+    }
+
+    /** serverKey 形如 host:port/path/username（path 可为空）；含 .. 或首尾段为空视为非法，不用于查缓存 */
+    private fun isValidServerKey(key: String): Boolean {
+        if (".." in key) return false
+        val parts = key.split("/")
+        return parts.size == 3 && parts[0].isNotBlank() && parts[2].isNotBlank()
     }
 
     /** 从任意 URL 加载图标（选择器预览用），带磁盘缓存 */
     suspend fun loadUrl(url: String, cacheKey: String): ImageBitmap? {
         if (url.isBlank()) return null
-        return loadFileCached(url, cacheFileForManual(cacheKey))
+        // 缓存文件按 URL 哈希命名（cacheKey 仅保留兼容，不再用于命名，避免截断冲突）
+        return loadFileCached(url)
     }
 }
 
@@ -202,6 +251,8 @@ fun ServerIcon(
 ) {
     var bitmap by remember(serverName, serverKey) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(serverName, serverKey) {
+        // 切服务器时先置 null，避免旧服务器图标残留到新图标加载完成
+        bitmap = null
         bitmap = withContext(Dispatchers.IO) {
             ServerIconHelper.resolveIcon(serverName, serverKey)
         }
