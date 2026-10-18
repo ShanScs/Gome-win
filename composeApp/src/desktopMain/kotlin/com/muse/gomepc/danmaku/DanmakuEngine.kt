@@ -262,9 +262,11 @@ val client = OkHttpClient.Builder()
 .build()
 
 var animeId = ""
+var searchCode = 0
 for (q in listOf(cleanTitle, title).distinct().filter { it.isNotBlank()}) {
 val searchUrl = "$base/api/v2/search/anime?keyword=${URLEncoder.encode(q, "UTF-8")}"
 val searchResp = client.newCall(Request.Builder().url(searchUrl).build()).execute()
+searchCode = searchResp.code
 val searchBody = searchResp.body?.string()?: ""
 searchResp.close()
 animeId = extractAnimeId(searchBody)
@@ -272,17 +274,18 @@ if (animeId.isNotEmpty()) break
 }
 if (animeId.isEmpty()) {
 Log.w("Danmaku", "未搜到番剧: $title")
-onErr("未搜到番剧: $title")
+onErr("未搜到番剧: $title (HTTP $searchCode)")
 return false
 }
 
 val bangumiUrl = "$base/api/v2/bangumi/$animeId"
 val bangumiResp = client.newCall(Request.Builder().url(bangumiUrl).build()).execute()
+val bangumiCode = bangumiResp.code
 val bangumiBody = bangumiResp.body?.string()?: ""
 bangumiResp.close()
 val episodeId = extractEpisodeId(bangumiBody)
 if (episodeId.isEmpty()) {
-onErr("未取到分集")
+onErr("未取到分集(HTTP $bangumiCode)")
 return false
 }
 
