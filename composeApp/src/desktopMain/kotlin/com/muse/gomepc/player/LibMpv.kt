@@ -25,13 +25,25 @@ object MpvEventId {
     const val PAUSE = 12
     const val UNPAUSE = 13
     const val TICK = 14
+    const val SCRIPT_INPUT_DISPATCH = 15
+    const val CLIENT_MESSAGE = 16
     const val VIDEO_RECONFIG = 17
     const val AUDIO_RECONFIG = 18
+    const val METADATA_UPDATE = 19
     const val SEEK = 20
     const val PLAYBACK_RESTART = 21
     const val PROPERTY_CHANGE = 22
     const val CHAPTER_CHANGE = 23
     const val QUEUE_OVERFLOW = 24
+    const val HOOK = 25
+}
+
+/** mpv_event_end_file.reason（client.h：MPV_END_FILE_REASON_*）。 */
+object MpvEndFileReason {
+    const val EOF = 0
+    const val STOP = 1
+    const val QUIT = 2
+    const val ERROR = 3
 }
 
 object MpvFormat {
@@ -72,13 +84,22 @@ open class MpvEventLogMessage(p: Pointer?) : Structure(p) {
         listOf("prefix", "level", "text")
 }
 
+/** struct mpv_event_end_file { int reason; int error; }（reason 见 MpvEndFileReason） */
+open class MpvEventEndFile(p: Pointer?) : Structure(p) {
+    @JvmField var reason: Int = 0
+    @JvmField var error: Int = 0
+    override fun getFieldOrder(): List<String> =
+        listOf("reason", "error")
+}
+
 /**
  * libmpv JNA 绑定（手写，vlcj 模式，不依赖 vlcj 库）。
  * 函数签名对照 mpv/client.h。
  */
 interface LibMpv : Library {
 
-    fun mpv_create(): Pointer
+    /** 失败返回 NULL（JNA 映射为 null 或 Pointer.NULL，调用方两者都要判）。 */
+    fun mpv_create(): Pointer?
     fun mpv_initialize(ctx: Pointer): Int
     fun mpv_terminate_destroy(ctx: Pointer)
 
@@ -90,7 +111,7 @@ interface LibMpv : Library {
 
     fun mpv_set_property_string(ctx: Pointer, name: String, data: String): Int
 
-    /** 返回 char*，用完必须 mpv_free */
+    /** 返回 char*，用完必须 mpv_free；失败返回 NULL */
     fun mpv_get_property_string(ctx: Pointer, name: String): Pointer?
 
     /** data 为调用方分配的内存（如 Memory(8)），按 format 写入 */
@@ -99,40 +120,76 @@ interface LibMpv : Library {
     fun mpv_observe_property(ctx: Pointer, reply_userdata: Long, name: String, format: Int): Int
     fun mpv_unobserve_property(ctx: Pointer, registered_reply_userdata: Long): Int
 
-    /** 返回 &mpv_event（mpv 拥有的静态内存，不要 free）；超时返回 event_id=NONE */
-    fun mpv_wait_event(ctx: Pointer, timeout: Double): Pointer
+    /** 返回 &mpv_event（mpv 拥有的静态内存，不要 free）；超时返回 event_id=NONE；失败返回 NULL */
+    fun mpv_wait_event(ctx: Pointer, timeout: Double): Pointer?
 
     fun mpv_free(ptr: Pointer)
-    fun mpv_error_string(error: Int): String
+
+    /**
+     * 返回 mpv 错误码对应的英文描述（C 返回 UTF-8 字符串；JNA 按默认字符集解码，
+     * JDK 18+ 默认 UTF-8）。C 可能返回 NULL，此时 JNA 映射为 null，调用方要判空。
+     */
+    fun mpv_error_string(error: Int): String?
 
     /** 启用日志消息事件（minLevel: "info"/"warn"/"error" 等） */
     fun mpv_request_log_messages(ctx: Pointer, minLevel: String): Int
 
     companion object {
         val INSTANCE: LibMpv by lazy {
-            // 确保 JNA 能找到 app 目录下的 libmpv-2.dll
+            val os = System.getProperty("os.name", "").lowercase()
+            val isWindows = os.contains("win")
+            val isMac = os.contains("mac") || os.contains("darwin")
+            // 按操作系统区分库文件名：Windows libmpv-2.dll / Linux libmpv.so.2 / libmpv.so / macOS libmpv.2.dylib
+            val bundledNames: List<String> = when {
+                isWindows -> listOf("libmpv-2.dll")
+                isMac -> listOf("libmpv.2.dylib", "libmpv.dylib")
+                else -> listOf("libmpv.so.2", "libmpv.so")
+            }
+            val systemNames: List<String> = when {
+                isWindows -> listOf("libmpv-2", "mpv")
+                isMac -> listOf("libmpv.2", "libmpv", "mpv")
+                else -> listOf("libmpv.so.2", "libmpv.so", "libmpv", "mpv")
+            }
+
+            // 1. 优先用绝对路径加载 app 目录 / JAR 所在目录 / 工作目录下的打包库（最可靠）
+            val dirs = ArrayList<java.io.File>()
             try {
                 // 从当前 JAR 位置推导 app 目录（jpackage: app/xxx.jar → 上级即 app 根目录的父级）
                 val jarUrl = LibMpv::class.java.protectionDomain?.codeSource?.location
                 if (jarUrl != null) {
                     val jarPath = java.io.File(jarUrl.toURI())
-                    // jar 在 app/ 下，DLL 在 app/ 的上级目录（Gome/ 根目录）
-                    val appDir = jarPath.parentFile?.parentFile
-                    if (appDir != null && appDir.isDirectory) {
-                        val dll = java.io.File(appDir, "libmpv-2.dll")
-                        if (dll.exists()) {
-                            // 直接用绝对路径加载，最可靠
-                            return@lazy Native.load(dll.absolutePath, LibMpv::class.java) as LibMpv
-                        }
-                    }
+                    // jar 在 app/ 下，DLL 在 app/ 的上级目录（Gome/ 根目录），也可能就在 app/ 下
+                    jarPath.parentFile?.let { dirs.add(it) }
+                    jarPath.parentFile?.parentFile?.let { dirs.add(it) }
                 }
             } catch (_: Throwable) { }
-            // 回退：按库名搜索
             try {
-                Native.load("libmpv-2", LibMpv::class.java) as LibMpv
-            } catch (_: Throwable) {
-                Native.load("mpv", LibMpv::class.java) as LibMpv
+                dirs.add(java.io.File(System.getProperty("user.dir", ".")))
+            } catch (_: Throwable) { }
+            for (dir in dirs.distinct()) {
+                for (name in bundledNames) {
+                    val file = java.io.File(dir, name)
+                    if (file.isFile) {
+                        try {
+                            return@lazy Native.load(file.absolutePath, LibMpv::class.java) as LibMpv
+                        } catch (_: Throwable) { }
+                    }
+                }
             }
+            // 2. 回退：按库名搜索（系统库路径）
+            var lastError: Throwable? = null
+            for (name in systemNames) {
+                try {
+                    return@lazy Native.load(name, LibMpv::class.java) as LibMpv
+                } catch (e: Throwable) {
+                    lastError = e
+                }
+            }
+            throw IllegalStateException(
+                "无法加载 libmpv，已尝试库名: ${systemNames.joinToString()}，" +
+                    "请确认已安装 libmpv（Windows: libmpv-2.dll / Linux: libmpv.so.2 / macOS: libmpv.2.dylib）",
+                lastError
+            )
         }
     }
 }
