@@ -65,7 +65,7 @@ object Repo {
     fun getCachedEpisodes(itemId: String): EpisodeData? {
         val key = currentCacheKey()
         val entry = episodeCache[itemId]
-        if (!entry.isFresh(key)) {
+        if (entry == null || !entry.isFresh(key)) {
             // 过期 / 换服务器 / 登出 / demo 切换：删条目，视为 miss
             if (entry != null) episodeCache.remove(itemId, entry)
             return null
@@ -76,7 +76,7 @@ object Repo {
     fun getCachedItem(itemId: String): UiMediaItem? {
         val key = currentCacheKey()
         val entry = itemCache[itemId]
-        if (!entry.isFresh(key)) {
+        if (entry == null || !entry.isFresh(key)) {
             if (entry != null) itemCache.remove(itemId, entry)
             return null
         }
