@@ -14,7 +14,10 @@ import java.util.prefs.Preferences
  * 播放设置/UI 设置等 Android 特定项后续按需添加。
  */
 
-/** 保存的服务器条目（用于服务器切换） */
+/** 保存的服务器条目（用于服务器切换）。
+ * 注意（P0-E7）：password 字段仅保留签名兼容（调用方仍传内存中的密码），永不落盘：
+ * getServers() 读取时忽略磁盘上的 password，saveServers() 写入时固定写 ""；
+ * 首次读取到存量明文密码时会立即重写文件清掉旧值。 */
 data class ServerEntry(
     val name: String,
     val protocol: String,
@@ -29,12 +32,16 @@ data class ServerEntry(
     val backupPath: String = "",
     val backupName: String = ""
 ) {
-    /** 唯一键：地址+端口+路径+用户名 */
-    fun key(): String = "$host:$port/${path.trim('/')}/$username"
+    /** 唯一键：地址+端口+路径+用户名（统一走 Prefs.normalizeServerKey，P1-E16） */
+    fun key(): String = Prefs.normalizeServerKey(host, port, path, username)
 }
 
 object Prefs {
     private val prefs: Preferences = Preferences.userRoot().node("com/muse/gomepc")
+
+    /** 读-改-写操作的互斥锁（P1-E18）：upsert/remove/统计/搜索历史等 RMW 一律在该锁内完成，避免并发丢失更新 */
+    private val rmwLock = Any()
+    private val deviceIdLock = Any()
 
     private fun get(key: String, def: String): String = prefs.get(key, def) ?: def
     private fun put(key: String, value: String) {
@@ -95,23 +102,35 @@ object Prefs {
         get() = get("token", "")
         set(v) = put("token", v)
 
-    /** 持久设备 ID（Yamby 用固定 DeviceId） */
+    /** 持久设备 ID（Yamby 用固定 DeviceId），双检锁避免并发生成两个 ID（P1-E17） */
+    @Volatile private var cachedDeviceId: String? = null
     val deviceId: String
         get() {
-            var id = prefs.get("deviceId", null)
-            if (id.isNullOrEmpty()) {
-                id = UUID.randomUUID().toString()
-                put("deviceId", id)
+            cachedDeviceId?.let { if (it.isNotEmpty()) return it }
+            synchronized(deviceIdLock) {
+                cachedDeviceId?.let { if (it.isNotEmpty()) return it }
+                var id = prefs.get("deviceId", null)
+                if (id.isNullOrEmpty()) {
+                    id = UUID.randomUUID().toString()
+                    put("deviceId", id)
+                }
+                cachedDeviceId = id
+                return id
             }
-            return id
         }
 
-    /** 桌面端设备名：用主机名，取不到就用 GomePC */
+    /** 桌面端设备名：用主机名，取不到就用 GomePC；只解析一次并缓存（P1-E17，避免每次阻塞 DNS） */
+    @Volatile private var cachedDeviceName: String? = null
     val deviceName: String
-        get() = try {
-            java.net.InetAddress.getLocalHost().hostName?.takeIf { it.isNotEmpty() } ?: "GomePC"
-        } catch (_: Exception) {
-            "GomePC"
+        get() {
+            cachedDeviceName?.let { return it }
+            val n = try {
+                java.net.InetAddress.getLocalHost().hostName?.takeIf { it.isNotEmpty() } ?: "GomePC"
+            } catch (_: Exception) {
+                "GomePC"
+            }
+            cachedDeviceName = n
+            return n
         }
 
     /** 规范化服务器地址：去掉默认端口，用于新旧记录兼容匹配 */
@@ -120,48 +139,92 @@ object Prefs {
             .replace(":443/", "/").replace(":443$", "")
     }
 
-    /** baseUrl 如 http://example.com:8096/emby */
+    /**
+     * 统一服务器 Key（P1-E16）：ServerEntry.key() 与 currentServerKey() 都走这里，
+     * 不再各写一套。规则：host 去空格转小写、port 为空按 80、path 去首尾 /、username 去空格。
+     */
+    fun normalizeServerKey(host: String, port: String, path: String, username: String): String {
+        val h = host.trim().lowercase()
+        val p = port.trim().ifEmpty { "80" }
+        val pa = path.trim().trim('/')
+        return "$h:$p/$pa/${username.trim()}"
+    }
+
+    /** baseUrl 如 http://example.com:8096/emby（P0-E8：协议白名单、host 去尾部/拒绝非法字符、port 1-65535、path 拒绝 ..） */
     fun baseUrl(): String {
-        val p = path.trim().trim('/').let { if (it.isEmpty()) "" else "/$it" }
+        val h = host.trim().trimEnd('/').trim()
+        if (h.isEmpty()) return ""
+        val proto = protocol.trim().lowercase().let { if (it == "http" || it == "https") it else "http" }
+        val portPart = port.trim().toIntOrNull()?.let { if (it in 1..65535) ":$it" else "" } ?: ""
+        // path 按段过滤：丢掉空段 / "." / ".."，杜绝目录穿越拼进 URL
+        val segs = path.trim().trim('/').split('/').filter { it.isNotEmpty() && it != "." && it != ".." }
+        val pathPart = if (segs.isEmpty()) "" else "/" + segs.joinToString("/")
+        return "$proto://$h$portPart$pathPart"
+    }
+
+    /** 校验当前服务器配置，返回错误描述；null 表示合法（供登录/添加服务器时提示，不在 baseUrl 里抛异常） */
+    fun validateServerConfig(): String? {
         val proto = protocol.trim().lowercase()
-        val portStr = port.trim()
-        val portPart = if (portStr.isEmpty()) "" else ":$portStr"
-        return "$proto://${host.trim()}$portPart$p"
+        if (proto != "http" && proto != "https") return "协议必须是 http 或 https"
+        val h = host.trim()
+        if (h.isEmpty()) return "主机地址为空"
+        if (h.any { !(it.isLetterOrDigit() || it in ".-_[]:") }) return "主机地址含非法字符"
+        if (h.contains("..")) return "主机地址含非法字符"
+        val p = port.trim()
+        if (p.isNotEmpty()) {
+            val pi = p.toIntOrNull() ?: return "端口必须是数字"
+            if (pi !in 1..65535) return "端口必须在 1-65535 之间"
+        }
+        val rawPath = path.trim()
+        if (rawPath.split('/').any { it == ".." }) return "路径不能包含 .."
+        if (rawPath.any { it.isISOControl() || it == '\\' }) return "路径含非法字符"
+        return null
     }
 
     fun isLoggedIn(): Boolean = token.isNotEmpty() && userId.isNotEmpty() && host.isNotEmpty()
 
+    /** 清登录态，并清干净派生键（P1-E19）：token / userId / 服务器显示名；同时清会话/DV 缓存 */
     fun clearLogin() {
-        remove("token")
-        remove("userId")
+        synchronized(rmwLock) {
+            remove("token")
+            remove("userId")
+            remove("serverName")
+        }
+        try { YambyClient.clearSessionCache() } catch (_: Exception) {}
     }
 
     // ---- 多服务器 ----
     private const val KEY_SERVERS = "servers_json"
 
-    /** 读取保存的服务器列表 */
+    /** 读取保存的服务器列表。密码永不落盘：磁盘上的 password 一律忽略为 ""，
+     * 读到存量明文密码时立即重写文件清掉旧值（P0-E7 存量迁移）。 */
     fun getServers(): List<ServerEntry> {
         val raw = get(KEY_SERVERS, "")
         if (raw.isBlank()) return emptyList()
         return try {
             val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
+            var hadPlainPassword = false
+            val list = (0 until arr.length()).mapNotNull { i ->
                 val o = arr.getJSONObject(i)
-                ServerEntry(
+                if (o.optString("password").isNotEmpty()) hadPlainPassword = true
+                val e = ServerEntry(
                     name = o.optString("name"),
                     protocol = o.optString("protocol", "http"),
                     host = o.optString("host"),
                     port = o.optString("port", "80"),
                     path = o.optString("path", ""),
                     username = o.optString("username"),
-                    password = o.optString("password"),
+                    password = "",
                     backupProtocol = o.optString("backupProtocol", ""),
                     backupHost = o.optString("backupHost", ""),
                     backupPort = o.optString("backupPort", ""),
                     backupPath = o.optString("backupPath", ""),
                     backupName = o.optString("backupName", "")
                 )
-            }.filter { it.host.isNotEmpty() }
+                if (e.host.isNotEmpty()) e else null
+            }
+            if (hadPlainPassword) saveServers(list)
+            list
         } catch (_: Exception) {
             emptyList()
         }
@@ -178,7 +241,7 @@ object Prefs {
                     .put("port", s.port)
                     .put("path", s.path)
                     .put("username", s.username)
-                    .put("password", s.password)
+                    .put("password", "") // 密码永不落盘（P0-E7），只存 Token（Prefs.token）
                     .put("backupProtocol", s.backupProtocol)
                     .put("backupHost", s.backupHost)
                     .put("backupPort", s.backupPort)
@@ -189,31 +252,38 @@ object Prefs {
         put(KEY_SERVERS, arr.toString())
     }
 
-    /** 新增或更新服务器（按 key 去重） */
+    /** 新增或更新服务器（按 key 去重），读-改-写加锁（P1-E18） */
     fun upsertServer(entry: ServerEntry) {
-        val list = getServers().toMutableList()
-        val idx = list.indexOfFirst { it.key() == entry.key() }
-        if (idx >= 0) list[idx] = entry else list.add(entry)
-        saveServers(list)
-    }
-
-    /** 当前正在用的服务器 key */
-    fun currentServerKey(): String =
-        "${host.trim()}:${port.trim().ifEmpty { "80" }}/${path.trim().trim('/')}/${username.trim()}"
-
-    /** 更新当前服务器条目的显示名 */
-    fun updateCurrentServerName(name: String) {
-        val key = currentServerKey()
-        val list = getServers().toMutableList()
-        val idx = list.indexOfFirst { it.key() == key }
-        if (idx >= 0) {
-            list[idx] = list[idx].copy(name = name)
+        synchronized(rmwLock) {
+            val list = getServers().toMutableList()
+            val idx = list.indexOfFirst { it.key() == entry.key() }
+            if (idx >= 0) list[idx] = entry else list.add(entry)
             saveServers(list)
         }
     }
 
-    /** 把当前 Prefs 里的服务器记入列表（登录成功后调用） */
-    fun rememberCurrentServer(password: String) {
+    /** 当前正在用的服务器 key（统一走 normalizeServerKey，P1-E16） */
+    fun currentServerKey(): String =
+        normalizeServerKey(host, port, path, username)
+
+    /** 更新当前服务器条目的显示名 */
+    fun updateCurrentServerName(name: String) {
+        synchronized(rmwLock) {
+            val key = currentServerKey()
+            val list = getServers().toMutableList()
+            val idx = list.indexOfFirst { it.key() == key }
+            if (idx >= 0) {
+                list[idx] = list[idx].copy(name = name)
+                saveServers(list)
+            }
+        }
+    }
+
+    /**
+     * 把当前 Prefs 里的服务器记入列表（登录成功后调用）。
+     * password 参数仅保留签名兼容：密码只留在内存，永不写入磁盘（P0-E7）；登录态改存 Token（Prefs.token）。
+     */
+    fun rememberCurrentServer(@Suppress("UNUSED_PARAMETER") password: String) {
         if (host.isBlank()) return
         val name = serverName.ifEmpty { username.ifEmpty { host } }
         upsertServer(
@@ -224,35 +294,47 @@ object Prefs {
                 port = port,
                 path = path,
                 username = username,
-                password = password
+                password = ""
             )
         )
     }
 
-    /** 删除保存的服务器（含统计缓存） */
+    /** 删除保存的服务器（含统计缓存与全部派生键，P1-E19） */
     fun removeServer(key: String) {
-        saveServers(getServers().filter { it.key() != key })
-        val stats = getServerStats().toMutableMap()
-        stats.remove(key)
-        saveServerStats(stats)
-        // 删的是当前正在用的服务器：断开连接，清登录态
-        if (key == currentServerKey()) {
-            clearLogin()
-            host = ""
-            port = ""
-            path = ""
-            username = ""
-            serverName = ""
+        synchronized(rmwLock) {
+            saveServers(getServers().filter { it.key() != key })
+            val stats = getServerStats().toMutableMap()
+            stats.remove(key)
+            saveServerStats(stats)
+            // 派生键一并清理：自定义图标 / 自定义名 / 搜索选中（若指向该服务器）
+            remove("server_icon_$key")
+            remove("custom_name_$key")
+            if (searchServerKey == key) {
+                searchServerKey = ""
+                searchServerName = "聚合搜索"
+            }
+            // 删的是当前正在用的服务器：断开连接，清登录态与当前服务器信息
+            if (key == currentServerKey()) {
+                clearLogin()
+                host = ""
+                port = ""
+                path = ""
+                username = ""
+                serverName = ""
+                remove("libOrder")
+            }
         }
     }
 
     /** 编辑服务器导致 key 变化时，迁移统计缓存 */
     fun transferServerStat(oldKey: String, newKey: String) {
         if (oldKey == newKey) return
-        val m = getServerStats().toMutableMap()
-        val s = m.remove(oldKey) ?: return
-        m[newKey] = s
-        saveServerStats(m)
+        synchronized(rmwLock) {
+            val m = getServerStats().toMutableMap()
+            val s = m.remove(oldKey) ?: return
+            m[newKey] = s
+            saveServerStats(m)
+        }
     }
 
     // ---- 资源库：服务器统计缓存（影片数/剧集数/上次使用） ----
@@ -294,20 +376,25 @@ object Prefs {
     }
 
     fun putServerStat(key: String, stat: ServerStat) {
-        val m = getServerStats().toMutableMap()
-        m[key] = stat
-        saveServerStats(m)
+        synchronized(rmwLock) {
+            val m = getServerStats().toMutableMap()
+            m[key] = stat
+            saveServerStats(m)
+        }
     }
 
     /** 更新某服务器的上次使用时间（同步，登录成功后立即调用） */
     fun touchServerLastUsed(key: String) {
-        val cur = getServerStats()[key] ?: ServerStat()
-        putServerStat(key, cur.copy(lastUsed = System.currentTimeMillis()))
+        synchronized(rmwLock) {
+            val cur = getServerStats()[key] ?: ServerStat()
+            putServerStat(key, cur.copy(lastUsed = System.currentTimeMillis()))
+        }
     }
 
     /**
      * 登录/切换成功后调用：先同步记下 lastUsed，再后台拉取影片数/剧集数缓存。
-     * 不阻塞调用方。
+     * 不阻塞调用方。key 在调用时快照（P1-E18）；后台取数期间若已切换服务器则丢弃结果，
+     * 避免把新服务器的统计写到旧 key 下。
      */
     fun recordServerVisit(scope: CoroutineScope) {
         val key = currentServerKey()
@@ -316,6 +403,7 @@ object Prefs {
             try {
                 val movies = YambyClient.getTotalCount("Movie")
                 val series = YambyClient.getTotalCount("Series")
+                if (currentServerKey() != key) return@launch
                 putServerStat(key, ServerStat(movies, series, System.currentTimeMillis()))
             } catch (_: Exception) {
             }
@@ -333,12 +421,15 @@ object Prefs {
     }
 
     fun addSearchHistory(query: String) {
-        val q = query.trim()
+        // 换行符替换为空格（P2-E5）：历史按 \n 切分存储，查询里的 \n 必须先处理掉，否则一条变多条
+        val q = query.trim().replace(Regex("\\s+"), " ")
         if (q.isEmpty()) return
-        val list = getSearchHistory().toMutableList()
-        list.remove(q)
-        list.add(0, q)
-        put(KEY_SEARCH_HISTORY, list.take(20).joinToString("\n"))
+        synchronized(rmwLock) {
+            val list = getSearchHistory().toMutableList()
+            list.remove(q)
+            list.add(0, q)
+            put(KEY_SEARCH_HISTORY, list.take(20).joinToString("\n"))
+        }
     }
 
     fun clearSearchHistory() {
@@ -374,16 +465,19 @@ object Prefs {
     // ---- 弹幕源：dandanplay 兼容 API 地址列表（1:1 Android），按顺序尝试 ----
     data class DanmakuSource(val url: String, val enabled: Boolean = true)
 
+    /** 预置默认弹幕源（非法 JSON 时的回退，保证弹幕不因配置损坏而全灭，P1-E22） */
+    private fun defaultDanmakuSources(): List<DanmakuSource> =
+        listOf(DanmakuSource("https://dm.nnn.xx.kg", true))
+
     var danmakuSources: List<DanmakuSource>
         get() {
+            // 纯读 getter（P1-E22）：不做写盘迁移、不产生副作用。
+            // 首次（无存储值）按旧单 URL 迁移计算；非法 JSON 返回预置默认值，不再返回空列表。
             val raw = prefs.get("danmaku_sources", null)
-            // 首次：从旧的单 URL 迁移；都没有则预置自建源，保证开箱可用
             if (raw == null) {
                 val old = danmakuApiUrl.trim().trimEnd('/')
-                val d = if (old.isNotBlank()) listOf(DanmakuSource(old, true))
-                else listOf(DanmakuSource("https://dm.nnn.xx.kg", true))
-                danmakuSources = d
-                return d
+                return if (old.isNotBlank()) listOf(DanmakuSource(old, true))
+                else defaultDanmakuSources()
             }
             return try {
                 val arr = JSONArray(raw)
@@ -393,16 +487,18 @@ object Prefs {
                     if (u.isBlank()) null else DanmakuSource(u, o.optBoolean("on", true))
                 }
             } catch (_: Exception) {
-                emptyList()
+                defaultDanmakuSources()
             }
         }
         set(v) {
-            val arr = JSONArray()
-            v.map { it.url.trim().trimEnd('/') to it.enabled }
-                .filter { (u, _) -> u.isNotBlank() }
-                .distinctBy { (u, _) -> u }
-                .forEach { (u, on) -> arr.put(JSONObject().put("url", u).put("on", on)) }
-            put("danmaku_sources", arr.toString())
+            synchronized(rmwLock) {
+                val arr = JSONArray()
+                v.map { it.url.trim().trimEnd('/') to it.enabled }
+                    .filter { (u, _) -> u.isNotBlank() }
+                    .distinctBy { (u, _) -> u }
+                    .forEach { (u, on) -> arr.put(JSONObject().put("url", u).put("on", on)) }
+                put("danmaku_sources", arr.toString())
+            }
         }
 
     fun addDanmakuSource(url: String): Boolean {
@@ -410,17 +506,23 @@ object Prefs {
         if (u.isEmpty()) return false
         if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
         u = u.trimEnd('/')
-        if (danmakuSources.any { it.url == u }) return false
-        danmakuSources = danmakuSources + DanmakuSource(u, true)
-        return true
+        synchronized(rmwLock) {
+            if (danmakuSources.any { it.url == u }) return false
+            danmakuSources = danmakuSources + DanmakuSource(u, true)
+            return true
+        }
     }
 
     fun removeDanmakuSource(url: String) {
-        danmakuSources = danmakuSources.filter { it.url != url }
+        synchronized(rmwLock) {
+            danmakuSources = danmakuSources.filter { it.url != url }
+        }
     }
 
     fun setDanmakuSourceEnabled(url: String, enabled: Boolean) {
-        danmakuSources = danmakuSources.map { if (it.url == url) it.copy(enabled = enabled) else it }
+        synchronized(rmwLock) {
+            danmakuSources = danmakuSources.map { if (it.url == url) it.copy(enabled = enabled) else it }
+        }
     }
 
     /** 已启用的弹幕源地址（按列表顺序） */
@@ -482,10 +584,48 @@ object Prefs {
         get() = prefs.getInt("zoom_speed", 2).let { if (it in 1..3) it else 2 }
         set(v) { prefs.putInt("zoom_speed", v); try { prefs.flush() } catch (_: Exception) {} }
 
-    /** 应用锁 PIN（空=未设置） */
+    /**
+     * 应用锁 PIN（空=未设置）。
+     * 落盘做简单混淆（XOR + Base64，前缀 obf1:），避免明文出现在 prefs 文件里（P0-E7）。
+     * 注意：混淆不是加密，仅防随手翻看；真正安全需系统级密钥库（如后续接入再升级）。
+     * getter 返回解密后的明文（调用方比较逻辑不变）；读到存量明文时就地转为混淆存储（存量迁移）。
+     */
     var appLockPin: String
-        get() = prefs.get("app_lock_pin", "")
-        set(v) { prefs.put("app_lock_pin", v); try { prefs.flush() } catch (_: Exception) {} }
+        get() {
+            val raw = prefs.get("app_lock_pin", "") ?: ""
+            if (raw.isEmpty()) return ""
+            if (!raw.startsWith(PIN_OBF_PREFIX)) {
+                prefs.put("app_lock_pin", obfuscatePin(raw))
+                try { prefs.flush() } catch (_: Exception) {}
+                return raw
+            }
+            return deobfuscatePin(raw)
+        }
+        set(v) {
+            val stored = if (v.isEmpty()) "" else obfuscatePin(v)
+            prefs.put("app_lock_pin", stored)
+            try { prefs.flush() } catch (_: Exception) {}
+        }
+
+    private const val PIN_OBF_PREFIX = "obf1:"
+    private val pinObfKey: ByteArray get() = "GomePcPinObf".toByteArray(Charsets.UTF_8)
+
+    private fun obfuscatePin(pin: String): String {
+        val key = pinObfKey
+        val data = pin.toByteArray(Charsets.UTF_8)
+        val out = ByteArray(data.size) { i -> (data[i].toInt() xor key[i % key.size].toInt()).toByte() }
+        return PIN_OBF_PREFIX + java.util.Base64.getEncoder().encodeToString(out)
+    }
+
+    private fun deobfuscatePin(stored: String): String {
+        return try {
+            val key = pinObfKey
+            val data = java.util.Base64.getDecoder().decode(stored.removePrefix(PIN_OBF_PREFIX))
+            String(ByteArray(data.size) { i -> (data[i].toInt() xor key[i % key.size].toInt()).toByte() }, Charsets.UTF_8)
+        } catch (_: Exception) {
+            ""
+        }
+    }
 
     /** 搜索页选中的服务器 key（空=聚合搜索） */
     var searchServerKey: String
@@ -515,13 +655,15 @@ object Prefs {
         try { prefs.flush() } catch (_: Exception) {}
     }
 
-    /** key 变化时迁移自定义名（改地址时调用） */
+    /** key 变化时迁移自定义名（改地址时调用），读-改-写加锁（P1-E18） */
     fun transferCustomServerName(oldKey: String, newKey: String) {
         if (oldKey == newKey) return
-        val n = getCustomServerName(oldKey)
-        if (n.isNotEmpty()) {
-            setCustomServerName(newKey, n)
-            setCustomServerName(oldKey, "")
+        synchronized(rmwLock) {
+            val n = getCustomServerName(oldKey)
+            if (n.isNotEmpty()) {
+                setCustomServerName(newKey, n)
+                setCustomServerName(oldKey, "")
+            }
         }
     }
 
