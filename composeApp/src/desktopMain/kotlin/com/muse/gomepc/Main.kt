@@ -75,27 +75,35 @@ private fun openDetail(item: UiMediaItem, setScreen: (Screen) -> Unit) {
 
 /** Windows下去掉标题栏但不重建HWND（避免MPV崩） */
 private var savedWindowStyle: Long = 0L
+// 样式是否已保存：重复进入全屏时不再重复保存，否则永久丢失原始样式
+private var windowStyleSaved: Boolean = false
 private var savedWindowBounds: java.awt.Rectangle? = null
+// 进入全屏前的 placement（最大化/悬浮），退出时恢复，而不是强制 Floating
+private var savedPlacement: WindowPlacement? = null
 
 private fun setWindowBorderless(hwnd: Long, borderless: Boolean) {
     try {
         val user32 = User32.INSTANCE
         val hWnd = WinDef.HWND(Pointer(hwnd))
         val GWL_STYLE = -16
-        val WS_CAPTION = 0x00C00000
-        val WS_THICKFRAME = 0x00040000
+        val WS_CAPTION = 0x00C00000L
+        val WS_THICKFRAME = 0x00040000L
         if (borderless) {
-            // 保存原始样式，进入无边框
-            savedWindowStyle = user32.GetWindowLongPtr(hWnd, GWL_STYLE).toLong()
+            // 只在未保存时保存原始样式；全程用 Long，不经 toInt() 截断 64 位样式高位
+            if (!windowStyleSaved) {
+                savedWindowStyle = user32.GetWindowLongPtr(hWnd, GWL_STYLE).toLong()
+                windowStyleSaved = true
+            }
             com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "保存原始style: 0x${savedWindowStyle.toString(16)}, hwnd=$hwnd")
-            val newStyle = (savedWindowStyle.toInt() and WS_CAPTION.inv() and WS_THICKFRAME.inv()).toLong()
+            val newStyle = savedWindowStyle and WS_CAPTION.inv() and WS_THICKFRAME.inv()
             user32.SetWindowLongPtr(hWnd, GWL_STYLE, BaseTSD.LONG_PTR(newStyle).toPointer())
             com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "设置无边框style: 0x${newStyle.toString(16)}")
         } else {
-            // 恢复原始样式
-            if (savedWindowStyle != 0L) {
+            // 恢复原始样式，并清除已保存标记，下次进入全屏重新保存
+            if (windowStyleSaved) {
                 user32.SetWindowLongPtr(hWnd, GWL_STYLE, BaseTSD.LONG_PTR(savedWindowStyle).toPointer())
                 com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复原始style: 0x${savedWindowStyle.toString(16)}")
+                windowStyleSaved = false
             }
         }
         // 刷新窗口
@@ -163,9 +171,10 @@ fun main() = application {
                     val hwnd = getHwnd(awtWindow)
                     com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "切换全屏: isFullscreen=$isFullscreen, hwnd=$hwnd")
                     if (isFullscreen) {
-                        // 保存当前窗口位置
+                        // 保存当前窗口位置与 placement（退出全屏时恢复原 placement，不强制 Floating）
                         savedWindowBounds = awtWindow.bounds
-                        com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "保存窗口bounds: $savedWindowBounds")
+                        savedPlacement = state.placement
+                        com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "保存窗口bounds: $savedWindowBounds placement=$savedPlacement")
                         // 去标题栏（不重建HWND）
                         if (hwnd != 0L) setWindowBorderless(hwnd, true)
                         // 用显示器完整bounds覆盖全屏（不是最大化到工作区，避免任务栏出现）
@@ -181,13 +190,14 @@ fun main() = application {
                     } else {
                         // 恢复标题栏
                         if (hwnd != 0L) setWindowBorderless(hwnd, false)
-                        // 恢复窗口位置
+                        // 恢复窗口位置与进入全屏前的 placement（最大化进全屏，退出后仍是最大化）
                         try {
                             savedWindowBounds?.let {
                                 awtWindow.bounds = it
                                 com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复窗口bounds: $it")
                             }
-                            state.placement = WindowPlacement.Floating
+                            state.placement = savedPlacement ?: WindowPlacement.Floating
+                            savedPlacement = null
                         } catch (e: Throwable) {
                             com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复窗口失败: ${e.message}")
                         }
@@ -241,21 +251,40 @@ fun GomeApp(
         }
     }
     var first by remember { mutableStateOf(true) }
-    if (first) {
-        first = false
-        screen = initial
+    // 组合期间不写状态：首次导航放 LaunchedEffect（组合期间写状态会触发额外重组/警告）
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (first) {
+            first = false
+            screen = initial
+        }
     }
 
     // 播放器页：全屏独占（无边栏），叠加统一透明标题栏
     if (screen is Screen.Player) {
         val p = screen as Screen.Player
+        // owner 为空时不抛异常，显示错误占位（组合期间抛异常会炸掉整个界面）
+        if (owner == null) {
+            Box(
+                Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.material3.Text(
+                    "播放器需要窗口宿主，无法初始化",
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
+            return
+        }
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
             PlayerScreen(
                 itemId = p.itemId,
                 itemName = p.itemName,
                 episodeId = p.episodeId,
                 episodeIndex = p.episodeIndex,
-                owner = owner ?: throw IllegalStateException("no owner window"),
+                owner = owner,
+                mediaSourceId = p.mediaSourceId,
+                audioIndex = p.audioIndex,
+                subtitleIndex = p.subtitleIndex,
                 startPositionSec = p.startPositionSec,
                 onBack = {
                     // 不用外层抓的 p（可能是旧组合的），实时读 screen 拿最新 Player
@@ -264,11 +293,18 @@ fun GomeApp(
                     val backName = cur?.itemName ?: p.itemName
                     com.muse.gomepc.player.DebugLog.d("NAV", "Player onBack: backId=$backId backName=$backName (p.itemId=${p.itemId})")
                     HomeDataCache.refreshResumeOnly()
-                    screen = Screen.Detail(backId)
+                    screen = Screen.Detail(backId, cur?.episodeId ?: p.episodeId)
                 },
                 onFullscreen = onFullscreen,
                 onSwitchEpisode = { eid, idx, resumeSec ->
-                    screen = Screen.Player(p.itemId, p.itemName, eid, idx, resumeSec)
+                    // 实时读 screen，不用外层抓的 p（快速切集时 p 可能是旧组合的）
+                    val cur = screen as? Screen.Player
+                    // 切集后版本/音轨/字幕选择失效（MediaSourceId 是按集的），用默认值
+                    screen = Screen.Player(
+                        cur?.itemId ?: p.itemId,
+                        cur?.itemName ?: p.itemName,
+                        eid, idx, resumeSec
+                    )
                 }
             )
             // 播放器标题栏：App / 服务器 / 返回箭头
@@ -278,7 +314,7 @@ fun GomeApp(
                     left = listOf(
                         TitleLeftIcon.App { screen = Screen.Settings },
                         TitleLeftIcon.Server { screen = Screen.Home },
-                        TitleLeftIcon.Back { screen = Screen.Detail(p.itemId) }
+                        TitleLeftIcon.Back { screen = Screen.Detail(p.itemId, p.episodeId) }
                     )
                 ),
                 isMaximized = isMaximized,
@@ -292,41 +328,12 @@ fun GomeApp(
     }
 
     // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
-    // 真 backdrop 模糊（自研双渲染）：背景内容 lambda 供 dock 模糊层复用
-    // 注意：dock 模糊层用独立的滚动状态，手动同步位置（共享状态对象会导致滚轮冲突）
     val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
-    val dockHomeListState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val dockLibraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
-    // 滚动时把主内容的位置同步到 dock 模糊层（手动，不共享对象）
-    androidx.compose.runtime.LaunchedEffect(homeListState) {
-        androidx.compose.runtime.snapshotFlow {
-            homeListState.firstVisibleItemIndex to homeListState.firstVisibleItemScrollOffset
-        }.collect { (index, offset) ->
-            try { dockHomeListState.scrollToItem(index, offset) } catch (_: Exception) {}
-        }
-    }
-    androidx.compose.runtime.LaunchedEffect(libraryGridState) {
-        androidx.compose.runtime.snapshotFlow {
-            libraryGridState.firstVisibleItemIndex to libraryGridState.firstVisibleItemScrollOffset
-        }.collect { (index, offset) ->
-            try { dockLibraryGridState.scrollToItem(index, offset) } catch (_: Exception) {}
-        }
-    }
     // 媒体库排序请求：标题栏排序图标点击时递增，LibraryScreen 监听后弹排序框
     var libSortRequest by remember { mutableStateOf(0) }
-    // 滚动版本号：滚动时递增，触发 dock 模糊层重组（实时同步）
-    var scrollVersion by remember { mutableStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(homeListState, libraryGridState) {
-        kotlinx.coroutines.flow.combine(
-            androidx.compose.runtime.snapshotFlow {
-                homeListState.firstVisibleItemIndex * 100000 + homeListState.firstVisibleItemScrollOffset / 50
-            },
-            androidx.compose.runtime.snapshotFlow {
-                libraryGridState.firstVisibleItemIndex * 100000 + libraryGridState.firstVisibleItemScrollOffset / 50
-            }
-        ) { a, b -> a + b }.collect { scrollVersion++ }
-    }
+    // 点播导航 Job：快速连点时取消旧导航，只保留最后一次（防多路并发导航）
+    var playNavJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val backgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
                 is Screen.Home -> HomeScreen(
@@ -366,14 +373,17 @@ fun GomeApp(
                 )
                 is Screen.Detail -> DetailScreen(
                     itemId = s.itemId,
+                    currentEpisodeId = s.currentEpisodeId,
                     onBack = { screen = Screen.Home },
-                    onPlay = { item, ep ->
+                    onPlay = { item, ep, selection ->
                         // 点选集时取这部剧的可续播集（带进度），确保断点续播位置正确
                         // getItem 取不到 UserData，用 getResumableEpisodes（已验证有效）
                         // 用 detailIdFor(item) 计算当前剧ID，不用外层 s.itemId（可能过期）
                         val seriesId = detailIdFor(item)
                         com.muse.gomepc.player.DebugLog.d("NAV", "onPlay: item.name=${item.name} item.id=${item.id} seriesId=$seriesId ep=${ep.name}")
-                        kotlinx.coroutines.MainScope().launch {
+                        // 防抖：取消旧的点播导航，只保留最后一次点击
+                        playNavJob?.cancel()
+                        playNavJob = kotlinx.coroutines.MainScope().launch {
                             val posSec = try {
                                 val resumable = com.muse.gomepc.emby.YambyClient.getResumableEpisodes(seriesId)
                                 val r = resumable.firstOrNull { it.id == ep.id }
@@ -390,7 +400,10 @@ fun GomeApp(
                                 itemName = item.name,
                                 episodeId = ep.id,
                                 episodeIndex = ep.index,
-                                startPositionSec = posSec
+                                startPositionSec = posSec,
+                                mediaSourceId = selection.mediaSourceId,
+                                audioIndex = selection.audioIndex,
+                                subtitleIndex = selection.subtitleIndex
                             )
                         }
                     }
@@ -398,26 +411,7 @@ fun GomeApp(
                 else -> {}
             }
     }
-    // Dock 模糊层专用背景（不共享滚动状态，避免滚轮冲突）
-    val dockBackgroundContent: @Composable () -> Unit = {
-        when (val s = screen) {
-            is Screen.Home -> HomeScreen(
-                onItemClick = {},
-                onResumeMore = {},
-                onServerIconClick = {},
-                onLibraryClick = {},
-                listState = dockHomeListState  // 独立状态，手动同步位置
-            )
-            is Screen.Library -> LibraryScreen(
-                libId = s.libId,
-                libName = s.libName,
-                onItemClick = {},
-                onBack = {},
-                gridState = dockLibraryGridState  // 独立状态，手动同步位置
-            )
-            else -> backgroundContent()
-        }
-    }
+    // Dock 已删除（用户要求）：dock 模糊层专用背景/同步代码是死代码，已删
     // 统一透明标题栏配置（各页左侧 3 图标 + 可选中标题）
     val titleConfig: TitleBarConfig = when (val s = screen) {
         is Screen.Home -> TitleBarConfig(
