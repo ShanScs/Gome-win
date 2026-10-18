@@ -513,7 +513,7 @@ val bracketPairs = listOf(
 Regex("\\([^()]*\\)"),
 Regex("\\[[^\\[\\]]*\\]"),
 Regex("（[^（）]*）"),
-Regex("【[^]*】")
+Regex("【[^】]*】")
 )
 var prev: String
 do {
