@@ -624,7 +624,7 @@ return extractEpisodes(json).firstOrNull()?.episodeId?: ""
 
 /** P1-D9：正确单遍 unescape，处理 \uXXXX 与全部常用转义。 */
 private fun unescapeJsonString(s: String): String {
-if ('\\'!in s) return s
+if (!s.contains('\\')) return s
 val sb = StringBuilder(s.length)
 var i = 0
 while (i < s.length) {
