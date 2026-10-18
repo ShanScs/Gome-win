@@ -206,11 +206,18 @@ fun PlayerScreen(
             onError = { msg ->
                 com.muse.gomepc.player.DebugLog.d("Danmaku", "加载失败: $msg")
             }
-            val allSources = prefs.danmakuSources
-            com.muse.gomepc.player.DebugLog.d("Danmaku", "所有弹幕源: $allSources")
-            val urls = prefs.enabledDanmakuUrls()
-            com.muse.gomepc.player.DebugLog.d("Danmaku", "启用的URL: $urls")
-            if (urls.isNotEmpty()) loadFromApiMulti(urls, itemName)
+        }
+    }
+    // 弹幕按集加载：remember 只跑一次，切集不会重拉（旧 bug：切集后池子还是上一集的、首次失败后永不重试）。
+    // 放到 LaunchedEffect(episodeId)，首播和每次切集都清池重拉；引擎实例不变，JWindow 面板继续引用同一引擎。
+    androidx.compose.runtime.LaunchedEffect(episodeId) {
+        val allSources = prefs.danmakuSources
+        com.muse.gomepc.player.DebugLog.d("Danmaku", "所有弹幕源: $allSources")
+        val urls = prefs.enabledDanmakuUrls()
+        com.muse.gomepc.player.DebugLog.d("Danmaku", "启用的URL: $urls")
+        if (urls.isNotEmpty()) {
+            engine.setDanmakuList(emptyList())
+            engine.loadFromApiMulti(urls, itemName)
         }
     }
     var inited by remember { mutableStateOf(false) }
@@ -337,6 +344,11 @@ fun PlayerScreen(
             val on = !engine.isDanmakuOn()
             engine.setEnabled(on)
             danmakuUiOn = on
+        }
+        // 手动重开时若池子为空（此前加载失败），重拉一次，给瞬时失败一个恢复入口
+        if (danmakuUiOn && engine.danmakuCount() == 0) {
+            val urls = prefs.enabledDanmakuUrls()
+            if (urls.isNotEmpty()) engine.loadFromApiMulti(urls, itemName)
         }
         javax.swing.SwingUtilities.invokeLater {
             danmakuPanelRef?.isVisible = danmakuUiOn
