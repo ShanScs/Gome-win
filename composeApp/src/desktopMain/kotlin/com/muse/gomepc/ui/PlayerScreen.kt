@@ -195,12 +195,7 @@ fun PlayerScreen(
     onFullscreen: () -> Unit,
     onSwitchEpisode: ((episodeId: String, episodeIndex: Int, resumeSec: Double) -> Unit)? = null
 ) {
-    // 播放器单例：全程只 init 一次，切集时 loadfile 换片（见 tryInitPlayer）。
-    // 旧逻辑每集 destroy + 新建播放器再在同一 wid 上重新 init，mpv 的 vo
-    // 重挂同一窗口容易失败，导致切集后黑屏/无法播放（首播能播、切集不能播）。
-    val player = remember { MpvPlayer() }
-    /** tryInitPlayer 代次：切集后旧集 init 线程的回包必须丢弃（不播放旧地址、不报错）。 */
-    val initGenRef = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+    val player = remember(episodeId) { MpvPlayer() }
     val prefs = remember { com.muse.gomepc.emby.Prefs }
     /** 把 Prefs 里的弹幕样式应用到引擎（1:1 Android applyDanmakuStyle） */
     fun applyDanmakuStyleToEngine(e: DanmakuEngine) {
@@ -247,18 +242,18 @@ fun PlayerScreen(
             engineLoadFromApiMulti(urls, itemName, episodeIndex)
         }
     }
-    var inited by remember { mutableStateOf(false) }
-    var initError by remember { mutableStateOf<String?>(null) }
-    var paused by remember { mutableStateOf(false) }
-    var timePos by remember { mutableStateOf(0.0) }
+    var inited by remember(episodeId) { mutableStateOf(false) }
+    var initError by remember(episodeId) { mutableStateOf<String?>(null) }
+    var paused by remember(episodeId) { mutableStateOf(false) }
+    var timePos by remember(episodeId) { mutableStateOf(0.0) }
     // 用于退出时上报：DisposableEffect 捕获的是旧值，用 ref 存最新位置
     val timePosRef = remember { java.util.concurrent.atomic.AtomicReference(0.0) }
     androidx.compose.runtime.LaunchedEffect(timePos) { timePosRef.set(timePos) }
-    var duration by remember { mutableStateOf(0.0) }
+    var duration by remember(episodeId) { mutableStateOf(0.0) }
     // 跳过片头/片尾状态
-    var showSkipIntro by remember { mutableStateOf(false) }
-    var showNextEp by remember { mutableStateOf(false) }
-    var nextEpCountdown by remember { mutableStateOf(5) }
+    var showSkipIntro by remember(episodeId) { mutableStateOf(false) }
+    var showNextEp by remember(episodeId) { mutableStateOf(false) }
+    var nextEpCountdown by remember(episodeId) { mutableStateOf(5) }
     var introSkipped by remember(episodeId) { mutableStateOf(false) }
     // 监听播放进度，更新跳过按钮显示
     androidx.compose.runtime.LaunchedEffect(timePos, duration) {
@@ -302,8 +297,8 @@ fun PlayerScreen(
         }
     }
     var volume by remember { mutableStateOf(80f) }
-    var dragging by remember { mutableStateOf(false) }
-    var dragPos by remember { mutableStateOf(0f) }
+    var dragging by remember(episodeId) { mutableStateOf(false) }
+    var dragPos by remember(episodeId) { mutableStateOf(0f) }
     val lastTimePosUpdate = remember { java.util.concurrent.atomic.AtomicLong(0) }
     // 控制条自动隐藏 - 状态对象单独持有，供视频区独立组件使用（避免重构连带）
     val controlsVisibleState = remember { mutableStateOf(true) }
@@ -362,8 +357,8 @@ fun PlayerScreen(
     // 弹幕开关统一状态（工具栏按钮 / 底栏文字 / D键 共用，1:1 Android 会话语义）
     var danmakuUiOn by remember { mutableStateOf(engine.isDanmakuOn()) }
     // 真实播放地址（演示模式走 Repo.playbackUrls 的测试视频）
-    var videoUrl by remember { mutableStateOf<String?>(null) }
-    var urlError by remember { mutableStateOf<String?>(null) }
+    var videoUrl by remember(episodeId) { mutableStateOf<String?>(null) }
+    var urlError by remember(episodeId) { mutableStateOf<String?>(null) }
     // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
     var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
     var danmakuPanelRef by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
@@ -380,9 +375,6 @@ fun PlayerScreen(
                 danmakuWindowRef?.dispose()
             } catch (_: Throwable) { }
             danmakuWindowRef = null
-            // 退出播放器时才销毁单例播放器（切集时不销毁，复用）。
-            // 放后台线程：destroy 内部 join 事件线程最多 2s，主线程等它会冻住窗口、点关闭没反应。
-            Thread({ try { player.destroy() } catch (_: Throwable) { } }, "mpv-destroy").apply { isDaemon = true; start() }
         }
     }
     /** 切换弹幕：永久禁用后再次启用=解除；否则翻转引擎开关 */
@@ -413,7 +405,7 @@ fun PlayerScreen(
         applyDanmakuStyleToEngine(engine)
     }
     var danmakuPosition by remember { mutableStateOf(prefs.danmakuPosition) }
-    var mpvInitDone by remember { mutableStateOf(false) }
+    var mpvInitDone by remember(episodeId) { mutableStateOf(false) }
 
     // D 键直接开关弹幕（1:1 Android；输入框聚焦时不触发）
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -464,7 +456,7 @@ fun PlayerScreen(
     // 取剧集列表已在上方（倒计时前面）声明，供自动跳集/工具栏上下集使用
 
     // 网速监测：用 mpv 的音视频码率估算
-    var netSpeedText by remember { mutableStateOf("") }
+    var netSpeedText by remember(episodeId) { mutableStateOf("") }
     LaunchedEffect(videoUrl) {
         if (videoUrl == null) return@LaunchedEffect
         while (true) {
@@ -488,7 +480,7 @@ fun PlayerScreen(
 
     // canvas 有实际尺寸 + 拿到播放地址后才 init mpv（0x0 时无法渲染）
     // 监听器跟随当前 episode 的 player：切集时旧 player 销毁、新 player 重新挂监听
-    var initializing by remember { mutableStateOf(false) }
+    var initializing by remember(episodeId) { mutableStateOf(false) }
     // 提取 listener 设置为函数，确保 tryInitPlayer 里也能调用（避免时序问题）
     fun setupPlayerListener(p: MpvPlayer) {
         p.listener = object : MpvPlayer.Listener {
@@ -547,189 +539,101 @@ fun PlayerScreen(
                     com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
                 }
             } catch (_: Throwable) { }
-            // 切集时只上报停止，不销毁播放器（同一播放器复用，退出播放器时才销毁；
-            // 旧逻辑切集时 destroy，下一集要在同一 wid 上重新 init，容易失败导致切集无法播放）。
+            try { p.destroy() } catch (_: Throwable) { }
         }
     }
 
-    // 尝试初始化播放器：canvas 和 videoUrl 都就绪且未初始化过才执行。
-    // 切集复用同一播放器：已初始化时直接 play(新地址) 换片，不重新 init。
-    /** 致命播放错误弹窗。必须用 Swing 对话框：Compose 错误层在 heavyweight Canvas 之下，用户看不到，静默白屏。 */
-    fun showFatalErrorDialog(msg: String, onRetry: () -> Unit) {
-        try {
-            val choice = javax.swing.JOptionPane.showOptionDialog(
-                owner,
-                "$msg\n\n日志：%USERPROFILE%\\.gome\\gome-debug.log",
-                "播放失败",
-                javax.swing.JOptionPane.YES_NO_CANCEL_OPTION,
-                javax.swing.JOptionPane.ERROR_MESSAGE,
-                null,
-                arrayOf("重试", "返回", "取消"),
-                "重试"
-            )
-            when (choice) {
-                0 -> onRetry()
-                1 -> onBack()
-                else -> { }
-            }
-        } catch (_: Throwable) { }
-    }
-
-    /** 无画面看门狗：play 成功后 10 秒仍无 FILE_LOADED 且无进度时弹窗，给静默白屏一个可见的错误 + 重试入口。 */
-    fun startNoFrameWatchdog(gen: Int, onRetry: () -> Unit) {
-        Thread({
-            try { Thread.sleep(10_000) } catch (_: InterruptedException) { return@Thread }
-            SwingUtilities.invokeLater {
-                if (gen != initGenRef.get()) return@invokeLater
-                if (fileLoaded || initError != null || urlError != null) return@invokeLater
-                if (timePos > 0 || duration > 0) return@invokeLater
-                showFatalErrorDialog("视频无画面：播放器已开始播放，但 10 秒内未收到视频画面。\n可能是窗口句柄失效或解码器问题。", onRetry)
-            }
-        }, "mpv-no-frame-watchdog").apply { isDaemon = true; start() }
-    }
-
+    // 尝试初始化播放器：canvas 和 videoUrl 都就绪且未初始化过才执行
     fun tryInitPlayer() {
         val canvas = pendingCanvas
         val url = videoUrl
         if (mpvInitDone || initializing || canvas == null || url == null) return
         mpvInitDone = true
-        val gen = initGenRef.incrementAndGet()
-        // 已初始化（切集）：换片必须放后台线程。1.0.332 回归：原来在 Main/EDT 上同步调
-        // player.play()，loadfile 打开网络流时阻塞 UI 线程 → 白屏 + 点关闭没反应。
-        // 同时校验 wid：Canvas 若重建过（HWND 变了），播放器还挂在旧 wid 上，画面会丢到
-        // 已销毁的窗口 → 白屏；此时先 destroy 再走下面 init 路径用新 wid 重新 init。
-        if (player.isInitialized) {
-            initializing = true
-            val retryAction = { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
-            Thread({
-                val curWid = try {
-                    Win32Util.nativeWindowId(canvas)
-                } catch (e: Throwable) {
-                    SwingUtilities.invokeLater {
-                        if (gen != initGenRef.get()) return@invokeLater
-                        initError = "wid: ${e.message}"
-                        initializing = false
-                        mpvInitDone = false
-                        showFatalErrorDialog("获取窗口句柄失败：wid: ${e.message}", retryAction)
-                    }
-                    return@Thread
-                }
-                if (curWid != player.initWid) {
-                    // wid 已变：销毁旧播放器，回主线程复位后重新走 init 路径
-                    try { player.destroy() } catch (_: Throwable) { }
-                    SwingUtilities.invokeLater {
-                        if (gen != initGenRef.get()) return@invokeLater
-                        initializing = false
-                        mpvInitDone = false
-                        tryInitPlayer()
-                    }
-                    return@Thread
-                }
-                val playErr = try {
-                    player.play(url)
-                } catch (e: Throwable) {
-                    "play异常: ${e.message}"
-                }
-                SwingUtilities.invokeLater {
-                    if (gen != initGenRef.get()) return@invokeLater
-                    initializing = false
-                    if (playErr != null) {
-                        initError = "play: $playErr"
-                        // play 失败复位，允许重试
-                        mpvInitDone = false
-                        showFatalErrorDialog("播放失败：play: $playErr", retryAction)
-                    } else {
-                        inited = true
-                        com.muse.gomepc.player.DebugLog.d("UI", "切集换片开始播放")
-                        startNoFrameWatchdog(gen, retryAction)
-                    }
-                }
-            }, "mpv-switch-episode").apply { isDaemon = true; start() }
-            return
-        }
         initializing = true
         com.muse.gomepc.player.DebugLog.d("UI", "开始初始化播放器, url=$url")
         Thread {
+            // 切集时 Canvas 可能尚未 displayable（新 Canvas 还没布局完），此时 wid 无效。
+            // 等一小会再取，仍无效则给真实错误并复位，错误层"重试"可再试。
+            if (!canvas.isDisplayable) {
+                try { Thread.sleep(300) } catch (_: InterruptedException) { }
+            }
             val wid = try {
-                Win32Util.nativeWindowId(canvas)
+                if (!canvas.isDisplayable) {
+                    SwingUtilities.invokeLater {
+                        initError = "视频画布未就绪（Canvas 未显示），请点重试"
+                        initializing = false
+                        mpvInitDone = false
+                    }
+                    return@Thread
+                }
+                val id = Win32Util.nativeWindowId(canvas)
+                if (id == 0L) {
+                    SwingUtilities.invokeLater {
+                        initError = "视频画布句柄无效（wid=0），请点重试"
+                        initializing = false
+                        mpvInitDone = false
+                    }
+                    return@Thread
+                }
+                id
             } catch (e: Throwable) {
                 SwingUtilities.invokeLater {
-                    // 旧集 init 线程的回包：切集后才返回，直接丢弃，不报错、不动新集标志
-                    if (gen != initGenRef.get()) return@invokeLater
                     initError = "wid: ${e.message}"
                     initializing = false
                     // 初始化失败：mpvInitDone 复位，否则永久无法重试
                     mpvInitDone = false
-                    showFatalErrorDialog("获取窗口句柄失败：wid: ${e.message}") { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
                 }
                 return@Thread
             }
-            val rawErr = try {
+            val err = try {
                 val prefs = com.muse.gomepc.emby.Prefs
                 player.init(wid, vo = vo, hwdec = hwdec, cacheEnabled = prefs.cacheEnabled, cacheSizeGb = prefs.cacheSizeGb)
             } catch (e: Throwable) {
                 "init异常: ${e.message}"
             }
-            // 另一路 tryInitPlayer 已先把播放器初始化好：当成功处理，直接换片
-            val err = if (rawErr == "already initialized") null else rawErr
             SwingUtilities.invokeLater {
-                // 旧集 init 线程的回包：切集后才返回，直接丢弃，不播放旧地址、不报错
-                if (gen != initGenRef.get()) {
-                    com.muse.gomepc.player.DebugLog.d("UI", "丢弃过期 init 回包: $url")
-                    return@invokeLater
-                }
                 initializing = false
                 if (err != null) {
                     initError = err
                     // 初始化失败：mpvInitDone 复位，错误层"重试"按钮才能再次初始化
                     mpvInitDone = false
                     com.muse.gomepc.player.DebugLog.d("UI", "播放器初始化失败: $err")
-                    showFatalErrorDialog("播放器初始化失败：$err") { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
                 } else {
+                    inited = true
                     player.setVolume(volume.toDouble())
                     if (System.getProperty("ui.loop", "false") == "true") {
                         player.setLoop(true)
                     }
                     // 确保 listener 已设置（避免 DisposableEffect 时序问题导致 onTimePos 不回调）
                     try { setupPlayerListener(player) } catch (_: Throwable) { }
-                    // play 放后台线程：loadfile 打开网络流可能阻塞，主线程调它会冻住 UI（1.0.332 白屏回归）
-                    val retryAction = { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
-                    Thread({
-                        val playErr = try {
-                            player.play(url)
-                        } catch (e: Throwable) {
-                            "play异常: ${e.message}"
-                        }
-                        SwingUtilities.invokeLater {
-                            if (gen != initGenRef.get()) return@invokeLater
-                            if (playErr != null) {
-                                initError = "play: $playErr"
-                                // play 失败同样复位，允许重试
-                                mpvInitDone = false
-                                showFatalErrorDialog("播放失败：play: $playErr", retryAction)
-                            } else {
-                                inited = true
-                                com.muse.gomepc.player.DebugLog.d("UI", "开始播放")
-                                // 上报开始播放（1:1 Android）
+                    val playErr = try {
+                        player.play(url)
+                    } catch (e: Throwable) {
+                        "play异常: ${e.message}"
+                    }
+                    if (playErr != null) {
+                        initError = "play: $playErr"
+                        // play 失败同样复位，允许重试
+                        mpvInitDone = false
+                    } else {
+                        com.muse.gomepc.player.DebugLog.d("UI", "开始播放")
+                        // 上报开始播放（1:1 Android）
+                        try {
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                                 try {
-                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                        try {
-                                            com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放: episodeId=$episodeId")
-                                            val err = com.muse.gomepc.emby.YambyClient.reportPlaying(episodeId, mediaSourceId)
-                                            if (err != null) {
-                                                com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放失败: $err")
-                                            } else {
-                                                com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放成功")
-                                            }
-                                        } catch (e: Throwable) {
-                                            com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放异常: ${e.message}")
-                                        }
+                                    com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放: episodeId=$episodeId")
+                                    val err = com.muse.gomepc.emby.YambyClient.reportPlaying(episodeId, mediaSourceId)
+                                    if (err != null) {
+                                        com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放失败: $err")
+                                    } else {
+                                        com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放成功")
                                     }
-                                } catch (_: Throwable) { }
-                                startNoFrameWatchdog(gen, retryAction)
+                                } catch (e: Throwable) {
+                                    com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放异常: ${e.message}")
+                                }
                             }
-                        }
-                    }, "mpv-play").apply { isDaemon = true; start() }
+                        } catch (_: Throwable) { }
+                    }
                 }
             }
         }.start()
@@ -953,21 +857,11 @@ fun PlayerScreen(
         onVolumeChange = { volume = it }
         )
     }
-    // 切集：重置本集播放状态 + 刷新浮动工具栏（新 player/新上下集回调）。
-    // 与取地址的 LaunchedEffect(episodeId) 并发执行：重置是同步的，先于网络返回完成。
+    // 切集：仅刷新浮动工具栏（新 player/新上下集回调）。
+    // 播放状态（videoUrl/mpvInitDone/initError/timePos 等）已由 remember(episodeId)
+    // 在重组时原子重置，不再用一个并发的 LaunchedEffect 重置——旧写法里重置与取地址
+    // 两个 LaunchedEffect(episodeId) 并发，取地址先完成再被重置清掉 videoUrl 时切集永不播放。
     LaunchedEffect(episodeId) {
-        mpvInitDone = false
-        inited = false
-        initializing = false
-        fileLoaded = false
-        initError = null
-        urlError = null
-        videoUrl = null
-        timePos = 0.0
-        duration = 0.0
-        paused = false
-        dragging = false
-        dragPos = 0f
         controlsVisible = true
         toolbarVisibleFlag.set(true)
         lastInteraction.set(System.currentTimeMillis())
@@ -1357,14 +1251,10 @@ fun PlayerScreen(
                                 .padding(start = 8.dp)
                                 .background(Color(0xFF555555), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
                                 .clickable {
-                                    // 用公网示例视频测试 mpv 本体（play 放后台线程：loadfile 可能阻塞，Main 上调会冻住 UI）
+                                    // 用公网示例视频测试 mpv 本体
                                     val testUrl = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4"
-                                    Thread({
-                                        val err = player.play(testUrl)
-                                        SwingUtilities.invokeLater {
-                                            urlTestResult = if (err != null) "公网测试 play 失败: $err" else "已发送公网视频，看 fileLoaded 变不变"
-                                        }
-                                    }, "mpv-test-play").apply { isDaemon = true; start() }
+                                    val err = player.play(testUrl)
+                                    urlTestResult = if (err != null) "公网测试 play 失败: $err" else "已发送公网视频，看 fileLoaded 变不变"
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         )
