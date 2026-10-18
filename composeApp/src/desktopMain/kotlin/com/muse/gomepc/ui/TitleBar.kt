@@ -58,12 +58,13 @@ data class TitleBarConfig(
     val centerTitle: String? = null
 )
 
-/** 标题栏拖动：按住空白处移动窗口；双击切换最大化。最大化时不拖动。 */
+/** 标题栏拖动：按住空白处移动窗口；双击切换最大化。最大化时不拖动，但仍响应双击还原。 */
 fun Modifier.titleBarDrag(
     window: java.awt.Window,
     enabled: Boolean,
-    onDoubleClick: () -> Unit
-): Modifier = pointerInput(window, enabled) {
+    onDoubleClick: () -> Unit,
+    isMaximized: Boolean = false
+): Modifier = pointerInput(window, enabled, isMaximized) {
     var lastDownMs = 0L
     awaitEachGesture {
         val down = awaitFirstDown() // 只响应未被子组件消费的按下（图标不触发拖动）
@@ -82,6 +83,7 @@ fun Modifier.titleBarDrag(
             val ch = ev.changes.firstOrNull()
             if (ch == null || !ch.pressed) break
             ch.consume()
+            if (isMaximized) continue // 最大化时只判断双击，不拖动窗口
             try {
                 val curMouse = java.awt.MouseInfo.getPointerInfo()?.location ?: break
                 val dx = curMouse.x - startMouse.x
@@ -114,9 +116,16 @@ fun CustomTitleBar(
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
-            .then(if (window != null) Modifier.titleBarDrag(window, !isMaximized, onToggleMaximize) else Modifier)
             .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
+        // 拖动层只铺空白区：放在最底层，图标背板在其上层先命中并消费点击，
+        // 点图标不会触发拖动，点空白处才拖动/双击。
+        if (window != null) {
+            Box(
+                Modifier.fillMaxSize()
+                    .titleBarDrag(window, true, onToggleMaximize, isMaximized)
+            )
+        }
         // 左侧：椭圆毛玻璃背板 + 3 图标（垂直居中）
         MGlassBox(
             modifier = Modifier.align(Alignment.CenterStart),
