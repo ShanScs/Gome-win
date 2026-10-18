@@ -3,11 +3,14 @@ package com.muse.gomepc.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -35,6 +38,10 @@ object HomeDataCache {
         val p = com.muse.gomepc.emby.Prefs
         return "${p.protocol}://${p.host}:${p.port}${p.path}|${p.username}"
     }
+
+    /** 校验本次加载的 key 是否仍是当前服务器；切服务器后旧请求的返回一律丢弃 */
+    private fun keyStillValid(key: String): Boolean =
+        key == serverKey && key == currentServerKey()
 
     /** 第一次调用时后台加载一次；已加载过则直接返回缓存；服务器变了则重载 */
     fun ensureLoaded() {
@@ -81,47 +88,86 @@ object HomeDataCache {
         }
     }
 
+    /**
+     * 单次网络加载。fetch 返回 null = 超时/失败，本次不覆盖旧数据（超时返回的空列表
+     * 绝不能清空"继续观看"）；只有成功返回才赋值，且每次赋值前校验 key、切回 Main 线程。
+     */
     private suspend fun loadFromNetwork(key: String, isRefresh: Boolean = false) {
         try {
-            if (!isRefresh) error = null
-            // 第一批：libraries + resume + latest（各 15 秒超时，并行）
-            val libsDef = scope.async { withTimeoutOrNull(15000) { Repo.libraries() } ?: emptyList() }
-            val resumeDef = scope.async { withTimeoutOrNull(15000) { try { Repo.resumeItems() } catch (_: Exception) { emptyList() } } ?: emptyList() }
-            val latestDef = scope.async { withTimeoutOrNull(15000) { try { Repo.latestItems(8) } catch (_: Exception) { emptyList() } } ?: emptyList() }
-            val l = libsDef.await()
-            if (l.isNotEmpty()) {
-                libs = l
+            if (!isRefresh) withContext(Dispatchers.Main) { error = null }
+            // 结构化并发：async 挂在本次 coroutineScope 下，随加载取消而取消，不泄漏
+            val firstBatch = coroutineScope {
+                // 失败/超时返回 null；CancellationException 必须重抛，不能被吞掉
+                val libsDef = async {
+                    try { withTimeoutOrNull(15000) { Repo.libraries() } }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { null }
+                }
+                val resumeDef = async {
+                    try { withTimeoutOrNull(15000) { Repo.resumeItems() } }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { null }
+                }
+                val latestDef = async {
+                    try { withTimeoutOrNull(15000) { Repo.latestItems(8) } }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { null }
+                }
+                Triple(libsDef.await(), resumeDef.await(), latestDef.await())
+            }
+            if (!keyStillValid(key)) return
+            val l = firstBatch.first
+            if (!l.isNullOrEmpty()) {
+                withContext(Dispatchers.Main) { libs = l }
                 HomeDiskCache.saveLibraries(key, l)
+            } else if (!isRefresh) {
+                // 首载且媒体库为空：大概率是网络失败，不要标记 loaded（否则 UI 一直空列表无错误）
+                withContext(Dispatchers.Main) {
+                    error = "加载失败，请检查网络或服务器"
+                    loading = false
+                }
+                return
             }
-            val r = resumeDef.await()
-            resume = r
-            HomeDiskCache.saveResume(key, r)
-            val lat = latestDef.await()
-            latest = lat
-            HomeDiskCache.saveLatest(key, lat)
+            firstBatch.second?.let { r ->
+                withContext(Dispatchers.Main) { resume = r }
+                HomeDiskCache.saveResume(key, r)
+            }
+            firstBatch.third?.let { lat ->
+                withContext(Dispatchers.Main) { latest = lat }
+                HomeDiskCache.saveLatest(key, lat)
+            }
             // 库列表出来就标记完成，UI 先显示；剧集后台并行填
-            loaded = true
-            if (!isRefresh) loading = false
+            withContext(Dispatchers.Main) {
+                loaded = true
+                if (!isRefresh) loading = false
+            }
             // 第二批：每个媒体库的 items（各 15 秒超时，并行，增量更新 UI）
-            val itemsDefs = l.map { lib ->
-                lib.id to scope.async {
-                    withTimeoutOrNull(15000) { try { Repo.items(lib.id, 12) } catch (_: Exception) { emptyList() } } ?: emptyList()
+            val libsForItems = l ?: emptyList()
+            coroutineScope {
+                val itemsDefs = libsForItems.map { lib ->
+                    lib.id to async {
+                        try { withTimeoutOrNull(15000) { Repo.items(lib.id, 12, libName = lib.name) } }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { null }
+                    }
+                }
+                for ((id, def) in itemsDefs) {
+                    val items = def.await() ?: continue // 超时/失败：跳过，不覆盖旧数据
+                    if (!keyStillValid(key)) return@coroutineScope
+                    if (items.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            libItems = libItems.toMutableMap().also { it[id] = items }
+                        }
+                        HomeDiskCache.saveLibItems(key, id, items)
+                    }
                 }
             }
-            val map = (libItems as? MutableMap<String, List<UiMediaItem>>)?.toMutableMap() ?: mutableMapOf()
-            for ((id, def) in itemsDefs) {
-                val items = def.await()
-                if (items.isNotEmpty()) {
-                    map[id] = items
-                    // 增量更新：每回来一个库就刷新 UI，不用等全部
-                    libItems = map.toMap()
-                    HomeDiskCache.saveLibItems(key, id, items)
-                }
-            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (!isRefresh) error = e.message ?: "未知错误"
+            if (!isRefresh) withContext(Dispatchers.Main) { error = e.message ?: "未知错误" }
         } finally {
-            if (!isRefresh) loading = false
+            if (!isRefresh) withContext(Dispatchers.Main) { loading = false }
         }
     }
 
@@ -144,11 +190,14 @@ object HomeDataCache {
         scope.launch {
             try {
                 val data = Repo.resumeItems()
-                // 切回主线程更新 Compose 状态，避免后台线程直接写 mutableStateOf
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                // 切服务器后返回的旧数据丢弃；状态赋值切 Main 线程
+                if (key != currentServerKey()) return@launch
+                withContext(Dispatchers.Main) {
                     resume = data
                 }
                 HomeDiskCache.saveResume(key, data)
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) { }
         }
     }
