@@ -463,8 +463,6 @@ fun PlayerScreen(
     var urlRetryKey by remember { mutableStateOf(0) }
     LaunchedEffect(episodeId, urlRetryKey) {
         try {
-            // 上报正在播放（Emby 播放记录），带详情页选的版本
-            Repo.reportPlaying(episodeId, mediaSourceId)
             // 详情页选了版本时按版本取流，否则默认取流
             val urls = if (mediaSourceId.isNotEmpty()) {
                 Repo.playbackUrlsForSource(episodeId, mediaSourceId)
@@ -478,6 +476,13 @@ fun PlayerScreen(
                 videoUrls = urls
                 videoUrlIndex = 0
                 videoUrl = urls.first()
+            }
+            // 上报正在播放：放取地址之后异步发，不阻塞取地址/初始化。
+            // 取地址已缓存 PlaySessionId，reportPlaying 不会重复拉一份 PlaybackInfo；
+            // 旧写法先 reportPlaying 再取地址，新集无缓存时要串行发两份 PlaybackInfo + 一份 Playing，多 1~3 秒。
+            // play() 成功后 tryInitPlayer 还会再上报一次，本处只补首播的会话记录。
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try { Repo.reportPlaying(episodeId, mediaSourceId) } catch (_: Exception) { }
             }
         } catch (e: Exception) {
             urlError = "获取播放地址失败：${e.message?.take(120)}"
@@ -613,7 +618,12 @@ fun PlayerScreen(
                     com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
                 }
             } catch (_: Throwable) { }
-            try { p.destroy() } catch (_: Throwable) { }
+            // destroy 放后台线程：mpv_terminate_destroy + 事件线程 join(2000) 是同步阻塞，
+            // 放组合线程会冻住新集的组合/布局/新 Canvas peer 创建，切集白白多等 2 秒+。
+            // 旧 player 与新 player 是不同实例，mpv ctx 独立，后台销毁不影响新集 init。
+            Thread({
+                try { p.destroy() } catch (_: Throwable) { }
+            }, "mpv-destroy-$episodeId").apply { isDaemon = true; start() }
         }
     }
 
@@ -656,11 +666,11 @@ fun PlayerScreen(
                     cur = latest
                     com.muse.gomepc.player.DebugLog.d("UI", "初始化跟随新画布")
                 }
-                // 等画布就绪：每 250ms 查一次，最多等 5s；画布被移除（detached）时立即退出，不空等。
+                // 等画布就绪：每 50ms 查一次，最多等 5s；画布被移除（detached）时立即退出，不空等。
                 var waited = 0
                 while (!cur.isDisplayable && waited < 5000 && cur.parent != null) {
-                    try { Thread.sleep(250) } catch (_: InterruptedException) { break }
-                    waited += 250
+                    try { Thread.sleep(50) } catch (_: InterruptedException) { break }
+                    waited += 50
                     // 等待期间画布切换：跟随新画布，重新等。
                     val l2 = pendingCanvas
                     if (l2 != null && l2 !== cur) { cur = l2; waited = 0 }
