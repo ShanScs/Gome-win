@@ -60,6 +60,7 @@ fun LoginScreen(
         if (s.isEmpty()) return false
         return try {
             // 支持 "http://host:port/path" / "https://host:port" / "host:port" / "host"
+            // 先全部解析到局部变量并校验，全部通过后才写 Prefs（校验失败时不留下半写配置）
             var rest = s
             var proto = "http"
             if (rest.startsWith("http://", true)) {
@@ -72,13 +73,18 @@ fun LoginScreen(
             val pathPart = if (slashIdx >= 0) rest.substring(slashIdx + 1) else ""
             val colonIdx = hostPort.lastIndexOf(':')
             val host = if (colonIdx >= 0) hostPort.substring(0, colonIdx) else hostPort
-            val port = if (colonIdx >= 0) hostPort.substring(colonIdx + 1) else
+            val portStr = if (colonIdx >= 0) hostPort.substring(colonIdx + 1) else
                 if (proto == "https") "443" else "80"
-            if (host.isBlank()) return false
+            // 校验：host 非空、无空白/斜杠；端口必须为 1..65535 的数字
+            if (host.isBlank() || host.any { it.isWhitespace() || it == '/' }) return false
+            val portNum = portStr.toIntOrNull() ?: return false
+            if (portNum !in 1..65535) return false
+            val path = pathPart.trim('/').ifEmpty { "emby" }
+            if (path.any { it.isWhitespace() }) return false
             Prefs.protocol = proto
             Prefs.host = host
-            Prefs.port = port
-            Prefs.path = pathPart.trim('/').ifEmpty { "emby" }
+            Prefs.port = portNum.toString()
+            Prefs.path = path
             true
         } catch (_: Exception) {
             false
@@ -106,6 +112,8 @@ fun LoginScreen(
                     Prefs.touchServerLastUsed(Prefs.currentServerKey())
                 } catch (_: Exception) { }
                 busy = false
+                // 成功后清空密码，不让明文密码留在内存/输入框里
+                password = ""
                 onLoggedIn()
             } catch (e: Exception) {
                 busy = false
