@@ -77,6 +77,9 @@ class MpvPlayer : Closeable {
     @Volatile var listener: Listener? = null
 
     @Volatile private var handle: Pointer? = null
+    /** init 成功时传入的 wid（用于校验 Canvas 重建后 wid 是否变了）；-1 = 未初始化。 */
+    @Volatile var initWid: Long = -1L
+        private set
     @Volatile private var running = false
     @Volatile private var eventThread: Thread? = null
     /** 串行化 init/destroy，避免重初始化与释放竞态。 */
@@ -195,7 +198,8 @@ class MpvPlayer : Closeable {
         if (wid > 0) requireOpt("wid", wid.toString())?.let { return it }
         optChecked("msg-level", "all=warn")                   // 默认 warn，避免日志洪泛
         optChecked("terminal", "no")
-        optChecked("tls-verify", "yes")                       // 默认校验 TLS，不全局关闭
+        optChecked("tls-verify", "yes")
+        optChecked("network-timeout", "30")  // 网络流打开超时 30s，避免 loadfile 无限挂起冻住 UI                       // 默认校验 TLS，不全局关闭
         optChecked("input-cursor", "no")
         optChecked("input-vo-keyboard", "no")
         optChecked("input-default-bindings", "no")
@@ -232,6 +236,7 @@ class MpvPlayer : Closeable {
             return releaseAndFail("mpv_initialize failed: ${e.message}")
         }
         if (r < 0) return releaseAndFail("mpv_initialize failed: ${libErrorString(lib, r)}")
+        initWid = wid
 
         // OSD 关掉（UI 自己画控制条；set_option 在某些构建不生效，改用 property），判返回值
         val osdR = try { lib.mpv_set_property_string(ctx, "osd-level", "0") } catch (_: Throwable) { -1 }
@@ -259,6 +264,7 @@ class MpvPlayer : Closeable {
     /** 释放本次 init 创建的 ctx（仅 init 失败路径用；不碰 eventThread，事件线程尚未启动）。 */
     private fun releaseCtxLocked(ctx: Pointer) {
         if (handle == ctx) handle = null
+        initWid = -1L
         running = false
         try { LibMpv.INSTANCE.mpv_terminate_destroy(ctx) } catch (_: Throwable) { }
     }
@@ -580,7 +586,10 @@ class MpvPlayer : Closeable {
                     MpvEventId.NONE -> { /* 超时 */ }
                     MpvEventId.SHUTDOWN -> {
                         running = false
-                        if (handle == ctx) handle = null
+                        if (handle == ctx) {
+                            handle = null
+                            initWid = -1L
+                        }
                         val l = listener
                         dispatchOnEdt {
                             try { l?.onShutdown() } catch (_: Throwable) { }
@@ -729,6 +738,7 @@ class MpvPlayer : Closeable {
         val state: Pair<Pointer, Thread?>? = synchronized(initLock) {
             val cur = handle ?: return@synchronized null
             handle = null
+            initWid = -1L
             running = false
             val t = eventThread
             eventThread = null
