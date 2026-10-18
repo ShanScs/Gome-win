@@ -380,8 +380,9 @@ fun PlayerScreen(
                 danmakuWindowRef?.dispose()
             } catch (_: Throwable) { }
             danmakuWindowRef = null
-            // 退出播放器时才销毁单例播放器（切集时不销毁，复用）
-            try { player.destroy() } catch (_: Throwable) { }
+            // 退出播放器时才销毁单例播放器（切集时不销毁，复用）。
+            // 放后台线程：destroy 内部 join 事件线程最多 2s，主线程等它会冻住窗口、点关闭没反应。
+            Thread({ try { player.destroy() } catch (_: Throwable) { } }, "mpv-destroy").apply { isDaemon = true; start() }
         }
     }
     /** 切换弹幕：永久禁用后再次启用=解除；否则翻转引擎开关 */
@@ -553,27 +554,97 @@ fun PlayerScreen(
 
     // 尝试初始化播放器：canvas 和 videoUrl 都就绪且未初始化过才执行。
     // 切集复用同一播放器：已初始化时直接 play(新地址) 换片，不重新 init。
+    /** 致命播放错误弹窗。必须用 Swing 对话框：Compose 错误层在 heavyweight Canvas 之下，用户看不到，静默白屏。 */
+    fun showFatalErrorDialog(msg: String, onRetry: () -> Unit) {
+        try {
+            val choice = javax.swing.JOptionPane.showOptionDialog(
+                owner,
+                "$msg\n\n日志：%USERPROFILE%\\.gome\\gome-debug.log",
+                "播放失败",
+                javax.swing.JOptionPane.YES_NO_CANCEL_OPTION,
+                javax.swing.JOptionPane.ERROR_MESSAGE,
+                null,
+                arrayOf("重试", "返回", "取消"),
+                "重试"
+            )
+            when (choice) {
+                0 -> onRetry()
+                1 -> onBack()
+                else -> { }
+            }
+        } catch (_: Throwable) { }
+    }
+
+    /** 无画面看门狗：play 成功后 10 秒仍无 FILE_LOADED 且无进度时弹窗，给静默白屏一个可见的错误 + 重试入口。 */
+    fun startNoFrameWatchdog(gen: Int, onRetry: () -> Unit) {
+        Thread({
+            try { Thread.sleep(10_000) } catch (_: InterruptedException) { return@Thread }
+            SwingUtilities.invokeLater {
+                if (gen != initGenRef.get()) return@invokeLater
+                if (fileLoaded || initError != null || urlError != null) return@invokeLater
+                if (timePos > 0 || duration > 0) return@invokeLater
+                showFatalErrorDialog("视频无画面：播放器已开始播放，但 10 秒内未收到视频画面。\n可能是窗口句柄失效或解码器问题。", onRetry)
+            }
+        }, "mpv-no-frame-watchdog").apply { isDaemon = true; start() }
+    }
+
     fun tryInitPlayer() {
         val canvas = pendingCanvas
         val url = videoUrl
         if (mpvInitDone || initializing || canvas == null || url == null) return
         mpvInitDone = true
         val gen = initGenRef.incrementAndGet()
-        // 已初始化（切集）：直接换片，不重新 init，避免同 wid 重复 init 失败
+        // 已初始化（切集）：换片必须放后台线程。1.0.332 回归：原来在 Main/EDT 上同步调
+        // player.play()，loadfile 打开网络流时阻塞 UI 线程 → 白屏 + 点关闭没反应。
+        // 同时校验 wid：Canvas 若重建过（HWND 变了），播放器还挂在旧 wid 上，画面会丢到
+        // 已销毁的窗口 → 白屏；此时先 destroy 再走下面 init 路径用新 wid 重新 init。
         if (player.isInitialized) {
-            val playErr = try {
-                player.play(url)
-            } catch (e: Throwable) {
-                "play异常: ${e.message}"
-            }
-            if (playErr != null) {
-                initError = "play: $playErr"
-                // play 失败复位，允许重试
-                mpvInitDone = false
-            } else {
-                inited = true
-                com.muse.gomepc.player.DebugLog.d("UI", "切集换片开始播放")
-            }
+            initializing = true
+            val retryAction = { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
+            Thread({
+                val curWid = try {
+                    Win32Util.nativeWindowId(canvas)
+                } catch (e: Throwable) {
+                    SwingUtilities.invokeLater {
+                        if (gen != initGenRef.get()) return@invokeLater
+                        initError = "wid: ${e.message}"
+                        initializing = false
+                        mpvInitDone = false
+                        showFatalErrorDialog("获取窗口句柄失败：wid: ${e.message}", retryAction)
+                    }
+                    return@Thread
+                }
+                if (curWid != player.initWid) {
+                    // wid 已变：销毁旧播放器，回主线程复位后重新走 init 路径
+                    try { player.destroy() } catch (_: Throwable) { }
+                    SwingUtilities.invokeLater {
+                        if (gen != initGenRef.get()) return@invokeLater
+                        initializing = false
+                        mpvInitDone = false
+                        tryInitPlayer()
+                    }
+                    return@Thread
+                }
+                val playErr = try {
+                    player.play(url)
+                } catch (e: Throwable) {
+                    "play异常: ${e.message}"
+                }
+                SwingUtilities.invokeLater {
+                    if (gen != initGenRef.get()) return@invokeLater
+                    initializing = false
+                    if (playErr != null) {
+                        initError = "play: $playErr"
+                        // play 失败复位，允许重试
+                        mpvInitDone = false
+                        showFatalErrorDialog("播放失败：play: $playErr", retryAction)
+                    } else {
+                        inited = true
+                        com.muse.gomepc.player.DebugLog.d("UI", "切集换片开始播放")
+                        startNoFrameWatchdog(gen, retryAction)
+                    }
+                }
+            }, "mpv-switch-episode").apply { isDaemon = true; start() }
             return
         }
         initializing = true
@@ -589,6 +660,7 @@ fun PlayerScreen(
                     initializing = false
                     // 初始化失败：mpvInitDone 复位，否则永久无法重试
                     mpvInitDone = false
+                    showFatalErrorDialog("获取窗口句柄失败：wid: ${e.message}") { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
                 }
                 return@Thread
             }
@@ -612,42 +684,52 @@ fun PlayerScreen(
                     // 初始化失败：mpvInitDone 复位，错误层"重试"按钮才能再次初始化
                     mpvInitDone = false
                     com.muse.gomepc.player.DebugLog.d("UI", "播放器初始化失败: $err")
+                    showFatalErrorDialog("播放器初始化失败：$err") { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
                 } else {
-                    inited = true
                     player.setVolume(volume.toDouble())
                     if (System.getProperty("ui.loop", "false") == "true") {
                         player.setLoop(true)
                     }
                     // 确保 listener 已设置（避免 DisposableEffect 时序问题导致 onTimePos 不回调）
                     try { setupPlayerListener(player) } catch (_: Throwable) { }
-                    val playErr = try {
-                        player.play(url)
-                    } catch (e: Throwable) {
-                        "play异常: ${e.message}"
-                    }
-                    if (playErr != null) {
-                        initError = "play: $playErr"
-                        // play 失败同样复位，允许重试
-                        mpvInitDone = false
-                    } else {
-                        com.muse.gomepc.player.DebugLog.d("UI", "开始播放")
-                        // 上报开始播放（1:1 Android）
-                        try {
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    // play 放后台线程：loadfile 打开网络流可能阻塞，主线程调它会冻住 UI（1.0.332 白屏回归）
+                    val retryAction = { initError = null; mpvInitDone = false; initializing = false; tryInitPlayer() }
+                    Thread({
+                        val playErr = try {
+                            player.play(url)
+                        } catch (e: Throwable) {
+                            "play异常: ${e.message}"
+                        }
+                        SwingUtilities.invokeLater {
+                            if (gen != initGenRef.get()) return@invokeLater
+                            if (playErr != null) {
+                                initError = "play: $playErr"
+                                // play 失败同样复位，允许重试
+                                mpvInitDone = false
+                                showFatalErrorDialog("播放失败：play: $playErr", retryAction)
+                            } else {
+                                inited = true
+                                com.muse.gomepc.player.DebugLog.d("UI", "开始播放")
+                                // 上报开始播放（1:1 Android）
                                 try {
-                                    com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放: episodeId=$episodeId")
-                                    val err = com.muse.gomepc.emby.YambyClient.reportPlaying(episodeId, mediaSourceId)
-                                    if (err != null) {
-                                        com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放失败: $err")
-                                    } else {
-                                        com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放成功")
+                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                        try {
+                                            com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放: episodeId=$episodeId")
+                                            val err = com.muse.gomepc.emby.YambyClient.reportPlaying(episodeId, mediaSourceId)
+                                            if (err != null) {
+                                                com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放失败: $err")
+                                            } else {
+                                                com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放成功")
+                                            }
+                                        } catch (e: Throwable) {
+                                            com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放异常: ${e.message}")
+                                        }
                                     }
-                                } catch (e: Throwable) {
-                                    com.muse.gomepc.player.DebugLog.d("UI", "上报开始播放异常: ${e.message}")
-                                }
+                                } catch (_: Throwable) { }
+                                startNoFrameWatchdog(gen, retryAction)
                             }
-                        } catch (_: Throwable) { }
-                    }
+                        }
+                    }, "mpv-play").apply { isDaemon = true; start() }
                 }
             }
         }.start()
@@ -1275,10 +1357,14 @@ fun PlayerScreen(
                                 .padding(start = 8.dp)
                                 .background(Color(0xFF555555), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
                                 .clickable {
-                                    // 用公网示例视频测试 mpv 本体
+                                    // 用公网示例视频测试 mpv 本体（play 放后台线程：loadfile 可能阻塞，Main 上调会冻住 UI）
                                     val testUrl = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4"
-                                    val err = player.play(testUrl)
-                                    urlTestResult = if (err != null) "公网测试 play 失败: $err" else "已发送公网视频，看 fileLoaded 变不变"
+                                    Thread({
+                                        val err = player.play(testUrl)
+                                        SwingUtilities.invokeLater {
+                                            urlTestResult = if (err != null) "公网测试 play 失败: $err" else "已发送公网视频，看 fileLoaded 变不变"
+                                        }
+                                    }, "mpv-test-play").apply { isDaemon = true; start() }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         )
