@@ -552,52 +552,57 @@ fun PlayerScreen(
         initializing = true
         com.muse.gomepc.player.DebugLog.d("UI", "开始初始化播放器, url=$url")
         Thread {
-            // 切集时 Canvas 可能尚未 displayable（新 Canvas 还没布局完），此时 wid 无效。
-            // 等一小会再取，仍无效则给真实错误并复位，错误层"重试"可再试。
-            if (!canvas.isDisplayable) {
-                try { Thread.sleep(300) } catch (_: InterruptedException) { }
-            }
-            val wid = try {
+            // 画布就绪 + 初始化最多试 3 次：布局/peer 创建可能慢于 URL 返回，
+            // 单次 300ms 等待不够，且失败后无任何自动重试时首播会永久卡在"无法播放"。
+            // 失败只在 3 次都耗尽后才报 initError（错误层"重试"仍可手动再试）。
+            var lastErr: String? = null
+            var initOk = false
+            for (attempt in 0..2) {
+                // 等画布就绪：每 250ms 查一次，最多等 5s
+                var waited = 0
+                while (!canvas.isDisplayable && waited < 5000) {
+                    try { Thread.sleep(250) } catch (_: InterruptedException) { break }
+                    waited += 250
+                }
                 if (!canvas.isDisplayable) {
-                    SwingUtilities.invokeLater {
-                        initError = "视频画布未就绪（Canvas 未显示），请点重试"
-                        initializing = false
-                        mpvInitDone = false
+                    lastErr = "视频画布未就绪（Canvas 未显示），请点重试"
+                } else {
+                    val wid: Long = try {
+                        val id = Win32Util.nativeWindowId(canvas)
+                        if (id == 0L) {
+                            lastErr = "视频画布句柄无效（wid=0），请点重试"
+                            -1L
+                        } else id
+                    } catch (e: Throwable) {
+                        lastErr = "wid: ${e.message}"
+                        -1L
                     }
-                    return@Thread
-                }
-                val id = Win32Util.nativeWindowId(canvas)
-                if (id == 0L) {
-                    SwingUtilities.invokeLater {
-                        initError = "视频画布句柄无效（wid=0），请点重试"
-                        initializing = false
-                        mpvInitDone = false
+                    if (wid > 0) {
+                        val err = try {
+                            val prefs = com.muse.gomepc.emby.Prefs
+                            player.init(wid, vo = vo, hwdec = hwdec, cacheEnabled = prefs.cacheEnabled, cacheSizeGb = prefs.cacheSizeGb)
+                        } catch (e: Throwable) {
+                            "init异常: ${e.message}"
+                        }
+                        if (err == null) {
+                            initOk = true
+                            break
+                        }
+                        lastErr = err
                     }
-                    return@Thread
                 }
-                id
-            } catch (e: Throwable) {
-                SwingUtilities.invokeLater {
-                    initError = "wid: ${e.message}"
-                    initializing = false
-                    // 初始化失败：mpvInitDone 复位，否则永久无法重试
-                    mpvInitDone = false
+                if (attempt < 2) {
+                    com.muse.gomepc.player.DebugLog.d("UI", "初始化第 ${attempt + 1} 次失败（$lastErr），1s 后自动重试")
+                    try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
                 }
-                return@Thread
-            }
-            val err = try {
-                val prefs = com.muse.gomepc.emby.Prefs
-                player.init(wid, vo = vo, hwdec = hwdec, cacheEnabled = prefs.cacheEnabled, cacheSizeGb = prefs.cacheSizeGb)
-            } catch (e: Throwable) {
-                "init异常: ${e.message}"
             }
             SwingUtilities.invokeLater {
                 initializing = false
-                if (err != null) {
-                    initError = err
+                if (!initOk) {
+                    initError = lastErr ?: "播放器初始化失败"
                     // 初始化失败：mpvInitDone 复位，错误层"重试"按钮才能再次初始化
                     mpvInitDone = false
-                    com.muse.gomepc.player.DebugLog.d("UI", "播放器初始化失败: $err")
+                    com.muse.gomepc.player.DebugLog.d("UI", "播放器初始化失败: $lastErr")
                 } else {
                     inited = true
                     player.setVolume(volume.toDouble())
@@ -698,6 +703,14 @@ fun PlayerScreen(
     // videoUrl 就绪后尝试初始化（canvas 可能先就绪）
     LaunchedEffect(videoUrl) {
         tryInitPlayer()
+        // 兜底：Canvas 就绪回调（componentResized）若一直没触发，pendingCanvas 恒为 null，
+        // tryInitPlayer 会静默早退、永不报错。2s 后仍无 Canvas 时给真实错误，不静默卡死。
+        if (videoUrl != null && pendingCanvas == null) {
+            kotlinx.coroutines.delay(2000)
+            if (pendingCanvas == null && videoUrl != null && initError == null && urlError == null) {
+                initError = "视频画布未创建（Canvas 未就绪），请点重试"
+            }
+        }
     }
 
     // 定期上报播放进度（1:1 Android：每10秒上报一次）
