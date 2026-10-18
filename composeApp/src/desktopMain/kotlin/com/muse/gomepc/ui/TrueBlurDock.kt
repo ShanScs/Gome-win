@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -42,8 +42,8 @@ fun TrueBlurDockBackground(
     val shape = RoundedCornerShape(corner)
 
     // 模糊背景层：全屏渲染 + blur + 底部对齐 + 圆角裁剪
-    // 注意：不要加 offset——BottomCenter 对齐后采样已与真实内容像素对齐，
-    // 加 offset 会导致上下分层、空白区串色（2026-10-08 教训）
+    // 12dp 补偿：Dock 容器带 12dp 底边距，容器底边比屏幕底边高 12dp；
+    // blur 层按容器底边对齐时会整体偏上 12dp，需下移 12dp 才与背后真实内容像素对齐。
     // pointerInput 吞掉所有指针事件：模糊副本不接收滚轮/点击，避免与主内容冲突
     Box(
         modifier = modifier
@@ -53,6 +53,7 @@ fun TrueBlurDockBackground(
             modifier = Modifier
                 .size(screenW, screenH)
                 .align(Alignment.BottomCenter)
+                .offset(y = 12.dp)
                 .blur(24.dp)
                 .pointerInput(Unit) {
                     // 消费所有指针事件，阻止模糊副本截获滚轮
