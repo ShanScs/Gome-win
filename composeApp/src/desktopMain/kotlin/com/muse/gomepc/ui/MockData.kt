@@ -1,6 +1,7 @@
 package com.muse.gomepc.ui
 
 import androidx.compose.ui.graphics.Color
+import java.util.Locale
 
 /**
  * Mock 数据（真实 Emby 服务器对接前用于 UI 验证）。
@@ -20,7 +21,9 @@ data class MockItem(
     val rating: String?,
     val hue: Float,
     val libName: String,
-    val overview: String
+    val overview: String,
+    /** 继续观看进度 0..1（演示模式用，无则 null） */
+    val progress: Float? = null
 )
 
 data class MockEpisode(
@@ -55,12 +58,13 @@ private val overviews = listOf(
 
 fun mockItems(lib: MockLibrary, count: Int = 10): List<MockItem> =
     (0 until count).map { i ->
-        val (n, y) = names[(lib.id.hashCode() + i).let { if (it < 0) -it else it } % names.size]
+        // floorMod：hashCode 可能为 Int.MIN_VALUE，取反会溢出仍为负，用 floorMod 保证非负
+        val (n, y) = names[Math.floorMod(lib.id.hashCode() + i, names.size)]
         MockItem(
             id = "${lib.id}-$i",
             name = n,
             year = y,
-            rating = if (i % 3 == 0) "%.1f".format(9.2 - (i % 5) * 0.3) else null,
+            rating = if (i % 3 == 0) String.format(Locale.US, "%.1f", 9.2 - (i % 5) * 0.3) else null,
             hue = (lib.hue + i * 17) % 360,
             libName = lib.name,
             overview = overviews[i % overviews.size]
@@ -69,7 +73,7 @@ fun mockItems(lib: MockLibrary, count: Int = 10): List<MockItem> =
 
 fun mockResumeItems(): List<MockItem> =
     mockItems(mockLibraries[1], 8).mapIndexed { i, it ->
-        it.copy(name = it.name, rating = "${(i + 1) * 12}%")
+        it.copy(progress = ((i + 1) * 12 / 100f).coerceIn(0f, 1f))
     }
 
 fun mockEpisodes(item: MockItem, count: Int = 24): List<MockEpisode> =
