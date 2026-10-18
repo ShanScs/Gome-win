@@ -113,12 +113,15 @@ private fun defaultHwdec(): String =
  */
 @Composable
 private fun VideoCanvasArea(
+    episodeId: String,
     controlsVisibleState: androidx.compose.runtime.MutableState<Boolean>,
     lastInteraction: java.util.concurrent.atomic.AtomicLong,
     onCanvasReadyOnce: (java.awt.Canvas) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var hasNotified by remember { mutableStateOf(false) }
+    // 按集键控：切集时重置，否则同槽重组会沿用旧集的 hasNotified=true，
+    // 新 Canvas 的 resize/shown 事件被吞掉，onCanvasReadyOnce 永不触发（1.0.337 切集黑屏根因之一）。
+    var hasNotified by remember(episodeId) { mutableStateOf(false) }
 
     SwingPanel(
         background = Color.Black,
@@ -127,14 +130,16 @@ private fun VideoCanvasArea(
                 background = java.awt.Color.BLACK
                 val canvas = this
                 com.muse.gomepc.player.DebugLog.d("UI", "Canvas 已创建: ${width}x${height}")
-                addComponentListener(object : ComponentAdapter() {
-                    private fun tryNotify() {
-                        if (width > 0 && height > 0 && !hasNotified) {
-                            hasNotified = true
-                            onCanvasReadyOnce(canvas)
-                        }
+                // isShowing 要求 peer 已创建（AWT：peer 为空时 isShowing 恒 false），
+                // 因此通知触发即保证 tryInitPlayer 的 isDisplayable 等待能立即成功，
+                // 不会再出现“已通知却 15 秒等不到 peer”的情况。
+                fun tryNotify() {
+                    if (isShowing && width > 0 && height > 0 && !hasNotified) {
+                        hasNotified = true
+                        onCanvasReadyOnce(canvas)
                     }
-
+                }
+                addComponentListener(object : ComponentAdapter() {
                     override fun componentResized(e: ComponentEvent) {
                         tryNotify()
                     }
@@ -142,6 +147,19 @@ private fun VideoCanvasArea(
                         tryNotify()
                     }
                 })
+                // 兜底：componentResized/componentShown 可能漏发（如加入时已是最终尺寸、
+                // 或布局未走 resize 事件）。Hierarchy 事件在加入容器/显隐变化时必发；
+                // 再加一次 invokeLater 强制 validate，布局跑完后复查一次。
+                addHierarchyListener { e ->
+                    if (e.changeFlags and java.awt.event.HierarchyEvent.PARENT_CHANGED != 0L ||
+                        e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED != 0L) {
+                        tryNotify()
+                    }
+                }
+                SwingUtilities.invokeLater {
+                    try { canvas.parent?.validate() } catch (_: Throwable) { }
+                    tryNotify()
+                }
                 val playerMouseListener = object : java.awt.event.MouseAdapter() {
                     private fun wakeUpControls() {
                         lastInteraction.set(System.currentTimeMillis())
@@ -367,8 +385,10 @@ fun PlayerScreen(
     var playAttempt by remember(episodeId) { mutableStateOf(0) }
     /** 初始化检查+置位的原子锁：canvas 回调（EDT）与 LaunchedEffect(videoUrl)（Main）可能同时进入 */
     val initGuard = remember(episodeId) { Any() }
-    // 待初始化的 Canvas（remember 保存，跨重构不丢失）：等 videoUrl 就绪后触发播放
-    var pendingCanvas by remember { mutableStateOf<java.awt.Canvas?>(null) }
+    // 待初始化的 Canvas（按集键控）：等 videoUrl 就绪后触发播放。
+    // 必须按集键控——无 key 时切集会沿用旧集 Canvas（已从容器移除、peer 已销毁），
+    // tryInitPlayer 拿它等 isDisplayable 会永远 false（1.0.337 切集黑屏根因）。
+    var pendingCanvas by remember(episodeId) { mutableStateOf<java.awt.Canvas?>(null) }
     var danmakuPanelRef by remember { mutableStateOf<com.muse.gomepc.danmaku.AwtDanmakuPanel?>(null) }
     var danmakuWindowRef by remember { mutableStateOf<javax.swing.JWindow?>(null) }
     // 弹幕位置同步 Timer：保存引用，退出/切集时 stop，避免每个 Canvas 建一个永不停的 Timer
@@ -601,6 +621,11 @@ fun PlayerScreen(
     fun tryInitPlayer() {
         val canvas = pendingCanvas
         val url = videoUrl
+        if (canvas == null || url == null) return
+        // detached 的旧 Canvas（已从容器移除，如错误层隐藏 Canvas 后重试时序）：
+        // 不要消费 guard，直接返回，等新 Canvas 回调触发 tryInitPlayer。
+        // 若这里消费了 guard，新回调的 tryInitPlayer 会因 mpvInitDone=true 而早退，卡死。
+        if (canvas.parent == null) return
         // 检查+置位必须原子化：canvas 回调（EDT）与 LaunchedEffect(videoUrl)（Main）可能同时进入，
         // 否则两个 init 线程并发，第二个会报 "already initialized" 并覆盖已成功的播放。
         val shouldStart = synchronized(initGuard) {
@@ -621,18 +646,30 @@ fun PlayerScreen(
             // 失败只在 3 次都耗尽后才报 initError（错误层"重试"仍可手动再试）。
             var lastErr: String? = null
             var initOk = false
+            // 当前画布：等待期间若 pendingCanvas 换成新 Canvas（切集/重建），跟随新 Canvas，
+            // 而不是拿旧 Canvas（peer 已销毁）空等——旧写法在此等 15 秒后报错（1.0.337 切集黑屏）。
+            var cur = c
             for (attempt in 0..2) {
-                // 等画布就绪：每 250ms 查一次，最多等 5s
+                // 跟随最新画布（切集时新 Canvas 回调已更新 pendingCanvas）
+                val latest = pendingCanvas
+                if (latest != null && latest !== cur) {
+                    cur = latest
+                    com.muse.gomepc.player.DebugLog.d("UI", "初始化跟随新画布")
+                }
+                // 等画布就绪：每 250ms 查一次，最多等 5s；画布被移除（detached）时立即退出，不空等。
                 var waited = 0
-                while (!c.isDisplayable && waited < 5000) {
+                while (!cur.isDisplayable && waited < 5000 && cur.parent != null) {
                     try { Thread.sleep(250) } catch (_: InterruptedException) { break }
                     waited += 250
+                    // 等待期间画布切换：跟随新画布，重新等。
+                    val l2 = pendingCanvas
+                    if (l2 != null && l2 !== cur) { cur = l2; waited = 0 }
                 }
-                if (!c.isDisplayable) {
+                if (!cur.isDisplayable) {
                     lastErr = "视频画布未就绪（Canvas 未显示），请点重试"
                 } else {
                     val wid: Long = try {
-                        val id = Win32Util.nativeWindowId(c)
+                        val id = Win32Util.nativeWindowId(cur)
                         if (id == 0L) {
                             lastErr = "视频画布句柄无效（wid=0），请点重试"
                             -1L
@@ -803,11 +840,11 @@ fun PlayerScreen(
     // videoUrl 就绪后尝试播放（canvas 可能先就绪）：已初始化则直接 play，未初始化则 init 后播放
     LaunchedEffect(videoUrl) {
         tryPlay(videoUrl)
-        // 兜底：Canvas 就绪回调（componentResized）若一直没触发，pendingCanvas 恒为 null，
-        // tryInitPlayer 会静默早退、永不报错。2s 后仍无 Canvas 时给真实错误，不静默卡死。
-        if (videoUrl != null && pendingCanvas == null) {
+        // 兜底：Canvas 就绪回调若一直没触发，pendingCanvas 恒为 null（或持有已移除的旧 Canvas），
+        // tryInitPlayer 会静默早退、永不报错。2s 后仍无可用 Canvas 时给真实错误，不静默卡死。
+        if (videoUrl != null && (pendingCanvas == null || pendingCanvas?.parent == null)) {
             kotlinx.coroutines.delay(2000)
-            if (pendingCanvas == null && videoUrl != null && initError == null && urlError == null) {
+            if ((pendingCanvas == null || pendingCanvas?.parent == null) && videoUrl != null && initError == null && urlError == null) {
                 initError = "视频画布未创建（Canvas 未就绪），请点重试"
             }
         }
@@ -1032,6 +1069,9 @@ fun PlayerScreen(
                         } catch (_: Throwable) { }
                     }
                     updatePos()
+                    // 切集时旧 JWindow 必须 dispose（只停 Timer 会漏一个透明窗口一直悬着）
+                    try { danmakuWindowRef?.isVisible = false; danmakuWindowRef?.dispose() } catch (_: Throwable) { }
+                    danmakuWindowRef = null
                     // 定时同步位置（窗口移动时）：先停旧 Timer，避免切集后多个 Timer 并存
                     danmakuPosTimer?.stop()
                     val posTimer = javax.swing.Timer(500) { updatePos() }
@@ -1053,12 +1093,18 @@ fun PlayerScreen(
 
     // 视频全屏，顶栏/底栏浮在上面（工具栏显隐不改变视频尺寸）
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // 视频区独立组件：不受 controlsVisible 重构影响，防止 HWND 顶层压死 UI
-        VideoCanvasArea(
-            controlsVisibleState = controlsVisibleState,
-            lastInteraction = lastInteraction,
-            onCanvasReadyOnce = onCanvasReadyStable,
-        )
+        // 视频区独立组件：不受 controlsVisible 重构影响，防止 HWND 顶层压死 UI。
+        // 失败时移除 Canvas：Canvas 是 AWT heavyweight，永远压在 Compose 轻量级内容之上，
+        // 错误层即使在它之后绘制也会被盖住，用户只看到黑屏。移除后错误层可见；
+        // 点“重试”清掉错误后 VideoCanvasArea 重新进入组合，新建 Canvas 再 init。
+        if (initError == null && urlError == null) {
+            VideoCanvasArea(
+                episodeId = episodeId,
+                controlsVisibleState = controlsVisibleState,
+                lastInteraction = lastInteraction,
+                onCanvasReadyOnce = onCanvasReadyStable,
+            )
+        }
 
         // 跳过片头按钮（右下角，控制条上方）
         if (showSkipIntro) {
