@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
@@ -24,7 +25,7 @@ import androidx.compose.ui.unit.dp
 fun NavIcon(kind: NavKind, tint: Color, modifier: Modifier = Modifier, iconSize: Dp = 24.dp) {
     Canvas(modifier = modifier.size(iconSize)) {
         val s = size
-        val stroke = Stroke(width = s.width * 0.09f)
+        val stroke = Stroke(width = s.width * 0.09f, cap = StrokeCap.Round, join = StrokeJoin.Round)
         when (kind) {
             NavKind.HOME -> {
                 // 房子：屋顶 + 方身
@@ -70,7 +71,8 @@ fun NavIcon(kind: NavKind, tint: Color, modifier: Modifier = Modifier, iconSize:
                     tint,
                     start = Offset(s.width * 0.64f, s.height * 0.64f),
                     end = Offset(s.width * 0.88f, s.height * 0.88f),
-                    strokeWidth = s.width * 0.09f
+                    strokeWidth = s.width * 0.09f,
+                    cap = StrokeCap.Round
                 )
             }
             NavKind.SETTINGS -> {
@@ -86,7 +88,8 @@ fun NavIcon(kind: NavKind, tint: Color, modifier: Modifier = Modifier, iconSize:
                     )
                     val kx = s.width * (0.3f + 0.25f * ((i + 1) % 3))
                     drawCircle(tint, radius = s.width * 0.11f, center = Offset(kx, y))
-                    drawCircle(Color.White, radius = s.width * 0.055f, center = Offset(kx, y))
+                    // 白芯用 Clear 镂空（而非画白圆），深色底上不留白点
+                    drawCircle(Color.Transparent, radius = s.width * 0.055f, center = Offset(kx, y), blendMode = BlendMode.Clear)
                 }
             }
             NavKind.FAVORITE -> {
