@@ -7,6 +7,9 @@ import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import com.muse.gomepc.emby.YambyClient
@@ -40,6 +43,14 @@ class EpisodePanel(
 
     private var dialog: JDialog? = null
     private var outsideClickListener: AWTEventListener? = null
+    // 缩略图加载：固定线程池 + 任务列表（关闭面板时取消未完成的）+ URL→图标缓存
+    private val thumbFutures = mutableListOf<Future<*>>()
+
+    companion object {
+        private val thumbExecutor = Executors.newFixedThreadPool(4)
+        private val thumbCache = ConcurrentHashMap<String, ImageIcon>()
+        private const val THUMB_MAX_BYTES = 10 * 1024 * 1024
+    }
 
     // dp = px
     private val THUMB_W = 221
@@ -55,6 +66,7 @@ class EpisodePanel(
 
     fun show() {
         dismiss()
+        thumbFutures.clear()
         val dlg = JDialog(owner as? Frame, "剧集", false).apply {
             isUndecorated = true
             background = Color(0, 0, 0, 0)
@@ -250,20 +262,37 @@ class EpisodePanel(
             }
             thumbPanel.add(badge)
         }
-        // 异步加载并圆角裁剪
-        Thread {
-            try {
-                val url = YambyClient.imageUrl(ep.id, "Primary", 400)
-                val img = javax.imageio.ImageIO.read(java.net.URL(url))
-                if (img != null) {
-                    // 内图与边框用同一圆角（同一 rect + 同一 arc = THUMB_RADIUS），同心无批锋
-                    val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
-                    SwingUtilities.invokeLater { thumbLabel.icon = ImageIcon(rounded) }
+        // 异步加载并圆角裁剪：固定线程池 + 连接/读取超时 + 面板关闭时取消 + 内存缓存
+        val thumbUrl = YambyClient.imageUrl(ep.id, "Primary", 400)
+        thumbCache[thumbUrl]?.let { thumbLabel.icon = it }
+        if (thumbLabel.icon == null) {
+            val future = thumbExecutor.submit {
+                try {
+                    val conn = java.net.URL(thumbUrl).openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 8000
+                    conn.readTimeout = 15000
+                    try {
+                        if (conn.responseCode !in 200..299) return@submit
+                        val bytes = readUpTo(conn.inputStream, THUMB_MAX_BYTES) ?: return@submit
+                        val img = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes))
+                            ?: return@submit
+                        // 内图与边框用同一圆角（同一 rect + 同一 arc = THUMB_RADIUS），同心无批锋
+                        val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
+                        val icon = ImageIcon(rounded)
+                        thumbCache[thumbUrl] = icon
+                        SwingUtilities.invokeLater {
+                            // 面板已关闭则丢弃，避免往已 dispose 的组件写图标
+                            if (dialog != null) thumbLabel.icon = icon
+                        }
+                    } finally {
+                        conn.disconnect()
+                    }
+                } catch (_: Exception) {
+                    // 加载失败：保持空白，不显示占位符
                 }
-            } catch (_: Exception) {
-                // 加载失败：保持空白，不显示占位符
             }
-        }.start()
+            thumbFutures.add(future)
+        }
 
         row.add(thumbPanel)
         row.add(Box.createVerticalStrut(TITLE_MARGIN_TOP))
@@ -285,14 +314,39 @@ class EpisodePanel(
         titleWrapper.add(titleLabel)
         row.add(titleWrapper)
 
-        row.addMouseListener(object : java.awt.event.MouseAdapter() {
+        // Swing 事件不冒泡：点击监听加到行及其全部后代组件上（缩略图/徽标/标题都会截获事件）
+        val rowClickListener = object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
                 dismiss()
                 onSelect(ep, index)
             }
-        })
+        }
+        fun attachAll(c: Component) {
+            c.addMouseListener(rowClickListener)
+            if (c is Container) {
+                for (child in c.components) attachAll(child)
+            }
+        }
+        attachAll(row)
 
         return row
+    }
+
+    /** 带上限读取：超限返回 null（防超大图片撑爆内存） */
+    private fun readUpTo(input: java.io.InputStream, maxBytes: Int): ByteArray? {
+        return try {
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > maxBytes) return null
+                out.write(buf, 0, n)
+            }
+            out.toByteArray()
+        } catch (_: Exception) { null }
     }
 
     /** 截断到10个汉字宽度，超出加省略号；去重"第X集"前缀 */
@@ -340,25 +394,12 @@ class EpisodePanel(
         return out
     }
 
-    private fun buildInfoLine(ep: EpisodeInfo): String {
-        val parts = mutableListOf<String>()
-        if (ep.height > 0) {
-            parts.add("${ep.height}P")
-        } else if (ep.width > 0) {
-            parts.add("${ep.width}P")
-        }
-        if (ep.durationTicks > 0) {
-            val sec = (ep.durationTicks / 10_000_000).toInt()
-            parts.add("%02d:%02d".format(sec / 60, sec % 60))
-        }
-        if (ep.sizeBytes > 0) {
-            val mb = ep.sizeBytes / 1024.0 / 1024.0
-            parts.add(if (mb > 1024) "%.1fG".format(mb / 1024) else "%.0fM".format(mb))
-        }
-        return parts.joinToString(" · ")
-    }
-
     fun dismiss() {
+        // 取消未完成的缩略图加载任务，避免关闭后仍在后台下载/写已销毁组件
+        for (f in thumbFutures) {
+            try { f.cancel(true) } catch (_: Exception) { }
+        }
+        thumbFutures.clear()
         try {
             outsideClickListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
         } catch (_: Throwable) { }
