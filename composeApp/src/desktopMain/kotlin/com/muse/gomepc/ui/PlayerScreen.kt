@@ -151,8 +151,8 @@ private fun VideoCanvasArea(
                 // 或布局未走 resize 事件）。Hierarchy 事件在加入容器/显隐变化时必发；
                 // 再加一次 invokeLater 强制 validate，布局跑完后复查一次。
                 addHierarchyListener { e ->
-                    if (e.changeFlags and java.awt.event.HierarchyEvent.PARENT_CHANGED != 0L ||
-                        e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED != 0L) {
+                    if (e.changeFlags and java.awt.event.HierarchyEvent.PARENT_CHANGED != 0 ||
+                        e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED != 0) {
                         tryNotify()
                     }
                 }
