@@ -195,7 +195,12 @@ fun PlayerScreen(
     onFullscreen: () -> Unit,
     onSwitchEpisode: ((episodeId: String, episodeIndex: Int, resumeSec: Double) -> Unit)? = null
 ) {
-    val player = remember(episodeId) { MpvPlayer() }
+    // 播放器单例：全程只 init 一次，切集时 loadfile 换片（见 tryInitPlayer）。
+    // 旧逻辑每集 destroy + 新建播放器再在同一 wid 上重新 init，mpv 的 vo
+    // 重挂同一窗口容易失败，导致切集后黑屏/无法播放（首播能播、切集不能播）。
+    val player = remember { MpvPlayer() }
+    /** tryInitPlayer 代次：切集后旧集 init 线程的回包必须丢弃（不播放旧地址、不报错）。 */
+    val initGenRef = remember { java.util.concurrent.atomic.AtomicInteger(0) }
     val prefs = remember { com.muse.gomepc.emby.Prefs }
     /** 把 Prefs 里的弹幕样式应用到引擎（1:1 Android applyDanmakuStyle） */
     fun applyDanmakuStyleToEngine(e: DanmakuEngine) {
@@ -375,6 +380,8 @@ fun PlayerScreen(
                 danmakuWindowRef?.dispose()
             } catch (_: Throwable) { }
             danmakuWindowRef = null
+            // 退出播放器时才销毁单例播放器（切集时不销毁，复用）
+            try { player.destroy() } catch (_: Throwable) { }
         }
     }
     /** 切换弹幕：永久禁用后再次启用=解除；否则翻转引擎开关 */
@@ -539,16 +546,36 @@ fun PlayerScreen(
                     com.muse.gomepc.ui.Repo.updateEpisodeProgress(itemId, episodeId, ticks)
                 }
             } catch (_: Throwable) { }
-            try { p.destroy() } catch (_: Throwable) { }
+            // 切集时只上报停止，不销毁播放器（同一播放器复用，退出播放器时才销毁；
+            // 旧逻辑切集时 destroy，下一集要在同一 wid 上重新 init，容易失败导致切集无法播放）。
         }
     }
 
-    // 尝试初始化播放器：canvas 和 videoUrl 都就绪且未初始化过才执行
+    // 尝试初始化播放器：canvas 和 videoUrl 都就绪且未初始化过才执行。
+    // 切集复用同一播放器：已初始化时直接 play(新地址) 换片，不重新 init。
     fun tryInitPlayer() {
         val canvas = pendingCanvas
         val url = videoUrl
         if (mpvInitDone || initializing || canvas == null || url == null) return
         mpvInitDone = true
+        val gen = initGenRef.incrementAndGet()
+        // 已初始化（切集）：直接换片，不重新 init，避免同 wid 重复 init 失败
+        if (player.isInitialized) {
+            val playErr = try {
+                player.play(url)
+            } catch (e: Throwable) {
+                "play异常: ${e.message}"
+            }
+            if (playErr != null) {
+                initError = "play: $playErr"
+                // play 失败复位，允许重试
+                mpvInitDone = false
+            } else {
+                inited = true
+                com.muse.gomepc.player.DebugLog.d("UI", "切集换片开始播放")
+            }
+            return
+        }
         initializing = true
         com.muse.gomepc.player.DebugLog.d("UI", "开始初始化播放器, url=$url")
         Thread {
@@ -556,6 +583,8 @@ fun PlayerScreen(
                 Win32Util.nativeWindowId(canvas)
             } catch (e: Throwable) {
                 SwingUtilities.invokeLater {
+                    // 旧集 init 线程的回包：切集后才返回，直接丢弃，不报错、不动新集标志
+                    if (gen != initGenRef.get()) return@invokeLater
                     initError = "wid: ${e.message}"
                     initializing = false
                     // 初始化失败：mpvInitDone 复位，否则永久无法重试
@@ -563,13 +592,20 @@ fun PlayerScreen(
                 }
                 return@Thread
             }
-            val err = try {
+            val rawErr = try {
                 val prefs = com.muse.gomepc.emby.Prefs
                 player.init(wid, vo = vo, hwdec = hwdec, cacheEnabled = prefs.cacheEnabled, cacheSizeGb = prefs.cacheSizeGb)
             } catch (e: Throwable) {
                 "init异常: ${e.message}"
             }
+            // 另一路 tryInitPlayer 已先把播放器初始化好：当成功处理，直接换片
+            val err = if (rawErr == "already initialized") null else rawErr
             SwingUtilities.invokeLater {
+                // 旧集 init 线程的回包：切集后才返回，直接丢弃，不播放旧地址、不报错
+                if (gen != initGenRef.get()) {
+                    com.muse.gomepc.player.DebugLog.d("UI", "丢弃过期 init 回包: $url")
+                    return@invokeLater
+                }
                 initializing = false
                 if (err != null) {
                     initError = err
