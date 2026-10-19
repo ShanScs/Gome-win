@@ -3896,61 +3896,6 @@ private fun PosterCircleBtn(
 }
 
 /** 详情页毛底单选弹窗（1:1 安卓 setSingleChoiceItems + 毛底样式） */
-/**
- * Emby 语言码 → 中文名（详情页版本/音频弹窗用，与播放器 AwtToolbarPanel.langDisplayName 同表）。
- * 详情页之前直接用原始 DisplayTitle / Language 码当标签：
- * DisplayTitle 可能是韩文/日文原文（如“한국어”），弹窗字体无对应字形会显示成“□□□”；
- * Language 是 ISO 639-2 码（如“chi”），用户看不懂。语言码能映射时一律用中文名。
- */
-private fun detailLangDisplayName(lang: String): String? {
-    return when (lang.lowercase()) {
-        "zh-hans", "zh-cn", "zh-sg", "chi", "zho", "cmn" -> "中文（简体）"
-        "zh-hant", "zh-tw", "zh-hk", "zh-mo", "cht" -> "中文（繁體）"
-        "zh", "zh-unknown" -> "中文"
-        "yue" -> "粤语"
-        "en", "eng" -> "英语"
-        "ko", "kor" -> "韩语"
-        "ja", "jpn" -> "日语"
-        "fr", "fra", "fre" -> "法语"
-        "de", "deu", "ger" -> "德语"
-        "es", "spa" -> "西班牙语"
-        "it", "ita" -> "意大利语"
-        "ru", "rus" -> "俄语"
-        "pt", "por" -> "葡萄牙语"
-        "th", "tha" -> "泰语"
-        "vi", "vie" -> "越南语"
-        "ar", "ara" -> "阿拉伯语"
-        "hi", "hin" -> "印地语"
-        "id", "ind" -> "印度尼西亚语"
-        "ms", "msa" -> "马来语"
-        "nl", "nld", "dut" -> "荷兰语"
-        "pl", "pol" -> "波兰语"
-        "tr", "tur" -> "土耳其语"
-        "uk", "ukr" -> "乌克兰语"
-        "sv", "swe" -> "瑞典语"
-        "da", "dan" -> "丹麦语"
-        "fi", "fin" -> "芬兰语"
-        "nb", "nob", "nn", "nno", "nor" -> "挪威语"
-        "cs", "ces", "cze" -> "捷克语"
-        "hu", "hun" -> "匈牙利语"
-        "el", "ell", "gre" -> "希腊语"
-        "he", "heb" -> "希伯来语"
-        "la", "lat" -> "拉丁语"
-        else -> null
-    }
-}
-
-/**
- * 弹窗标签去重：同一标签出现多次时追加“ (2)”“ (3)”区分，不丢条目
- * （版本/音轨的不同条目可能同名，如两个“1080p”版本、两条“中文 AAC”音轨，
- * 直接丢掉会让用户选不到第二条）。
- */
-private fun dedupePopupLabel(label: String, seen: MutableMap<String, Int>): String {
-    val count = (seen[label] ?: 0) + 1
-    seen[label] = count
-    return if (count == 1) label else "$label ($count)"
-}
-
 @Composable
 private fun DetailSingleChoiceDialog(
     title: String,
@@ -3975,32 +3920,27 @@ private fun DetailSingleChoiceDialog(
             Column {
                 Text(
                     title,
-                    fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A),
+                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A),
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
-                // 列表可滚 + 限高：之前无滚动无上限，条目多（如十几条字幕）时弹窗会撑出屏幕
-                Column(
-                    Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())
-                ) {
-                    names.forEachIndexed { idx, name ->
+                names.forEachIndexed { idx, name ->
                     Row(
                         Modifier.fillMaxWidth().clickable { selected = idx; onSelect(idx) }
                             .padding(horizontal = 20.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            name, fontSize = GomeText.Body, color = Color(0xFF1A1A1A),
+                            name, fontSize = 15.sp, color = Color(0xFF1A1A1A),
                             modifier = Modifier.weight(1f)
                         )
                         if (idx == selected) {
-                            Text("✓", fontSize = GomeText.Title, color = GomeTheme.Accent, fontWeight = FontWeight.Bold)
+                            Text("✓", fontSize = 18.sp, color = Color(0xFF2F6FED), fontWeight = FontWeight.Bold)
                         }
                     }
                     if (idx < names.size - 1) {
                         Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(1.dp).background(Color(0xFFEFEFF4)))
                     }
-                }
                 }
             }
         }
@@ -4329,10 +4269,9 @@ fun DetailScreen(
                                                 }
                                                 val names = mutableListOf<String>()
                                                 val ids = mutableListOf<String>()
-                                                val seenLabels = mutableMapOf<String, Int>()
                                                 for (idx in 0 until sources.length()) {
                                                     val s = sources.getJSONObject(idx)
-                                                    val name = s.optString("Name", "").trim()
+                                                    val name = s.optString("Name", "")
                                                     var desc = name
                                                     val streams = s.optJSONArray("MediaStreams")
                                                     if (streams != null) {
@@ -4341,15 +4280,12 @@ fun DetailScreen(
                                                             if (st.optString("Type") == "Video") {
                                                                 val w = st.optInt("Width", 0)
                                                                 val h = st.optInt("Height", 0)
-                                                                // Name 为空时不拼前导空格（之前 "$name ${w}x$h" 会得到 " 1920x1080"）
-                                                                if (w > 0 && h > 0) desc = if (name.isEmpty()) "${w}x$h" else "$name ${w}x$h"
+                                                                if (w > 0 && h > 0) desc = "$name ${w}x$h"
                                                                 break
                                                             }
                                                         }
                                                     }
                                                     if (desc.isEmpty()) desc = "版本 ${idx + 1}"
-                                                    // 同名版本去重区分（Emby 常有多个同名同分辨率版本，之前会显示两条完全一样的选项）
-                                                    desc = dedupePopupLabel(desc, seenLabels)
                                                     names.add(desc)
                                                     ids.add(s.optString("Id", ""))
                                                 }
@@ -4387,35 +4323,17 @@ fun DetailScreen(
                                                     ?: run { trackLoading = null; toastMsg = "无音轨信息"; return@launch }
                                                 val names = mutableListOf<String>()
                                                 val idxs = mutableListOf<Int>()
-                                                val seenLabels = mutableMapOf<String, Int>()
                                                 for (i in 0 until streams.length()) {
                                                     val st = streams.getJSONObject(i)
                                                     if (st.optString("Type") == "Audio") {
                                                         val ai = st.optInt("Index", -1)
-                                                        // 标签不用原始 DisplayTitle：它可能是韩文/日文原文（如“한국어”），
-                                                        // 弹窗字体无对应字形会显示成“□□□”。语言码能映射时一律用中文名。
-                                                        val lang = st.optString("Language", "")
-                                                        val codec = st.optString("Codec", "")
-                                                        val mapped = detailLangDisplayName(lang)
-                                                        var label: String
-                                                        if (mapped != null) {
-                                                            label = mapped
-                                                            if (codec.isNotEmpty()) label += " $codec"
-                                                            if (st.optBoolean("IsDefault", false)) label += " [默认]"
-                                                            if (st.optBoolean("IsForced", false)) label += " [Forced]"
-                                                        } else {
-                                                            val title = st.optString("DisplayTitle", "")
-                                                            // DisplayTitle 只有全 ASCII/中文/常用标点时才直接用，否则会出方框
-                                                            val clean = title.isNotEmpty() && title.all { ch ->
-                                                                ch.code < 128 || ch in '\u4E00'..'\u9FFF' ||
-                                                                    ch in '　'..'〿' || ch in '！'..'｟'
-                                                            }
-                                                            label = if (clean) title
-                                                                else listOf(lang, codec).filter { s -> s.isNotEmpty() }.joinToString(" ")
+                                                        var label = st.optString("DisplayTitle", "")
+                                                        if (label.isEmpty()) {
+                                                            val lang = st.optString("Language", "")
+                                                            val codec = st.optString("Codec", "")
+                                                            label = listOf(lang, codec).filter { s -> s.isNotEmpty() }.joinToString(" ")
                                                         }
                                                         if (label.isEmpty()) label = "音轨 ${names.size + 1}"
-                                                        // 同名音轨去重区分（两条“中文 AAC”之前会显示两条完全一样的选项）
-                                                        label = dedupePopupLabel(label, seenLabels)
                                                         names.add(label); idxs.add(ai)
                                                     }
                                                 }
@@ -4458,33 +4376,15 @@ fun DetailScreen(
                                                     ?: run { trackLoading = null; toastMsg = "无字幕信息"; return@launch }
                                                 val names = mutableListOf("关闭字幕")
                                                 val idxs = mutableListOf(-1)
-                                                val seenLabels = mutableMapOf<String, Int>()
                                                 for (i in 0 until streams.length()) {
                                                     val st = streams.getJSONObject(i)
                                                     if (st.optString("Type") == "Subtitle") {
                                                         val si = st.optInt("Index", -1)
-                                                        // 标签不用原始 DisplayTitle：它可能是韩文/日文原文（如“한국어”），
-                                                        // 弹窗字体无对应字形会显示成“□□□”。语言码能映射时一律用中文名。
-                                                        val lang = st.optString("Language", "")
-                                                        val mapped = detailLangDisplayName(lang)
-                                                        var label: String
-                                                        if (mapped != null) {
-                                                            label = mapped
-                                                            if (st.optBoolean("IsDefault", false)) label += " [默认]"
-                                                            if (st.optBoolean("IsForced", false)) label += " [Forced]"
-                                                        } else {
-                                                            val title = st.optString("DisplayTitle", "")
-                                                            // DisplayTitle 只有全 ASCII/中文/常用标点时才直接用，否则会出方框
-                                                            val clean = title.isNotEmpty() && title.all { ch ->
-                                                                ch.code < 128 || ch in '\u4E00'..'\u9FFF' ||
-                                                                    ch in '　'..'〿' || ch in '！'..'｟'
-                                                            }
-                                                            label = if (clean) title
-                                                                else listOf(lang).filter { s -> s.isNotEmpty() }.joinToString(" ")
+                                                        var label = st.optString("DisplayTitle", "")
+                                                        if (label.isEmpty()) {
+                                                            val lang = st.optString("Language", "")
+                                                            label = lang.ifEmpty { "字幕 ${names.size}" }
                                                         }
-                                                        if (label.isEmpty()) label = "字幕 ${names.size}"
-                                                        // 同名字幕去重区分（两条“中文（繁體）”之前会显示两条完全一样的选项）
-                                                        label = dedupePopupLabel(label, seenLabels)
                                                         names.add(label); idxs.add(si)
                                                     }
                                                 }
