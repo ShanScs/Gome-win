@@ -84,6 +84,12 @@ private set
 private val emittedIndices: MutableSet<Int> =
 Collections.synchronizedSet(mutableSetOf())
 
+/** 池快照缓存：pool 只在填池时变化，step() 每 tick 复用快照，不再每 tick 全量 copy（17983 条）。 */
+private var poolSnapshotCache: List<DanmakuItem> = emptyList()
+@Volatile private var poolSnapshotDirty = true
+/** 时间窗口游标：pool 按时间排序、进度单调递增，窗口扫描从游标开始，不再每 tick 从 0 线性扫过已过去的几千条；seek/填池时重置。 */
+@Volatile private var windowCursor = 0
+
 /** 池填充时刻（wall clock ms）/ 填充时播放进度（秒）/ 上次定时发射成功时刻（0=自填充以来从未成功），用于诊断与发射回落。 */
 @Volatile var poolFilledAtMs: Long = 0L
 private set
@@ -101,6 +107,9 @@ poolFilledAtSec = currentTimeSec
 lastTimedEmitAtMs = 0L
 fallbackLogged = false
 lastFallbackEmitMs = 0L
+// 池变了：快照失效、窗口游标归零（下次 step() 重建快照）。
+poolSnapshotDirty = true
+windowCursor = 0
 if (pool.isEmpty()) {
 com.muse.gomepc.player.DebugLog.d("Danmaku", "池已清空，当前进度: $currentTimeSec 秒")
 return
@@ -211,8 +220,8 @@ items.clear()
 /** P0-D1：UI 组在 onTimePos 回调里调用，传入 mpv timePos（秒）。 */
 fun setCurrentTime(sec: Float) {
 if (!sec.isFinite() || sec < 0f) return
-// 往回跳超过 1s：视为 Seek/切集，已发射集合失效，旧弹幕不再补发。
-if (sec < currentTimeSec - 1f) emittedIndices.clear()
+// 往回跳超过 1s：视为 Seek/切集，已发射集合失效，旧弹幕不再补发，窗口游标归零。
+if (sec < currentTimeSec - 1f) { emittedIndices.clear(); windowCursor = 0 }
 currentTimeSec = sec
 }
 
@@ -220,6 +229,7 @@ currentTimeSec = sec
 fun onSeek() {
 items.clear()
 emittedIndices.clear()
+windowCursor = 0
 }
 
 /** Seek 时清屏并同步进度。 */
@@ -295,21 +305,38 @@ items.removeIf { it.textWidth >= 0 && it.x + it.textWidth < 0}
 val visibleCount = items.count { now >= it.visibleAt}
 val maxItems = 60
 if (!enabled || pool.isEmpty() || visibleCount >= maxItems) return
-val poolSnapshot = pool.toList()
+// 池快照缓存：pool 只在填池时变化，复用快照，不再每 tick 全量 copy 17983 条。
+if (poolSnapshotDirty) { poolSnapshotCache = pool.toList(); poolSnapshotDirty = false }
+val poolSnapshot = poolSnapshotCache
 val hasTimed = poolSnapshot.any { it.timeSec >= 0f}
 if (hasTimed) {
 // P0-D1：只发射时间窗口内的弹幕（当前进度 -1s ~ +0.5s，容忍帧抖动）。
 // 密集场景每帧最多发 3 条（旧版每帧只发 1 条，窗口滑过后未发出的直接丢失）。
 var emittedThisFrame = 0
-while (emittedThisFrame < 3) {
 val lo = currentTimeSec - 1f
 val hi = currentTimeSec + 0.5f
-val candidateIdx = poolSnapshot.indices.firstOrNull { idx ->
-idx!in emittedIndices &&
-poolSnapshot[idx].timeSec >= lo && poolSnapshot[idx].timeSec <= hi
-}?: break
-val item = poolSnapshot[candidateIdx]
-emittedIndices.add(candidateIdx)
+// 时间窗口游标：pool 按时间排序、进度单调递增，游标只前进（seek/填池时已重置），
+// 跳过已过去的条目，窗口扫描从游标开始，不再每 tick 从 0 线性扫过已过去的几千条。
+while (windowCursor < poolSnapshot.size) {
+val t = poolSnapshot[windowCursor].timeSec
+if (t >= 0f && t < lo) { windowCursor++; continue }
+break
+}
+while (emittedThisFrame < 3) {
+// pool 按时间排序：遇到第一个 timed 且 > hi 的条目即可停，后面的 timed 只会更大
+//（untimed 条目排在末尾，timed 路径不发射它们，与旧行为一致）。
+var candidateIdx: Int? = null
+var scanIdx = windowCursor
+while (scanIdx < poolSnapshot.size) {
+val t = poolSnapshot[scanIdx].timeSec
+if (t < 0f) break // untimed 条目排在末尾，timed 路径不发射，停
+if (t > hi) break
+if (scanIdx !in emittedIndices) { candidateIdx = scanIdx; break }
+scanIdx++
+}
+val idx = candidateIdx ?: break
+val item = poolSnapshot[idx]
+emittedIndices.add(idx)
 if (!emit(item.text, w, measureText, now)) break
 emittedThisFrame++
 }
@@ -342,13 +369,20 @@ emit(poolSnapshot.random().text, w, measureText, now)
 * 密集时大量弹幕因此丢失；现按随机顺序试全部行，只在所有行都拥挤时才丢弃。 */
 private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long): Boolean {
 val rowOrder = (0 until max(1, rows)).shuffled()
+// 单次遍历算各行最右位置与最慢速度，避免每行 filter 一次（O(rows×items) 分配）。
+val rowCount = max(1, rows)
+val rowRightmost = FloatArray(rowCount) { -1f }
+val rowSlowest = FloatArray(rowCount) { Float.MAX_VALUE }
+for (d in items) {
+if (d.row < 0 || d.row >= rowCount) continue
+if (d.textWidth < 0) d.textWidth = measureText(d.text)
+val right = d.x + d.textWidth
+if (right > rowRightmost[d.row]) rowRightmost[d.row] = right
+if (d.speed < rowSlowest[d.row]) rowSlowest[d.row] = d.speed
+}
 for (row in rowOrder) {
-val rowItems = items.filter { it.row == row }
 // 检查该行最右弹幕位置，避免重叠（未到可见时间的弹幕也占行，避免延迟期内堆叠）。
-val rightmost = rowItems.maxOfOrNull {
-if (it.textWidth < 0) it.textWidth = measureText(it.text)
-it.x + it.textWidth
-}?: -1f
+val rightmost = rowRightmost[row]
 if (rightmost < w - horizontalGapPx()) {
 val tw = measureText(text)
 // 横穿时长固定约 15 秒：速度 = (窗口宽 + 文本宽) / 时长，与窗口宽度无关；
@@ -360,8 +394,8 @@ var speed = (w + tw) / duration
 // 同行弹幕造成重叠；出生检查只保发射瞬间 100px 间距，防不住追尾。
 // 现新弹幕速度不超过该行已有的最慢速度，同行速度一致、间距只增不减，
 // 永不追尾；空行用新鲜随机速度，各行速度仍有差异。
-val rowSlowest = rowItems.minOfOrNull { it.speed }
-if (rowSlowest != null && speed > rowSlowest) speed = rowSlowest
+val slowest = rowSlowest[row]
+if (slowest != Float.MAX_VALUE && speed > slowest) speed = slowest
 // P1-D10：delaySec 只推迟可见时间，不右移出生点、不占 maxItems 名额。
 val visibleAt = now + (delaySec * 1000f).toLong()
 items.add(Danmaku(text, w, row, speed, now, tw, visibleAt))

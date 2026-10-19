@@ -41,13 +41,22 @@ private var lastDiagMs = 0L
 private var lastTimerErrMs = 0L
 // 帧时间统计（Timer 每 tick 记一次帧间隔，5 秒随“面板状态”诊断一起记一行，记完清零）：
 // 用 nanoTime 计时，避免 currentTimeMillis 在 Windows 下的粒度问题；只做几次浮点累加，轻量无每帧日志。
-// 阈值：>33ms 计掉帧（30fps 下一帧的时长），>50ms 计严重卡顿。
+// 阈值：>50ms 计掉帧（约 1.5 倍 Timer 周期 33ms），>100ms 计严重卡顿（约 3 倍周期）。
+// 注意：Timer 周期本身就是 33ms，旧阈值 33ms 会把几乎每帧都记成掉帧，是误报。
 private var lastFrameNs = 0L
 private var frameStatCount = 0L
 private var frameStatTotalMs = 0.0
 private var frameStatMaxMs = 0.0
 private var frameStatDrop33 = 0L
 private var frameStatSevere50 = 0L
+// 字号缓存：Timer 每 tick / 每 paint 都 deriveFont + getFontMetrics 太浪费，字号不变时复用。
+private var tickFontSize = -1
+private var tickFont: Font? = null
+private var tickFontMetrics: FontMetrics? = null
+private var paintFontSize = -1
+private var paintFont: Font? = null
+private var paintFontMetrics: FontMetrics? = null
+private var paintAscent = 0
 // 供外部查询：面板是否希望窗口可见（有弹幕且启用）
 var wantVisible = false
 private set
@@ -266,24 +275,26 @@ val intervalMs = (frameNowNs - lastFrameNs) / 1_000_000.0
 frameStatCount++
 frameStatTotalMs += intervalMs
 if (intervalMs > frameStatMaxMs) frameStatMaxMs = intervalMs
-if (intervalMs > 33.0) frameStatDrop33++
-if (intervalMs > 50.0) frameStatSevere50++
+if (intervalMs > 50.0) frameStatDrop33++
+if (intervalMs > 100.0) frameStatSevere50++
 }
 lastFrameNs = frameNowNs
 // P0-D4：enabled=false 时显式 wantVisible=false 并隐藏窗口。
 // 原代码整个 Timer 体包在 if (engine.enabled) 里，关闭后 wantVisible stale、
 // 窗口常驻。现每次都处理关闭分支。
 val win = hostWindow()
+// 每 tick 只取一次视频矩形，诊断与发射共用，避免重复 invoke。
+val rect = videoRectInParent?.invoke()
 // 诊断（5 秒一记，无条件）：之前诊断藏在 vw>0 分支里，尺寸为 0 / 未启用时
 // 静默跳过，日志里什么都看不到，无法定位“发射没被尝试”。
 if (engine.pool.isNotEmpty()) {
 val diagNow = System.currentTimeMillis()
 if (diagNow - lastDiagMs >= 5000) {
 lastDiagMs = diagNow
-val vwD = videoRectInParent?.invoke()?.width?: width
-val vhD = videoRectInParent?.invoke()?.height?: height
+val vwD = rect?.width?: width
+val vhD = rect?.height?: height
 com.muse.gomepc.player.DebugLog.d("Danmaku", "面板状态: 启用=${engine.enabled} 池=${engine.pool.size} 进度=${engine.currentTimeSec} 视图=${vwD}x${vhD} 在屏=${engine.items.size} wantVisible=$wantVisible 窗口可见=${win?.isVisible} 面板可见=$isVisible")
-// 帧统计：随 5 秒诊断一起记一行（平均/最大帧间隔、>33ms 掉帧、>50ms 严重卡顿），记完清零，统计窗口为两次诊断之间。
+// 帧统计：随 5 秒诊断一起记一行（平均/最大帧间隔、>50ms 掉帧、>100ms 严重卡顿），记完清零，统计窗口为两次诊断之间。
 val avgFrameMs = if (frameStatCount > 0) frameStatTotalMs / frameStatCount else 0.0
 val avg1 = kotlin.math.round(avgFrameMs * 10) / 10.0
 val max1 = kotlin.math.round(frameStatMaxMs * 10) / 10.0
@@ -301,8 +312,8 @@ hadItems = false
 emptyFrames = 0
 if (win!= null && win.isVisible) win.isVisible = false
 } else {
-var vw = videoRectInParent?.invoke()?.width?: width
-var vh = videoRectInParent?.invoke()?.height?: height
+var vw = rect?.width?: width
+var vh = rect?.height?: height
 // 尺寸兜底：面板自身还没布局出尺寸时用宿主窗口尺寸（面板填满窗口），
 // 否则 vw=0 会静默跳过整 tick，step 永远不跑。
 if (vw <= 0 && win != null && win.width > 0) vw = win.width
@@ -313,7 +324,13 @@ engine.viewHeight = vh.toFloat()
 val fontSize = (engine.fontSp * 1.5f).toInt().coerceAtLeast(12)
 // P1-D1：尺寸/字号确定后重算行数。
 engine.recalcRows(fontSize.toFloat())
-val fm = getFontMetrics(danmakuFont.deriveFont(fontSize.toFloat()))
+// 字号不变时复用 Font/FontMetrics，不再每 tick deriveFont + 查表。
+if (tickFontSize != fontSize || tickFont == null) {
+tickFont = danmakuFont.deriveFont(fontSize.toFloat())
+tickFontMetrics = getFontMetrics(tickFont)
+tickFontSize = fontSize
+}
+val fm = tickFontMetrics!!
 try {
 engine.step(0.033f) { text -> fm.stringWidth(text).toFloat()}
 } catch (err: Throwable) {
@@ -386,12 +403,18 @@ g2.fillRect(0, 0, width, height)
 if (!engine.enabled) return
 // 字号：与 Compose 版一致（fontSp sp → px，桌面 density≈1）
 val fontSize = (engine.fontSp * 1.5f).toInt().coerceAtLeast(12)
-// 明确指定中文字体
-val baseFont = try {
+// 字号不变时复用 Font/FontMetrics/ascent，不再每 paint 构造 Font + 查表。
+if (paintFontSize != fontSize || paintFont == null) {
+paintFont = try {
 Font("Noto Sans CJK SC", Font.BOLD, fontSize)
 } catch (_: Throwable) {
 Font("SansSerif", Font.BOLD, fontSize)
 }
+paintFontMetrics = getFontMetrics(paintFont)
+paintAscent = paintFontMetrics!!.ascent
+paintFontSize = fontSize
+}
+val baseFont = paintFont!!
 val dx = vr?.x?: 0
 val dy = vr?.y?: 0
 // 字号/透明度/描边/设备像素比变了清缓存
@@ -403,23 +426,30 @@ cachedAlpha = alphaInt
 cachedStrokePx = engine.strokePx
 cachedScale = devScale
 }
-// ascent 每帧只算一次，别在循环里调 getFontMetrics
-val ascent = getFontMetrics(baseFont).ascent
+// ascent 每帧只算一次，别在循环里调 getFontMetrics（字号不变时复用缓存）。
+val ascent = paintAscent
 // P2-D7：绘制用快照，避免遍历实时列表时并发修改；延迟未到可见时间的跳过。
 val now = System.currentTimeMillis()
 val snapshot = engine.items.toList()
 // P1-D3：strokePx 实际生效，0 则不描边；>0 按半径画描边（上限 4px 防性能爆炸）。
 val strokeRadius = if (engine.strokePx <= 0f) 0
 else kotlin.math.ceil(engine.strokePx.toDouble()).toInt().coerceIn(1, 4)
+// 本帧光栅化预算：新文本扎堆时一帧内多次位图分配 + 描边绘制是尖峰主因；
+// 预算用完的跳过本帧，下一帧再画（只延迟一帧，不丢弹幕）。
+var rasterBudget = 6
 for (d in snapshot) {
 if (now < d.visibleAt) continue
 val baselineY = engine.rowBaseline(d.row, fontSize.toFloat())
 val x = (d.x + dx).toInt()
 val y = (baselineY + dy).toInt()
 try {
+if (!textCache.containsKey(d.text)) {
+if (rasterBudget <= 0) continue
+rasterBudget--
+}
 // 缓存命中直接画，未命中才渲染（描边只做一次）
 val img = textCache.getOrPut(d.text) {
-val fm0 = getFontMetrics(baseFont)
+val fm0 = paintFontMetrics!!
 val tw = fm0.stringWidth(d.text).coerceAtLeast(1)
 val th = fm0.height.coerceAtLeast(1)
 // 按设备像素建图 + ig.scale(devScale)：同一份绘制代码以设备分辨率光栅化。
