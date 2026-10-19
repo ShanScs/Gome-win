@@ -407,7 +407,7 @@ if (item.mode == 4 || item.mode == 5) {
 val tw = measureText(text)
 val row = if (item.mode == 5) 0 else max(0, rows - 1)
 val visibleAt = now + (delaySec * 1000f).toLong()
-items.add(Danmaku(text, (w - tw) / 2f, row, 0f, now, tw, visibleAt, item.color, item.mode))
+items.add(Danmaku(text, (w - tw) / 2f, row, 0f, now, item.color, item.mode, tw, visibleAt))
 return true
 }
 for (row in rowOrder) {
@@ -428,7 +428,7 @@ val slowest = rowSlowest[row]
 if (slowest != Float.MAX_VALUE && speed > slowest) speed = slowest
 // P1-D10：delaySec 只推迟可见时间，不右移出生点、不占 maxItems 名额。
 val visibleAt = now + (delaySec * 1000f).toLong()
-items.add(Danmaku(text, w, row, speed, now, tw, visibleAt, item.color, item.mode))
+items.add(Danmaku(text, w, row, speed, now, item.color, item.mode, tw, visibleAt))
 return true
 }
 }

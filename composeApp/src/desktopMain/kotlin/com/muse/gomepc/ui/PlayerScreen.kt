@@ -1068,7 +1068,7 @@ fun PlayerScreen(
                     id = it.id, index = it.index, name = it.name,
                     width = it.width, height = it.height,
                     durationTicks = it.runTicks, sizeBytes = it.sizeBytes,
-                    playTicks = it.playTicks
+                    playTicks = it.playTicks, played = it.played
                 )
             }
             val curPos = infos.indexOfFirst { it.id == episodeId }.takeIf { it >= 0 } ?: 0

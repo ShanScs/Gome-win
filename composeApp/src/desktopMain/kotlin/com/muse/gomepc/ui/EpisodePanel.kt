@@ -38,7 +38,8 @@ class EpisodePanel(
         val height: Int = 0,
         val durationTicks: Long = 0L,
         val sizeBytes: Long = 0L,
-        val playTicks: Long = 0L
+        val playTicks: Long = 0L,
+        val played: Boolean = false
     )
 
     private var dialog: JDialog? = null
