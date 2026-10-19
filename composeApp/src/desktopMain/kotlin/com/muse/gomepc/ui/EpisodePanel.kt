@@ -45,13 +45,11 @@ class EpisodePanel(
 
     private var dialog: JDialog? = null
     private var outsideClickListener: AWTEventListener? = null
-    /** 键盘监听（方向键/回车/ESC）：面板关闭时移除，避免泄漏 */
-    private var panelKeyListener: AWTEventListener? = null
     /** 滚轮余数：触控板小增量不再被 .toInt() 截断丢掉，攒够 1px 再滚 */
     private var wheelRemainder = 0.0
     // 缩略图加载：固定线程池 + 任务列表（关闭面板时取消未完成的）+ URL→图标缓存
     private val thumbFutures = mutableListOf<Future<*>>()
-    // 缩略图统计（本面板一次 rebuild）：汇总日志证明加载是否真正发起，
+    // 缩略图统计（本面板本次打开）：汇总日志证明加载是否真正发起，
     // 区分“客户端没发起加载”（bug）与“服务端 404 无图”（服务端缺图）
     private var thumbStatHit = 0
     private var thumbStatMiss = 0
@@ -115,51 +113,23 @@ class EpisodePanel(
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
         }
-        // 搜索框：按集名过滤（之前无搜索，集多时只能滚）
-        var filterText = ""
-        fun currentFiltered(): List<EpisodeInfo> =
-            if (filterText.isBlank()) episodes
-            else episodes.filter { it.name.contains(filterText, ignoreCase = true) }
-        fun rebuildList() {
-            thumbStatHit = 0
-            thumbStatMiss = 0
-            listPanel.removeAll()
-            for (ep in currentFiltered()) {
-                val i = episodes.indexOf(ep)
-                val row = createEpisodeRow(ep, i, i == currentIndex)
-                // 包装一层防止拉伸
-                val wrapper = JPanel(BorderLayout()).apply {
-                    isOpaque = false
-                    alignmentX = Component.LEFT_ALIGNMENT
-                    maximumSize = Dimension(PANEL_W - 12, row.preferredSize.height + 8)
-                    add(row, BorderLayout.CENTER)
-                }
-                listPanel.add(wrapper)
-                listPanel.add(Box.createVerticalStrut(CARD_SPACING))
+        thumbStatHit = 0
+        thumbStatMiss = 0
+        episodes.forEachIndexed { i, ep ->
+            val row = createEpisodeRow(ep, i, i == currentIndex)
+            // 包装一层防止拉伸
+            val wrapper = JPanel(BorderLayout()).apply {
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                maximumSize = Dimension(PANEL_W - 12, row.preferredSize.height + 8)
+                add(row, BorderLayout.CENTER)
             }
-            // 汇总日志：证明本次打开面板时缩略图加载是否真正发起。
-            // 若这里“发起加载”>0 但随后全是 404，即服务端该剧无集缩略图，非客户端 bug。
-            DebugLog.d("Thumb", "缩略图：共 ${currentFiltered().size} 集，缓存命中 $thumbStatHit，本次发起加载 $thumbStatMiss")
-            listPanel.revalidate()
-            listPanel.repaint()
+            listPanel.add(wrapper)
+            listPanel.add(Box.createVerticalStrut(CARD_SPACING))
         }
-        val searchField = JTextField().apply {
-            border = javax.swing.border.EmptyBorder(4, 20, 4, 20)
-        }
-        searchField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            private fun onChange() { filterText = searchField.text; rebuildList() }
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) { onChange() }
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) { onChange() }
-            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) { onChange() }
-        })
-        content.add(JLabel("搜索剧集").apply {
-            font = Font(Font.SANS_SERIF, Font.PLAIN, 12)
-            foreground = Color(0x8A, 0x8A, 0x8A)
-            border = EmptyBorder(2, 20, 0, 20)
-            alignmentX = Component.LEFT_ALIGNMENT
-        })
-        content.add(searchField)
-        rebuildList()
+        // 汇总日志：证明本次打开面板时缩略图加载是否真正发起。
+        // 若这里“发起加载”>0 但随后全是 404，即服务端该剧无集缩略图，非客户端 bug。
+        DebugLog.d("Thumb", "缩略图：共 ${episodes.size} 集，缓存命中 $thumbStatHit，本次发起加载 $thumbStatMiss")
         val scroll = JScrollPane(listPanel).apply {
             isOpaque = false
             viewport.isOpaque = false
@@ -237,50 +207,6 @@ class EpisodePanel(
             }
         }
         Toolkit.getDefaultToolkit().addAWTEventListener(outsideClickListener, AWTEvent.MOUSE_EVENT_MASK)
-
-        // 键盘导航 + 全局 ESC：方向键移动选中、回车播放、ESC 关闭（之前 ESC 只在面板聚焦时生效，
-        // 焦点在主窗口时按 ESC 关不掉；点外部关闭仍保留）
-        var keyboardIndex = currentIndex
-        fun highlightKeyboard() {
-            for (ci in 0 until listPanel.componentCount) {
-                val comp = listPanel.getComponent(ci)
-                if (comp is JPanel) {
-                    val rowIdx = ci / 2
-                    comp.border = if (rowIdx == keyboardIndex) {
-                        javax.swing.border.LineBorder(Color(0x2F, 0x7C, 0xF6), 2)
-                    } else null
-                }
-            }
-        }
-        panelKeyListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
-        panelKeyListener = AWTEventListener { event ->
-            if (event is KeyEvent && event.id == KeyEvent.KEY_PRESSED && dialog != null) {
-                val filtered = currentFiltered()
-                when (event.keyCode) {
-                    KeyEvent.VK_ESCAPE -> SwingUtilities.invokeLater { dismiss() }
-                    KeyEvent.VK_UP -> {
-                        if (filtered.isNotEmpty()) {
-                            keyboardIndex = (keyboardIndex - 1).coerceAtLeast(0)
-                            highlightKeyboard()
-                        }
-                    }
-                    KeyEvent.VK_DOWN -> {
-                        if (filtered.isNotEmpty()) {
-                            keyboardIndex = (keyboardIndex + 1).coerceAtMost(filtered.size - 1)
-                            highlightKeyboard()
-                        }
-                    }
-                    KeyEvent.VK_ENTER -> {
-                        val ep = filtered.getOrNull(keyboardIndex)
-                        if (ep != null) {
-                            dismiss()
-                            onSelect(ep, episodes.indexOf(ep))
-                        }
-                    }
-                }
-            }
-        }
-        Toolkit.getDefaultToolkit().addAWTEventListener(panelKeyListener, AWTEvent.KEY_EVENT_MASK)
 
         dialog = dlg
         // 先算好高度再显示，避免显示后resize导致卡死
@@ -367,7 +293,6 @@ class EpisodePanel(
             setBounds(4, 4, THUMB_W, THUMB_H)
             horizontalAlignment = SwingConstants.CENTER
             verticalAlignment = SwingConstants.CENTER
-            // 无占位图：加载中/失败保持空白（1.0.354 备份样式）
         }
         thumbPanel.add(thumbLabel)
         // 当前集：缩略图左上角"播放中"徽标
@@ -467,34 +392,6 @@ class EpisodePanel(
         titleWrapper.add(titleLabel)
         row.add(titleWrapper)
 
-        // 元信息行：时长 / 已看进度 / 大小 / 已看完（之前只显示集名，无进度/已看/时长）
-        val metaParts = mutableListOf<String>()
-        if (ep.durationTicks > 0) metaParts.add(YambyClient.durShort(ep.durationTicks))
-        if (ep.playTicks > 0 && ep.durationTicks > 0) {
-            metaParts.add("已看 ${(ep.playTicks * 100 / ep.durationTicks).toInt()}%")
-        }
-        if (ep.sizeBytes > 0) {
-            YambyClient.sizeLabel(ep.sizeBytes).takeIf { it.isNotEmpty() }?.let { metaParts.add(it) }
-        }
-        if (ep.played) metaParts.add("已看完")
-        if (metaParts.isNotEmpty()) {
-            val metaLabel = JLabel(metaParts.joinToString(" · ")).apply {
-                font = Font(Font.SANS_SERIF, Font.PLAIN, 11)
-                foreground = Color(0x8A, 0x8A, 0x8A)
-                alignmentX = Component.CENTER_ALIGNMENT
-                horizontalAlignment = SwingConstants.CENTER
-            }
-            val metaWrapper = JPanel(FlowLayout(FlowLayout.CENTER, 0, 0)).apply {
-                isOpaque = false
-                alignmentX = Component.CENTER_ALIGNMENT
-                maximumSize = Dimension(THUMB_W, 18)
-            }
-            metaWrapper.add(metaLabel)
-            row.add(metaWrapper)
-        }
-        // 不设 row.toolTipText：悬停提示会在行上方弹出一个浮动灰色气泡（带尖角），
-        // 看起来像卡片上面多了一块来路不明的灰色东西，容易误认成 UI 元素。完整集名在详情页/播放器可见。
-
         // Swing 事件不冒泡：点击监听加到行及其全部后代组件上（缩略图/徽标/标题都会截获事件）
         val rowClickListener = object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
@@ -585,10 +482,6 @@ class EpisodePanel(
             outsideClickListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
         } catch (_: Throwable) { }
         outsideClickListener = null
-        try {
-            panelKeyListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
-        } catch (_: Throwable) { }
-        panelKeyListener = null
         try { dialog?.isVisible = false } catch (_: Throwable) { }
         try { dialog?.dispose() } catch (_: Throwable) { }
         dialog = null
