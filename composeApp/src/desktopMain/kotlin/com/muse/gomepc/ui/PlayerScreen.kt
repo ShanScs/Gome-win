@@ -26,6 +26,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -193,6 +194,13 @@ private fun VideoCanvasArea(
 }
 
 
+/** 稳健版找下一集的结果：Found=有下一集；LastEpisode=已是最后一集；Unresolved=取集失败、无法确定 */
+sealed interface NextEpisodeResult {
+    data class Found(val episode: UiEpisode) : NextEpisodeResult
+    object LastEpisode : NextEpisodeResult
+    object Unresolved : NextEpisodeResult
+}
+
 @Composable
 fun PlayerScreen(
     itemId: String,
@@ -215,6 +223,8 @@ fun PlayerScreen(
     onSwitchEpisode: ((episodeId: String, episodeIndex: Int, resumeSec: Double) -> Unit)? = null
 ) {
     val player = remember(episodeId) { MpvPlayer() }
+    // EOF 自动跳集的协程作用域（跟随组合生命周期）：离开播放器时自动取消，不会把已退出的用户拉回下一集
+    val playerScope = rememberCoroutineScope()
     val prefs = remember { com.muse.gomepc.emby.Prefs }
     /** 把 Prefs 里的弹幕样式应用到引擎（1:1 Android applyDanmakuStyle） */
     fun applyDanmakuStyleToEngine(e: DanmakuEngine) {
@@ -276,6 +286,8 @@ fun PlayerScreen(
     // 跳过片头/片尾状态
     var showSkipIntro by remember(episodeId) { mutableStateOf(false) }
     var showNextEp by remember(episodeId) { mutableStateOf(false) }
+    // 下集倒计时已取消（点“取消”后置位）：showNextEp 由 timePos 每次重算，不加此标志取消后 200ms 内又会弹回来
+    var outroDismissed by remember(episodeId) { mutableStateOf(false) }
     var nextEpCountdown by remember(episodeId) { mutableStateOf(5) }
     var introSkipped by remember(episodeId) { mutableStateOf(false) }
     // 监听播放进度，更新跳过按钮显示
@@ -285,9 +297,9 @@ fun PlayerScreen(
         val manualOutro = prefs.getSkipOutroSec(episodeId)
         // 片头：未跳过且在片头范围内
         showSkipIntro = !introSkipped && manualIntro > 0 && timePos < manualIntro && timePos >= 0
-        // 片尾：剩余时间小于设定值且有下一集
+        // 片尾：剩余时间小于设定值且有下一集；已点“取消”则不再弹（outroDismissed）
         val remain = duration - timePos
-        showNextEp = manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
+        showNextEp = !outroDismissed && manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
     }
     // 取剧集列表（带缓存）：放倒计时前面，自动跳集要从这里查下一集的真实 id
     var episodeList by remember { mutableStateOf<List<UiEpisode>>(emptyList()) }
@@ -295,12 +307,54 @@ fun PlayerScreen(
         try {
             val data = Repo.episodes(itemId)
             episodeList = data.episodes
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            // 失败不再静默吞：列表为空时 EOF 自动跳集会找不到下一集，日志要留痕
+            com.muse.gomepc.player.DebugLog.d("UI", "取剧集列表失败 itemId=$itemId: ${e.message}")
+        }
     }
     /** 按当前位置找下一集；找不到则返回 null（调用方不切集，绝不传空 episodeId） */
     fun nextEpisode(): UiEpisode? {
         val curIdx = episodeList.indexOfFirst { it.id == episodeId }
         return if (curIdx >= 0) episodeList.getOrNull(curIdx + 1) else null
+    }
+    /**
+     * 稳健版找下一集（EOF 自动跳集 / 倒计时用）。
+     * 旧版 nextEpisode() 只查缓存的第一季列表，静默返回 null 的三种情况都会导致“播完无反应”：
+     * ① 播放器启动时取剧集列表瞬时失败（异常被吞），列表永久为空；
+     * ② 当前集在非默认季（多季剧），默认季列表里根本没有它；
+     * ③ 已是最后一集（此时应明确提示，而不是静默）。
+     * 本函数：快路径 → 重拉列表（Repo 有缓存，命中时不发网络请求）→ 逐季搜索；并区分“最后一集”与“取集失败”。
+     */
+    suspend fun resolveNextEpisode(): NextEpisodeResult {
+        // 快路径：缓存列表
+        val curIdx = episodeList.indexOfFirst { it.id == episodeId }
+        if (curIdx >= 0) {
+            val next = episodeList.getOrNull(curIdx + 1)
+            return if (next != null) NextEpisodeResult.Found(next) else NextEpisodeResult.LastEpisode
+        }
+        // 慢路径：重拉（瞬时失败重试；缓存命中则不发请求）+ 多季搜索
+        try {
+            val data = Repo.episodes(itemId)
+            episodeList = data.episodes
+            val idx2 = episodeList.indexOfFirst { it.id == episodeId }
+            if (idx2 >= 0) {
+                val next = episodeList.getOrNull(idx2 + 1)
+                return if (next != null) NextEpisodeResult.Found(next) else NextEpisodeResult.LastEpisode
+            }
+            for (season in data.seasons) {
+                if (season.id == data.currentSeasonId) continue // 默认季已查过
+                val eps = try { Repo.seasonEpisodes(itemId, season.id) } catch (_: Exception) { emptyList() }
+                val idx3 = eps.indexOfFirst { it.id == episodeId }
+                if (idx3 >= 0) {
+                    val next = eps.getOrNull(idx3 + 1)
+                    return if (next != null) NextEpisodeResult.Found(next) else NextEpisodeResult.LastEpisode
+                }
+            }
+            com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：全部季中均未找到当前集 episodeId=$episodeId")
+        } catch (e: Exception) {
+            com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：重拉剧集列表失败: ${e.message}")
+        }
+        return NextEpisodeResult.Unresolved
     }
     /** 按当前位置找上一集；找不到则返回 null */
     fun prevEpisode(): UiEpisode? {
@@ -325,10 +379,11 @@ fun PlayerScreen(
                 nextEpCountdown--
             }
             if (showNextEp && nextEpCountdown <= 0) {
-                // 自动跳下一集：从 episodeList 查真实 id，查不到就不切
-                val next = nextEpisode()
-                if (next != null) {
-                    onSwitchEpisode?.invoke(next.id, next.index, 0.0)
+                // 自动跳下一集：稳健版（快路径失败时重拉/多季搜索）；最后一集则收起倒计时，不静默
+                when (val r = resolveNextEpisode()) {
+                    is NextEpisodeResult.Found -> onSwitchEpisode?.invoke(r.episode.id, r.episode.index, 0.0)
+                    NextEpisodeResult.LastEpisode -> showNextEp = false
+                    NextEpisodeResult.Unresolved -> { /* 不跳，EOF 到达时由 onEndFileReason 给提示 */ }
                 }
             }
         }
@@ -654,15 +709,32 @@ fun PlayerScreen(
             /**
              * 自然播完（EOF）自动跳下一集：之前 onEndFile() 空实现 + keep-open=yes 停末帧，
              * 单集播完无任何反应。STOP/QUIT/ERROR 不跳；循环播放时不跳；已是最后一集不跳。
+             * 旧版这里只查缓存的第一季列表，列表为空（启动时取集瞬时失败被吞）或当前集在非默认季时
+             * nextEpisode() 静默返回 null，播完无反应且零日志——改用稳健版 resolveNextEpisode()
+             *（快路径→重拉→多季搜索），并区分“最后一集”与“取集失败”给明确提示。
              */
             override fun onEndFileReason(reason: Int) {
                 SwingUtilities.invokeLater {
+                    com.muse.gomepc.player.DebugLog.d("UI", "END_FILE reason=$reason fileLoaded=$fileLoaded loop=${System.getProperty("ui.loop", "false")}")
                     if (reason == com.muse.gomepc.player.MpvEndFileReason.EOF && fileLoaded &&
                         System.getProperty("ui.loop", "false") != "true"
                     ) {
-                        val next = nextEpisode()
-                        if (next != null) {
-                            onSwitchEpisode?.invoke(next.id, next.index, 0.0)
+                        // 协程在 playerScope：离开播放器时自动取消，不会把已退出的用户拉回下一集
+                        playerScope.launch {
+                            when (val r = resolveNextEpisode()) {
+                                is NextEpisodeResult.Found -> {
+                                    com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：$episodeId -> ${r.episode.id} ${r.episode.name}")
+                                    onSwitchEpisode?.invoke(r.episode.id, r.episode.index, 0.0)
+                                }
+                                NextEpisodeResult.LastEpisode -> {
+                                    com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：已是最后一集 episodeId=$episodeId")
+                                    actionMsg = "已是最后一集"
+                                }
+                                NextEpisodeResult.Unresolved -> {
+                                    com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：无法确定下一集 episodeId=$episodeId")
+                                    actionMsg = "无法获取下一集，请手动选集"
+                                }
+                            }
                         }
                     }
                 }
@@ -1388,7 +1460,8 @@ fun PlayerScreen(
                         "取消",
                         color = Color(0xFFBBBBBB),
                         fontSize = 14.sp,
-                        modifier = Modifier.clickable { showNextEp = false }.padding(horizontal = 8.dp)
+                        // 置位 outroDismissed：否则 timePos 重算 showNextEp 时 200ms 内又弹回来，等于取消无效
+                        modifier = Modifier.clickable { outroDismissed = true; showNextEp = false }.padding(horizontal = 8.dp)
                     )
                 }
             }

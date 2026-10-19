@@ -229,14 +229,16 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
+                BackGlyph()
             }
             is TitleLeftIcon.Sort -> SortGlyph()
         }
     }
 }
 
-/** 手绘红心（收藏图标）：与 Screens.HeartIcon 同一路径，不用 ♥ 字符 */
+/** 手绘红心（收藏图标）：与 Screens.HeartIcon 同一路径，不用 ♥ 字符。
+ * 按路径包围盒居中（而非视口居中），再下移一点做光学居中：
+ * 心形上重（双瓣）下尖（尖角），只按包围盒居中视觉上会显偏上。 */
 @Composable
 private fun HeartGlyph() {
     val path = remember {
@@ -246,9 +248,13 @@ private fun HeartGlyph() {
     }
     Canvas(Modifier.size(18.dp)) {
         val sc = size.minDimension / 24f
-        val dx = (size.width - 24f * sc) / 2f
-        val dy = (size.height - 24f * sc) / 2f
-        withTransform({ translate(dx, dy); scale(sc, sc) }) {
+        // 包围盒中心 → 画布中心；withTransform 先 translate 后 scale 时平移量在画布像素空间
+        val bounds = path.getBounds()
+        val bx = (bounds.left + bounds.right) / 2f
+        val by = (bounds.top + bounds.bottom) / 2f
+        val tx = size.width / 2f - sc * bx
+        val ty = size.height / 2f - sc * by + size.height * 0.033f // 光学居中：下移约 0.6dp
+        withTransform({ translate(tx, ty); scale(sc, sc) }) {
             drawPath(path, Color(0xFFF44336))
         }
     }
@@ -293,7 +299,7 @@ private fun AppGlyph() {
     }
 }
 
-/** 服务器图标：显示真实服务器图标（图标库自动匹配），加载失败时显示首字 */
+/** 服务器图标：显示真实服务器图标（图标库自动匹配），加载失败时显示手绘机架图标 */
 @Composable
 private fun ServerGlyph() {
     val serverName = Prefs.serverName
@@ -312,14 +318,47 @@ private fun ServerGlyph() {
             modifier = Modifier.size(26.dp),
             contentScale = ContentScale.Crop,
             fallback = {
-                Text(
-                    serverName.take(1).uppercase().ifEmpty { "影" },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = GomeTheme.Accent
-                )
+                ServerFallbackGlyph()
             }
         )
+    }
+}
+
+/** 服务器图标兜底：手绘服务器机架图标（无匹配图标时用，不再用服务器名首字当图标）。 */
+@Composable
+private fun ServerFallbackGlyph() {
+    Canvas(Modifier.size(18.dp)) {
+        val c = GomeTheme.Accent
+        val w = size.width
+        val h = size.height
+        // 机架外框：圆角矩形，留边距不被圆形裁切
+        val strokeW = w * 0.09f
+        drawRoundRect(
+            c,
+            topLeft = Offset(w * 0.12f, h * 0.12f),
+            size = androidx.compose.ui.geometry.Size(w * 0.76f, h * 0.76f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f),
+            style = Stroke(width = strokeW)
+        )
+        // 两条分隔线，分成三层机架
+        for (fy in listOf(0.38f, 0.62f)) {
+            drawLine(
+                c,
+                Offset(w * 0.12f, h * fy),
+                Offset(w * 0.88f, h * fy),
+                strokeWidth = strokeW * 0.8f
+            )
+        }
+        // 每层左侧状态灯 + 右侧横线
+        for (fy in listOf(0.25f, 0.5f, 0.75f)) {
+            drawCircle(c, radius = w * 0.055f, center = Offset(w * 0.28f, h * fy))
+            drawLine(
+                c,
+                Offset(w * 0.42f, h * fy),
+                Offset(w * 0.74f, h * fy),
+                strokeWidth = strokeW * 0.8f
+            )
+        }
     }
 }
 

@@ -13,6 +13,7 @@ import java.util.concurrent.Future
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import com.muse.gomepc.emby.YambyClient
+import com.muse.gomepc.player.DebugLog
 
 /**
  * 剧集面板：1:1 还原安卓 item_episode_row.xml。
@@ -136,7 +137,6 @@ class EpisodePanel(
             listPanel.repaint()
         }
         val searchField = JTextField().apply {
-            toolTipText = "搜索剧集（按集名过滤）"
             border = javax.swing.border.EmptyBorder(4, 20, 4, 20)
         }
         searchField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
@@ -378,9 +378,14 @@ class EpisodePanel(
             thumbPanel.add(badge)
         }
         // 异步加载并圆角裁剪：固定线程池 + 连接/读取超时 + 面板关闭时取消 + 内存缓存
+        // 注意：thumbLabel 已预置占位图（icon 恒非 null），不能再用 `thumbLabel.icon == null`
+        // 当加载开关——1.0.355 就是这么把加载写死的（占位图一设，加载永远不跑，
+        // 全部行永久显示“暂无缩略图”）。改查缓存是否命中来决定是否发起加载。
         val thumbUrl = YambyClient.imageUrl(ep.id, "Primary", 400)
-        thumbCache[thumbUrl]?.let { thumbLabel.icon = it }
-        if (thumbLabel.icon == null) {
+        val cachedThumb = thumbCache[thumbUrl]
+        if (cachedThumb != null) {
+            thumbLabel.icon = cachedThumb
+        } else {
             val future = thumbExecutor.submit {
                 try {
                     val conn = java.net.URL(thumbUrl).openConnection() as java.net.HttpURLConnection
@@ -389,10 +394,22 @@ class EpisodePanel(
                     // 认证走 Header：imageUrl 不再带 Token
                     conn.setRequestProperty("X-Emby-Authorization", YambyClient.authHeader())
                     try {
-                        if (conn.responseCode !in 200..299) return@submit
-                        val bytes = readUpTo(conn.inputStream, THUMB_MAX_BYTES) ?: return@submit
+                        val code = conn.responseCode
+                        if (code !in 200..299) {
+                            // 失败必须记日志：URL 不含 Token，可直接记；404 通常是服务端该集无缩略图
+                            DebugLog.d("Thumb", "缩略图加载失败：集=${ep.name} id=${ep.id} url=$thumbUrl HTTP=$code")
+                            return@submit
+                        }
+                        val bytes = readUpTo(conn.inputStream, THUMB_MAX_BYTES)
+                        if (bytes == null) {
+                            DebugLog.d("Thumb", "缩略图加载失败：集=${ep.name} id=${ep.id} url=$thumbUrl 原因=响应超限或读取失败")
+                            return@submit
+                        }
                         val img = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes))
-                            ?: return@submit
+                        if (img == null) {
+                            DebugLog.d("Thumb", "缩略图解码失败：集=${ep.name} id=${ep.id} url=$thumbUrl 原因=ImageIO 返回 null")
+                            return@submit
+                        }
                         // 内图与边框用同一圆角（同一 rect + 同一 arc = THUMB_RADIUS），同心无批锋
                         val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
                         val icon = ImageIcon(rounded)
@@ -408,8 +425,9 @@ class EpisodePanel(
                     } finally {
                         conn.disconnect()
                     }
-                } catch (_: Exception) {
-                    // 加载失败：保持空白，不显示占位符
+                } catch (e: Exception) {
+                    // 加载失败：保持占位图，并记日志（URL、原因），不再静默吞掉
+                    DebugLog.d("Thumb", "缩略图加载异常：集=${ep.name} id=${ep.id} url=$thumbUrl 原因=${e.message}")
                 }
             }
             thumbFutures.add(future)
@@ -460,8 +478,8 @@ class EpisodePanel(
             metaWrapper.add(metaLabel)
             row.add(metaWrapper)
         }
-        // 悬停提示：完整集名 + 元信息（长集名被截断时悬停可见全文）
-        row.toolTipText = (listOf(ep.name) + metaParts).joinToString(" | ")
+        // 不设 row.toolTipText：悬停提示会在行上方弹出一个浮动灰色气泡（带尖角），
+        // 看起来像卡片上面多了一块来路不明的灰色东西，容易误认成 UI 元素。完整集名在详情页/播放器可见。
 
         // Swing 事件不冒泡：点击监听加到行及其全部后代组件上（缩略图/徽标/标题都会截获事件）
         val rowClickListener = object : java.awt.event.MouseAdapter() {
