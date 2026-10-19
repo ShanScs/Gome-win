@@ -142,10 +142,10 @@ fun LoginScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Gome", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
+                Text("Gome", fontSize = GomeText.Hero, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
                 Text(
                     "连接 Emby 服务器",
-                    fontSize = 14.sp,
+                    fontSize = GomeText.Body,
                     color = GomeTheme.TextSecondary
                 )
                 Spacer(Modifier.height(4.dp))
@@ -179,7 +179,7 @@ fun LoginScreen(
                     trailingIcon = {
                         Text(
                             if (passwordVisible) "隐藏" else "显示",
-                            fontSize = 13.sp,
+                            fontSize = GomeText.Secondary,
                             color = GomeTheme.Accent,
                             modifier = Modifier.clickable { passwordVisible = !passwordVisible }
                                 .padding(8.dp)
@@ -193,7 +193,7 @@ fun LoginScreen(
                 val savedServers = remember { Prefs.getServers() }
                 if (savedServers.isNotEmpty()) {
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("快速选择已保存服务器：", fontSize = 12.sp, color = GomeTheme.TextSecondary)
+                        Text("快速选择已保存服务器：", fontSize = GomeText.Caption, color = GomeTheme.TextSecondary)
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -205,7 +205,7 @@ fun LoginScreen(
                                         username = entry.username
                                         error = null
                                     },
-                                    label = { Text(entry.name.ifEmpty { entry.host }, fontSize = 12.sp) }
+                                    label = { Text(entry.name.ifEmpty { entry.host }, fontSize = GomeText.Caption) }
                                 )
                             }
                         }
@@ -215,7 +215,7 @@ fun LoginScreen(
                 if (error != null) {
                     Text(
                         error!!,
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         color = Color(0xFFE53935),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -234,9 +234,9 @@ fun LoginScreen(
                             strokeWidth = 2.dp
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("连接中…", fontSize = 15.sp)
+                        Text("连接中…", fontSize = GomeText.Body)
                     } else {
-                        Text("登录", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("登录", fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -245,9 +245,9 @@ fun LoginScreen(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("没有服务器？", fontSize = 13.sp, color = GomeTheme.TextSecondary)
+                    Text("没有服务器？", fontSize = GomeText.Secondary, color = GomeTheme.TextSecondary)
                     TextButton(onClick = onDemoMode, enabled = !busy) {
-                        Text("进入演示模式", fontSize = 13.sp, color = GomeTheme.Accent)
+                        Text("进入演示模式", fontSize = GomeText.Secondary, color = GomeTheme.Accent)
                     }
                 }
             }

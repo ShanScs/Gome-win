@@ -85,7 +85,7 @@ fun IconPickerDialog(
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     "选择服务器图标",
-                    fontSize = 17.sp,
+                    fontSize = GomeText.Title,
                     fontWeight = FontWeight.Bold,
                     color = GomeTheme.TextPrimary
                 )
@@ -93,7 +93,7 @@ fun IconPickerDialog(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("搜索图标名称…", fontSize = 14.sp) },
+                    placeholder = { Text("搜索图标名称…", fontSize = GomeText.Body) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp)
@@ -106,13 +106,13 @@ fun IconPickerDialog(
                     ) {
                         Text(
                             "图标库加载失败，请检查网络",
-                            fontSize = 12.sp,
+                            fontSize = GomeText.Caption,
                             color = androidx.compose.ui.graphics.Color(0xFFE53935),
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             "重试",
-                            fontSize = 12.sp,
+                            fontSize = GomeText.Caption,
                             color = GomeTheme.Accent,
                             modifier = Modifier
                                 .padding(8.dp)
@@ -122,7 +122,7 @@ fun IconPickerDialog(
                 } else {
                     Text(
                         if (loading) "加载中…" else "共 ${filtered.size} 个图标",
-                        fontSize = 12.sp,
+                        fontSize = GomeText.Caption,
                         color = GomeTheme.TextSecondary
                     )
                 }
@@ -150,7 +150,7 @@ fun IconPickerDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "清除自定义",
-                    fontSize = 14.sp,
+                    fontSize = GomeText.Body,
                     color = androidx.compose.ui.graphics.Color(0xFFFF3B30),
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
@@ -211,7 +211,7 @@ private fun IconCell(
         }
         Text(
             if (selected) "✓ 当前" else name,
-            fontSize = 10.sp,
+            fontSize = GomeText.Micro,
             color = if (selected) GomeTheme.Accent else GomeTheme.TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

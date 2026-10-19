@@ -42,9 +42,9 @@ class FrostedPopup(
     private val POPUP_WIDTH = 210
     private val ROW_HEIGHT = 52
     private val ROW_PADDING_H = 14
-    private val PREFIX_SIZE = 22
+    private val PREFIX_SIZE = GomeAwtText.Glyph
     private val PREFIX_MARGIN = 10
-    private val LABEL_SIZE = 15
+    private val LABEL_SIZE = GomeAwtText.Body
     private val ICON_SIZE = 22
     private val CONTAINER_PADDING_V = 6
     private val CORNER_RADIUS = 16

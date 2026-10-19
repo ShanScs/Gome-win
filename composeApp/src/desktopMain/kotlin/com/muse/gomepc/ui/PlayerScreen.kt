@@ -1333,7 +1333,7 @@ fun PlayerScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("跳过片头", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("跳过片头", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
             }
         }
         // 片头/片尾设置确认态：点击即写即清容易误触，改成二次确认；按集存（episodeId）
@@ -1355,7 +1355,7 @@ fun PlayerScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(if (curIntroSet) "片头✓" else "设片头", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(if (curIntroSet) "片头✓" else "设片头", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
             }
         }
         // 设片尾按钮（剩余3分钟内显示，右下角）
@@ -1373,7 +1373,7 @@ fun PlayerScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(if (curOutroSet) "片尾✓" else "设片尾", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(if (curOutroSet) "片尾✓" else "设片尾", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
             }
         }
         // 片头/片尾设置二次确认（确认后才写/清，避免误触）
@@ -1395,7 +1395,7 @@ fun PlayerScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(msg, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(msg, color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(16.dp))
                     Row {
                         Box(
@@ -1418,7 +1418,7 @@ fun PlayerScreen(
                                 }
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center
-                        ) { Text("确认", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                        ) { Text("确认", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold) }
                         Spacer(Modifier.width(12.dp))
                         Box(
                             Modifier.clip(RoundedCornerShape(8.dp))
@@ -1426,7 +1426,7 @@ fun PlayerScreen(
                                 .clickable { introConfirm = null; outroConfirm = null }
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center
-                        ) { Text("取消", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                        ) { Text("取消", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -1446,7 +1446,7 @@ fun PlayerScreen(
                     Text(
                         if (nextEpCountdown > 0) "跳到下一集 ($nextEpCountdown)" else "跳到下一集",
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = GomeText.Body,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable {
                             showNextEp = false
@@ -1459,7 +1459,7 @@ fun PlayerScreen(
                     Text(
                         "取消",
                         color = Color(0xFFBBBBBB),
-                        fontSize = 14.sp,
+                        fontSize = GomeText.Body,
                         // 置位 outroDismissed：否则 timePos 重算 showNextEp 时 200ms 内又弹回来，等于取消无效
                         modifier = Modifier.clickable { outroDismissed = true; showNextEp = false }.padding(horizontal = 8.dp)
                     )
@@ -1489,18 +1489,18 @@ fun PlayerScreen(
                     Spacer(Modifier.width(12.dp))
                     // 上一集 / 下一集 / 选集：之前底栏没有，换集只能去浮动工具栏
                     if (onSwitchEpisode != null) {
-                        Text("上一集", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        Text("上一集", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
                             modifier = Modifier.clickable { switchToEpisode(prevEpisode()) }.padding(6.dp))
-                        Text("下一集", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        Text("下一集", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
                             modifier = Modifier.clickable { switchToEpisode(nextEpisode()) }.padding(6.dp))
-                        Text("选集", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        Text("选集", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
                             modifier = Modifier.clickable { showEpisodePanel() }.padding(6.dp))
                     }
-                    Text("－10s", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    Text("－10s", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { seekBy(-10.0) }.padding(6.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(formatTime(if (dragging) dragPos.toDouble() else timePos),
-                        color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold)
                     // 进度条 + 缓冲条：缓冲进度（demuxer-cache-duration）画在滑杆下方，之前无缓冲条
                     Box(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                         if (duration > 0 && cacheDuration > 0) {
@@ -1531,14 +1531,14 @@ fun PlayerScreen(
                         )
                         } // key(episodeId) - Slider
                     }
-                    Text(formatTime(duration), color = Color(0xFF555555), fontSize = 13.sp)
-                    Text("＋10s", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    Text(formatTime(duration), color = Color(0xFF555555), fontSize = GomeText.Secondary)
+                    Text("＋10s", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { seekBy(10.0) }.padding(6.dp))
                     Spacer(Modifier.width(12.dp))
                     // 静音切换 + 音量百分比：之前无静音、无百分比
                     Text(
                         if (volume <= 0f) "已静音" else "音量 ${volume.toInt()}%",
-                        color = Color(0xFF555555), fontSize = 12.sp,
+                        color = Color(0xFF555555), fontSize = GomeText.Caption,
                         modifier = Modifier.clickable { toggleMute() }.padding(4.dp)
                     )
                     Slider(
@@ -1556,21 +1556,21 @@ fun PlayerScreen(
                     Text(
                         if (danmakuUiOn) "弹幕开" else "弹幕关",
                         color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { toggleDanmaku() }.padding(8.dp)
                     )
                     Text(
                         "全屏",
                         color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable(onClick = onFullscreen).padding(8.dp)
                     )
                     Text(
                         "截图",
                         color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable {
                             actionMsg = if (player.screenshot()) "已截图" else "截图失败"
@@ -1579,7 +1579,7 @@ fun PlayerScreen(
                     Text(
                         "日志",
                         color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { showLogs = !showLogs }.padding(8.dp)
                     )
@@ -1597,7 +1597,7 @@ fun PlayerScreen(
             Text(
                 "‹ 返回",
                 color = Color.White,
-                fontSize = 15.sp,
+                fontSize = GomeText.Body,
                 modifier = Modifier.clickable(onClick = onBack).padding(8.dp)
             )
             Spacer(Modifier.width(8.dp))
@@ -1607,7 +1607,7 @@ fun PlayerScreen(
             Text(
                 "$itemName $epTitle",
                 color = Color.White,
-                fontSize = 17.sp,
+                fontSize = GomeText.Title,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1615,25 +1615,25 @@ fun PlayerScreen(
             )
             Spacer(Modifier.weight(1f))
             if (urlError != null) {
-                Text(urlError!!, color = Color(0xFFFF5252), fontSize = 12.sp)
+                Text(urlError!!, color = Color(0xFFFF5252), fontSize = GomeText.Caption)
             } else if (initError != null) {
-                Text("mpv: $initError", color = Color(0xFFFF5252), fontSize = 12.sp)
+                Text("mpv: $initError", color = Color(0xFFFF5252), fontSize = GomeText.Caption)
             } else if (buffering) {
-                Text("缓冲中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
+                Text("缓冲中…", color = Color(0xFFBBBBBB), fontSize = GomeText.Caption)
             } else if (videoUrl == null) {
-                Text("获取播放地址中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
+                Text("获取播放地址中…", color = Color(0xFFBBBBBB), fontSize = GomeText.Caption)
             } else if (!fileLoaded) {
                 // 拿到地址到 FILE_LOADED 之间约 15 秒黑屏无提示：补加载态
-                Text("正在加载视频…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
+                Text("正在加载视频…", color = Color(0xFFBBBBBB), fontSize = GomeText.Caption)
             }
             if (actionMsg != null) {
-                Text(actionMsg!!, color = Color(0xFF88CCFF), fontSize = 12.sp,
+                Text(actionMsg!!, color = Color(0xFF88CCFF), fontSize = GomeText.Caption,
                     modifier = Modifier.padding(start = 8.dp))
             }
             if (danmakuError != null) {
-                Text("弹幕加载失败", color = Color(0xFFFF8888), fontSize = 12.sp,
+                Text("弹幕加载失败", color = Color(0xFFFF8888), fontSize = GomeText.Caption,
                     modifier = Modifier.padding(start = 8.dp))
-                Text("重试", color = Color(0xFF88CCFF), fontSize = 12.sp,
+                Text("重试", color = Color(0xFF88CCFF), fontSize = GomeText.Caption,
                     modifier = Modifier.padding(start = 4.dp).clickable {
                         danmakuError = null
                         engine.setDanmakuList(emptyList())
@@ -1657,7 +1657,7 @@ fun PlayerScreen(
                     Text(
                         urlError ?: "播放器初始化失败：$initError",
                         color = Color.White,
-                        fontSize = 15.sp,
+                        fontSize = GomeText.Body,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(16.dp))
@@ -1670,7 +1670,7 @@ fun PlayerScreen(
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("重试", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("重试", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
                         }
                         Spacer(Modifier.width(12.dp))
                         Box(
@@ -1681,7 +1681,7 @@ fun PlayerScreen(
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("返回", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("返回", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1694,25 +1694,25 @@ fun PlayerScreen(
                 Modifier.fillMaxSize().background(Color(0xCC000000)).clickable { showLogs = false }
             ) {
                 Column(Modifier.fillMaxSize().padding(24.dp)) {
-                    Text("mpv 日志（点击关闭）", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("mpv 日志（点击关闭）", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "URL: ${videoUrl?.take(120) ?: "null"}",
                         color = Color(0xFF88CCFF),
-                        fontSize = 11.sp,
+                        fontSize = GomeText.Tiny,
                         modifier = Modifier.padding(vertical = 2.dp)
                     )
                     Text(
                         "fileLoaded: $fileLoaded, inited: $inited",
                         color = Color(0xFF88CCFF),
-                        fontSize = 11.sp,
+                        fontSize = GomeText.Tiny,
                         modifier = Modifier.padding(vertical = 2.dp)
                     )
                     if (initError != null) {
                         Text(
                             "initError: $initError",
                             color = Color(0xFFFF8888),
-                            fontSize = 11.sp,
+                            fontSize = GomeText.Tiny,
                             modifier = Modifier.padding(vertical = 2.dp)
                         )
                     }
@@ -1720,7 +1720,7 @@ fun PlayerScreen(
                         Text(
                             "urlError: $urlError",
                             color = Color(0xFFFF8888),
-                            fontSize = 11.sp,
+                            fontSize = GomeText.Tiny,
                             modifier = Modifier.padding(vertical = 2.dp)
                         )
                     }
@@ -1732,7 +1732,7 @@ fun PlayerScreen(
                         Text(
                             "测试URL连通",
                             color = Color.White,
-                            fontSize = 11.sp,
+                            fontSize = GomeText.Tiny,
                             modifier = Modifier
                                 .background(Color(0xFF555555), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
                                 .clickable {
@@ -1764,7 +1764,7 @@ fun PlayerScreen(
                             Text(
                                 urlTestResult!!,
                                 color = Color(0xFF88CCFF),
-                                fontSize = 11.sp,
+                                fontSize = GomeText.Tiny,
                                 modifier = Modifier.padding(start = 8.dp)
                             )
                         }
@@ -1775,7 +1775,7 @@ fun PlayerScreen(
                             Text(
                                 mpvLogs[i],
                                 color = Color(0xFFCCCCCC),
-                                fontSize = 11.sp,
+                                fontSize = GomeText.Tiny,
                                 modifier = Modifier.padding(vertical = 2.dp)
                             )
                         }

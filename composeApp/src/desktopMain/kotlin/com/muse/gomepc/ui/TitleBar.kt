@@ -148,7 +148,7 @@ fun CustomTitleBar(
         config.centerTitle?.let { title ->
             Text(
                 title,
-                fontSize = 17.sp,
+                fontSize = GomeText.Title,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A),
                 modifier = Modifier.align(Alignment.Center)
@@ -219,7 +219,7 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                Text("♥", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
+                Text("♥", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
             }
             is TitleLeftIcon.Back -> Box(
                 Modifier.size(26.dp)
@@ -227,7 +227,7 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
+                Text("←", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
             }
             is TitleLeftIcon.Sort -> SortGlyph()
         }

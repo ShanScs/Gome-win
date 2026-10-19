@@ -67,7 +67,7 @@ class EpisodePanel(
     private val ROW_RADIUS = 36
     private val ROW_PAD_H = 3
     private val ROW_PAD_V = 4
-    private val TITLE_SIZE = 14
+    private val TITLE_SIZE = GomeAwtText.Body
     private val TITLE_MARGIN_TOP = 2
     private val PANEL_W = 265
     private val CARD_SPACING = 6
@@ -101,7 +101,7 @@ class EpisodePanel(
 
         // 标题
         val titleLabel = JLabel("剧集").apply {
-            font = Font(Font.SANS_SERIF, Font.BOLD, 17)
+            font = Font(Font.SANS_SERIF, Font.BOLD, GomeAwtText.Title)
             foreground = Color(0x1A, 0x1A, 0x1A)
             border = EmptyBorder(4, 20, 4, 20)
             alignmentX = Component.LEFT_ALIGNMENT
@@ -298,7 +298,7 @@ class EpisodePanel(
         // 当前集：缩略图左上角"播放中"徽标
         if (isCurrent) {
             val badge = JLabel("播放中").apply {
-                font = Font(Font.SANS_SERIF, Font.BOLD, 9)
+                font = Font(Font.SANS_SERIF, Font.BOLD, GomeAwtText.Badge)
                 foreground = Color(0x2F, 0x7C, 0xF6)
                 background = Color(255, 255, 255)
                 isOpaque = true
