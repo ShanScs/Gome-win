@@ -426,10 +426,27 @@ latch.countDown()
 }.start()
 }
 Thread {
-// 最多等 45s：读超时已放到 60s，个别源挂死时不等它拖垮合并，有结果的源先合并返回。
-latch.await(45, TimeUnit.SECONDS)
+// 分段等全部源返回：单源全程（搜索重试 + bangumi + 弹幕抓取 60s 读超时 + 退避重试）
+// 可超过 45 秒（实测约 47 秒），1.0.348 的单次 await(45s) 会在好源还在抓弹幕时
+// 误判“全部失败”并退出，导致之后完成的源结果无人合并、池永不填充。
+// 故每 15 秒一轮、总上限 180 秒；超时时用已完成源的结果合并，不跳过。
+var waitedMs = 0L
+while (latch.count > 0 && waitedMs < 180_000) {
+latch.await(15, TimeUnit.SECONDS)
+waitedMs += 15_000
+if (loadGeneration.get() != gen) return@Thread
+if (latch.count > 0 && allResults.isEmpty() && waitedMs >= 45_000) {
+com.muse.gomepc.player.DebugLog.d("Danmaku", "合并等待中：已等 ${waitedMs / 1000} 秒，仍有 ${latch.count} 个源未返回，继续等待")
+}
+}
 if (loadGeneration.get() != gen) return@Thread
 if (allResults.isEmpty()) {
+if (latch.count > 0) {
+// 总上限到了仍有源在飞：没有已完成的结果可合并，只记超时，不报“库里无记录”
+// （lastErr 可能来自早失败的源，会误导成整部剧无弹幕）。
+com.muse.gomepc.player.DebugLog.d("Danmaku", "合并等待超时：180 秒已到，仍有 ${latch.count} 个源未返回，无已完成结果可合并")
+return@Thread
+}
 postError(if (lastErr.get().isNotEmpty()) lastErr.get() else "所有弹幕源均无结果")
 return@Thread
 }
