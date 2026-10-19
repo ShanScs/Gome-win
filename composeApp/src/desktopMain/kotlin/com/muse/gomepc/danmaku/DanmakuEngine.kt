@@ -363,8 +363,11 @@ if (it.textWidth < 0) it.textWidth = measureText(it.text)
 it.x + it.textWidth
 }?: -1f
 if (rightmost < w - 100) {
-val speed = 180f + Random.nextFloat() * 120f
 val tw = measureText(text)
+// 横穿时长固定约 10 秒：速度 = (窗口宽 + 文本宽) / 时长，与窗口宽度无关；
+// ±12% 随机避免齐步走。speedFactor 在 step() 里再乘（50%→20 秒，200%→5 秒）。
+val duration = 10f * (0.88f + Random.nextFloat() * 0.24f)
+val speed = (w + tw) / duration
 // P1-D10：delaySec 只推迟可见时间，不右移出生点、不占 maxItems 名额。
 val visibleAt = now + (delaySec * 1000f).toLong()
 items.add(Danmaku(text, w, row, speed, now, tw, visibleAt))

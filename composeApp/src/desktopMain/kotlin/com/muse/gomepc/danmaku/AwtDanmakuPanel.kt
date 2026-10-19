@@ -29,6 +29,7 @@ return size > 500
 private var cachedFontSize = -1
 private var cachedAlpha = -1
 private var cachedStrokePx = -1f
+private var cachedScale = -1f
 // 上一帧是否有弹幕：用于弹幕清空时隐藏窗口
 private var hadItems = false
 // 连续无弹幕帧数：弹幕间隙短暂为空时不立即隐藏窗口（防时隐时现闪烁），
@@ -326,6 +327,15 @@ startTimer()
 override fun paintComponent(g: Graphics) {
 super.paintComponent(g)
 val g2 = g as Graphics2D
+// 文本渲染提示：灰度抗锯齿 + 高质量 + 分数度量 + 双三次插值。
+// LCD 子像素抗锯齿在透明/视频背景上会镶边，不用。
+g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
+g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+// HiDPI 设备像素比：字形缓存按设备像素渲染，否则 1x 位图被放大到 125%/150% 缩放屏上会模糊。
+val devScale = try { (graphicsConfiguration?.defaultTransform?.scaleX ?: 1.0).toFloat() } catch (_: Throwable) { 1f }
+.let { if (it.isFinite() && it >= 1f) it.coerceAtMost(4f) else 1f }
 // P2-D8：先裁剪再垫底。原代码先全屏 fillRect 再 clip，垫底超出视频区。
 val vr = videoRectInParent?.invoke()
 if (vr!= null) {
@@ -346,13 +356,14 @@ Font("SansSerif", Font.BOLD, fontSize)
 }
 val dx = vr?.x?: 0
 val dy = vr?.y?: 0
-// 字号/透明度/描边变了清缓存
+// 字号/透明度/描边/设备像素比变了清缓存
 val alphaInt = (255 * engine.alpha).toInt().coerceIn(26, 255)
-if (fontSize!= cachedFontSize || alphaInt!= cachedAlpha || engine.strokePx!= cachedStrokePx) {
+if (fontSize!= cachedFontSize || alphaInt!= cachedAlpha || engine.strokePx!= cachedStrokePx || devScale != cachedScale) {
 textCache.clear()
 cachedFontSize = fontSize
 cachedAlpha = alphaInt
 cachedStrokePx = engine.strokePx
+cachedScale = devScale
 }
 // ascent 每帧只算一次，别在循环里调 getFontMetrics
 val ascent = getFontMetrics(baseFont).ascent
@@ -373,11 +384,19 @@ val img = textCache.getOrPut(d.text) {
 val fm0 = getFontMetrics(baseFont)
 val tw = fm0.stringWidth(d.text).coerceAtLeast(1)
 val th = fm0.height.coerceAtLeast(1)
-val bi = java.awt.image.BufferedImage(tw + 8, th + 8,
+// 按设备像素建图 + ig.scale(devScale)：同一份绘制代码以设备分辨率光栅化。
+val bi = java.awt.image.BufferedImage(
+kotlin.math.ceil((tw + 8) * devScale).toInt().coerceAtLeast(1),
+kotlin.math.ceil((th + 8) * devScale).toInt().coerceAtLeast(1),
 java.awt.image.BufferedImage.TYPE_INT_ARGB)
 val ig = bi.createGraphics()
+ig.scale(devScale.toDouble(), devScale.toDouble())
 ig.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
 RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+ig.setRenderingHint(RenderingHints.KEY_RENDERING,
+RenderingHints.VALUE_RENDER_QUALITY)
+ig.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
+RenderingHints.VALUE_FRACTIONALMETRICS_ON)
 ig.font = baseFont
 val ifm = ig.fontMetrics
 val bx = 4
@@ -400,7 +419,7 @@ ig.dispose()
 if (d.textWidth < 0) d.textWidth = tw.toFloat()
 bi
 }
-g2.drawImage(img, x, y - ascent - 4, null)
+g2.drawImage(img, x, y - ascent - 4, (img.width / devScale).toInt(), (img.height / devScale).toInt(), null)
 } catch (_: Throwable) {}
 }
 }
