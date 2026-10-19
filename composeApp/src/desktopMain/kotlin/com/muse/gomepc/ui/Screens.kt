@@ -3911,23 +3911,23 @@ private fun DetailSingleChoiceDialog(
         contentAlignment = Alignment.Center
     ) {
         Box(
-            Modifier.fillMaxWidth(0.7f)
+            Modifier.width(360.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xF2FFFFFF))
                 .clickable(enabled = false, onClick = {})
-                .padding(vertical = 8.dp)
+                .padding(vertical = 4.dp)
         ) {
             Column {
                 Text(
                     title,
                     fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A),
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
                 names.forEachIndexed { idx, name ->
                     Row(
                         Modifier.fillMaxWidth().clickable { selected = idx; onSelect(idx) }
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -3939,7 +3939,7 @@ private fun DetailSingleChoiceDialog(
                         }
                     }
                     if (idx < names.size - 1) {
-                        Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(1.dp).background(Color(0xFFEFEFF4)))
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(Color(0xFFEFEFF4)))
                     }
                 }
             }
