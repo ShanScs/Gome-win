@@ -37,12 +37,43 @@ object DebugLog {
         } catch (_: Throwable) { }
     }
 
-    @Synchronized
-    fun d(tag: String, msg: String) {
+    /** 日志写线程：d() 只格式化 + 入队，文件 I/O 全在写线程做，调用方（含 EDT）永不阻塞在文件上。 */
+    private val logQueue = java.util.concurrent.LinkedBlockingQueue<String>(4096)
+    @Volatile private var logWriterStarted = false
+    private val tsFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+
+    private fun ensureLogWriter() {
+        if (logWriterStarted) return
+        synchronized(this) {
+            if (logWriterStarted) return
+            logWriterStarted = true
+            Thread({
+                while (true) {
+                    try {
+                        writeLogLine(logQueue.take())
+                    } catch (_: InterruptedException) {
+                        return@Thread
+                    } catch (_: Throwable) { }
+                }
+            }, "gome-debug-log").apply { isDaemon = true }.start()
+        }
+    }
+
+    /** 写线程内执行：轮转检查 + 追加写（原 d() 里的文件 I/O 全搬到这里，单线程写，无跨线程竞态）。 */
+    private fun writeLogLine(line: String) {
         try {
             if (logFile.exists() && logFile.length() > MAX_BYTES) rotateLogs(logFile)
-            val ts = java.text.SimpleDateFormat("HH:mm:ss.SSS").format(java.util.Date())
-            logFile.appendText("[$ts][$tag] $msg\n")
+            logFile.appendText(line)
+        } catch (_: Throwable) { }
+    }
+
+    fun d(tag: String, msg: String) {
+        try {
+            ensureLogWriter()
+            val ts = tsFormatter.format(java.time.LocalTime.now())
+            val line = "[$ts][$tag] $msg\n"
+            // 队列满时丢最旧一条，保证调用方永不阻塞。
+            if (!logQueue.offer(line)) { logQueue.poll(); logQueue.offer(line) }
         } catch (_: Throwable) { }
     }
     fun path(): String = try { logFile.absolutePath } catch (_: Throwable) { "unknown" }
