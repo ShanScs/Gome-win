@@ -3867,7 +3867,6 @@ private fun PosterCircleBtn(
 }
 
 /** 详情页毛底单选弹窗（1:1 安卓 setSingleChoiceItems + 毛底样式） */
-@Composable
 /**
  * Emby 语言码 → 中文名（详情页版本/音频弹窗用，与播放器 AwtToolbarPanel.langDisplayName 同表）。
  * 详情页之前直接用原始 DisplayTitle / Language 码当标签：
@@ -3923,6 +3922,7 @@ private fun dedupePopupLabel(label: String, seen: MutableMap<String, Int>): Stri
     return if (count == 1) label else "$label ($count)"
 }
 
+@Composable
 private fun DetailSingleChoiceDialog(
     title: String,
     names: List<String>,
