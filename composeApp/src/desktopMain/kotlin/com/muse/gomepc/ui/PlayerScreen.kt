@@ -1486,7 +1486,7 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     PlayPauseButton(paused = paused, onClick = { player.togglePause() })
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(12.dp))
                     // 上一集 / 下一集 / 选集：之前底栏没有，换集只能去浮动工具栏
                     if (onSwitchEpisode != null) {
                         Text("上一集", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
@@ -1534,7 +1534,7 @@ fun PlayerScreen(
                     Text(formatTime(duration), color = Color(0xFF555555), fontSize = 13.sp)
                     Text("＋10s", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { seekBy(10.0) }.padding(6.dp))
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(12.dp))
                     // 静音切换 + 音量百分比：之前无静音、无百分比
                     Text(
                         if (volume <= 0f) "已静音" else "音量 ${volume.toInt()}%",

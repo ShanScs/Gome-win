@@ -49,8 +49,6 @@ class EpisodePanel(
     private var panelKeyListener: AWTEventListener? = null
     /** 滚轮余数：触控板小增量不再被 .toInt() 截断丢掉，攒够 1px 再滚 */
     private var wheelRemainder = 0.0
-    /** 缩略图占位图（加载中/失败时显示，不再空白） */
-    private val placeholderIcon: ImageIcon by lazy { makePlaceholderIcon() }
     // 缩略图加载：固定线程池 + 任务列表（关闭面板时取消未完成的）+ URL→图标缓存
     private val thumbFutures = mutableListOf<Future<*>>()
     // 缩略图统计（本面板一次 rebuild）：汇总日志证明加载是否真正发起，
@@ -170,8 +168,7 @@ class EpisodePanel(
             // 隐藏滚动条但保留滚轮滚动功能
             verticalScrollBar.preferredSize = java.awt.Dimension(0, 0)
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            // 宽度与 PANEL_W 一致（之前这里写死 320，与面板宽 265 不一致）
-            preferredSize = Dimension(PANEL_W, 333)
+            preferredSize = Dimension(320, 333)
             // 鼠标滚轮加速
             verticalScrollBar.unitIncrement = 40
             // 滚轮：显式处理，关默认。默认处理器在缩略图异步加载（revalidate）
@@ -370,8 +367,7 @@ class EpisodePanel(
             setBounds(4, 4, THUMB_W, THUMB_H)
             horizontalAlignment = SwingConstants.CENTER
             verticalAlignment = SwingConstants.CENTER
-            // 先给占位图：加载中/失败都不再空白
-            icon = placeholderIcon
+            // 无占位图：加载中/失败保持空白（1.0.354 备份样式）
         }
         thumbPanel.add(thumbLabel)
         // 当前集：缩略图左上角"播放中"徽标
@@ -387,9 +383,8 @@ class EpisodePanel(
             thumbPanel.add(badge)
         }
         // 异步加载并圆角裁剪：固定线程池 + 连接/读取超时 + 面板关闭时取消 + 内存缓存
-        // 注意：thumbLabel 已预置占位图（icon 恒非 null），不能再用 `thumbLabel.icon == null`
-        // 当加载开关——1.0.355 就是这么把加载写死的（占位图一设，加载永远不跑，
-        // 全部行永久显示“暂无缩略图”）。改查缓存是否命中来决定是否发起加载。
+        // 加载开关查缓存是否命中，不用 `thumbLabel.icon == null`：1.0.355 曾因预置占位图
+        // 导致 icon 恒非 null、加载永远不跑；查缓存同时提供命中/未命中统计。
         val thumbUrl = YambyClient.imageUrl(ep.id, "Primary", 400)
         val cachedThumb = thumbCache[thumbUrl]
         if (cachedThumb != null) {
@@ -445,7 +440,7 @@ class EpisodePanel(
                         conn.disconnect()
                     }
                 } catch (e: Exception) {
-                    // 加载失败：保持占位图，并记日志（URL、原因），不再静默吞掉
+                    // 加载失败：保持空白（1.0.354 备份样式，无占位图），并记日志（URL、原因），不再静默吞掉
                     DebugLog.d("Thumb", "缩略图加载异常：集=${ep.name} id=${ep.id} url=$thumbUrl 原因=${e.message}")
                 }
             }
@@ -558,22 +553,6 @@ class EpisodePanel(
             width += w
         }
         return sb.toString()
-    }
-
-    /** 占位图：灰底圆角 + “暂无缩略图”字样，与真实缩略图同尺寸同圆角 */
-    private fun makePlaceholderIcon(): ImageIcon {
-        val img = BufferedImage(THUMB_W, THUMB_H, BufferedImage.TYPE_INT_ARGB)
-        val g = img.createGraphics()
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        g.color = Color(0xE0, 0xE0, 0xE0)
-        g.fillRoundRect(0, 0, THUMB_W, THUMB_H, THUMB_RADIUS, THUMB_RADIUS)
-        g.color = Color(0x8A, 0x8A, 0x8A)
-        g.font = Font(Font.SANS_SERIF, Font.PLAIN, 13)
-        val text = "暂无缩略图"
-        val fm = g.fontMetrics
-        g.drawString(text, (THUMB_W - fm.stringWidth(text)) / 2, THUMB_H / 2 + fm.ascent / 2)
-        g.dispose()
-        return ImageIcon(img)
     }
 
     private fun makeRounded(src: Image, w: Int, h: Int, radius: Int): BufferedImage {

@@ -45,20 +45,6 @@ object HomeDataCache {
     private fun keyStillValid(key: String): Boolean =
         key == serverKey && key == Prefs.currentServerKey()
 
-    /** 手动刷新（首页“刷新”按钮用）：清掉内存态与磁盘缓存，强制重拉 */
-    fun refresh() {
-        loaded = false
-        loading = false
-        error = null
-        libs = null
-        resume = null
-        latest = null
-        libItems = emptyMap()
-        lastLoadedAt = 0L
-        try { HomeDiskCache.clear(Prefs.currentServerKey()) } catch (_: Exception) { }
-        ensureLoaded()
-    }
-
     /** 第一次调用时后台加载一次；已加载过且在 TTL 内直接返回缓存；TTL 过了后台刷新；服务器变了则重载 */
     fun ensureLoaded() {
         val key = Prefs.currentServerKey()

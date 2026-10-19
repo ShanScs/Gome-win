@@ -144,7 +144,7 @@ fun CustomTitleBar(
                 }
             }
         }
-        // 中间：居中标题（媒体库名）：宽度约束 + 省略（之前无宽度约束，长标题会把左右按钮顶出）
+        // 中间：居中标题（媒体库名）。宽度约束 + 省略为功能保留（长标题会把左右按钮顶出），其余视觉与备份一致
         config.centerTitle?.let { title ->
             Text(
                 title,
@@ -152,8 +152,7 @@ fun CustomTitleBar(
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A),
                 modifier = Modifier.align(Alignment.Center)
-                    .widthIn(max = 420.dp)
-                    .padding(horizontal = 8.dp),
+                    .widthIn(max = 420.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -214,14 +213,13 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
         when (icon) {
             is TitleLeftIcon.App -> AppGlyph()
             is TitleLeftIcon.Server -> ServerGlyph()
-            // 收藏图标用 Canvas 手绘红心路径，不再用 ♥ 字符（emoji 与手绘图标混用）
             is TitleLeftIcon.Favorites -> Box(
                 Modifier.size(26.dp)
                     .clip(CircleShape)
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                HeartGlyph()
+                Text("♥", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
             }
             is TitleLeftIcon.Back -> Box(
                 Modifier.size(26.dp)
@@ -229,30 +227,9 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                BackGlyph()
+                Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
             }
             is TitleLeftIcon.Sort -> SortGlyph()
-        }
-    }
-}
-
-/** 手绘红心（收藏图标）：与 Screens.HeartIcon、BackGlyph 同一画法——
- * 24 视口整体居中（不要按包围盒居中）。包围盒居中会把心形从
- * Material 设计的光学位置上移开，再加光学下移后上下留白差 1.2dp，
- * 看起来就是没居中；视口居中上下留白只差约 0.26dp，与其他图标一致。 */
-@Composable
-private fun HeartGlyph() {
-    val path = remember {
-        PathParser().parsePathString(
-            "M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"
-        ).toPath()
-    }
-    Canvas(Modifier.size(18.dp)) {
-        val sc = size.minDimension / 24f
-        val dx = (size.width - 24f * sc) / 2f
-        val dy = (size.height - 24f * sc) / 2f
-        withTransform({ translate(dx, dy); scale(sc, sc) }) {
-            drawPath(path, Color(0xFFF44336))
         }
     }
 }
@@ -296,7 +273,11 @@ private fun AppGlyph() {
     }
 }
 
-/** 服务器图标：显示真实服务器图标（图标库自动匹配），加载失败时显示手绘机架图标 */
+/**
+ * 服务器图标：从图标库自动加载（手动指定 > 按服务器名自动匹配 > 库默认 emby logo，
+ * 见 ServerIconHelper.resolveIcon）。图标库本身拉取失败时显示空白圆，不显示
+ * 服务器名首字（如“垃”）、不画手绘假图标。
+ */
 @Composable
 private fun ServerGlyph() {
     val serverName = Prefs.serverName
@@ -315,47 +296,10 @@ private fun ServerGlyph() {
             modifier = Modifier.size(26.dp),
             contentScale = ContentScale.Crop,
             fallback = {
-                ServerFallbackGlyph()
+                // 图标库不可达时留白，不画任何兜底图标
+                Box(Modifier.size(26.dp))
             }
         )
-    }
-}
-
-/** 服务器图标兜底：手绘服务器机架图标（无匹配图标时用，不再用服务器名首字当图标）。 */
-@Composable
-private fun ServerFallbackGlyph() {
-    Canvas(Modifier.size(18.dp)) {
-        val c = GomeTheme.Accent
-        val w = size.width
-        val h = size.height
-        // 机架外框：圆角矩形，留边距不被圆形裁切
-        val strokeW = w * 0.09f
-        drawRoundRect(
-            c,
-            topLeft = Offset(w * 0.12f, h * 0.12f),
-            size = androidx.compose.ui.geometry.Size(w * 0.76f, h * 0.76f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f),
-            style = Stroke(width = strokeW)
-        )
-        // 两条分隔线，分成三层机架
-        for (fy in listOf(0.38f, 0.62f)) {
-            drawLine(
-                c,
-                Offset(w * 0.12f, h * fy),
-                Offset(w * 0.88f, h * fy),
-                strokeWidth = strokeW * 0.8f
-            )
-        }
-        // 每层左侧状态灯 + 右侧横线
-        for (fy in listOf(0.25f, 0.5f, 0.75f)) {
-            drawCircle(c, radius = w * 0.055f, center = Offset(w * 0.28f, h * fy))
-            drawLine(
-                c,
-                Offset(w * 0.42f, h * fy),
-                Offset(w * 0.74f, h * fy),
-                strokeWidth = strokeW * 0.8f
-            )
-        }
     }
 }
 

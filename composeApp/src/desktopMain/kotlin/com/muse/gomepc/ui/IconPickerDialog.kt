@@ -210,8 +210,7 @@ private fun IconCell(
             }
         }
         Text(
-            // 图标名首字母大写（之前全小写 key 直接展示）
-            if (selected) "✓ 当前" else name.replaceFirstChar { it.titlecase() },
+            if (selected) "✓ 当前" else name,
             fontSize = 10.sp,
             color = if (selected) GomeTheme.Accent else GomeTheme.TextSecondary,
             maxLines = 1,

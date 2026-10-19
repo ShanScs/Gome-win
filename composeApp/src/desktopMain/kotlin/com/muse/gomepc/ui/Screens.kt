@@ -54,12 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -264,11 +258,9 @@ fun ResumeCard(
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFFE0E0E0))
         ) {
-            // 16:9 优先用背景图（之前用竖版海报裁成 16:9，人物/标题被裁掉）
-            val resumeUrl = item.backdropUrl ?: item.imageUrl
-            if (resumeUrl != null) {
+            if (item.imageUrl != null) {
                 EmbyImage(
-                    url = resumeUrl,
+                    url = item.imageUrl,
                     contentDescription = item.name,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -354,21 +346,6 @@ fun ItemCard(
                 corner = 14.dp,
                 modifier = Modifier.fillMaxSize()
             )
-            // 评分徽章：之前只在占位渐变里画，真实海报上没有评分
-            if (item.rating != null) {
-                Text(
-                    "★ ${item.rating}",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0x99000000))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
             // 集数徽章：右上角 28dp 圆形，13sp 粗体 #2F6FED
             if (item.episodeCount > 0) {
                 Box(
@@ -478,21 +455,6 @@ fun HomeScreen(
                     }
                 }
             }
-            // 手动刷新：放在横幅下方，不抢第一项——横幅必须回到第一项满幅贴边
-            // 之前 1.0.355 把它放第一项，横幅被顶到第二项 + spacedBy(20.dp)，不再贴顶边
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Text(
-                        "刷新",
-                        fontSize = 13.sp,
-                        color = GomeTheme.Accent,
-                        modifier = Modifier.clickable { HomeDataCache.refresh() }.padding(8.dp)
-                    )
-                }
-            }
             // 继续观看（放媒体库上面）
             if (!resume.isNullOrEmpty()) {
                 item {
@@ -532,20 +494,10 @@ fun HomeScreen(
             }
             orderedLibs.forEach { lib ->
                 val items = libItems[lib.id] ?: emptyList()
-                // 分区为空不再静默消失：显示标题 + “暂无内容”骨架占位
-                item {
-                    Column(Modifier.padding(horizontal = 20.dp)) {
-                        SectionHeader(lib.name, "更多", onAction = { onLibraryClick(lib) })
-                        if (items.isEmpty()) {
-                            Box(
-                                Modifier.fillMaxWidth().height(120.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFFF2F4F8)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("暂无内容", fontSize = 13.sp, color = GomeTheme.TextSecondary)
-                            }
-                        } else {
+                if (items.isNotEmpty()) {
+                    item {
+                        Column(Modifier.padding(horizontal = 20.dp)) {
+                            SectionHeader(lib.name, "更多", onAction = { onLibraryClick(lib) })
                             ArrowScrollRow(itemCount = items.size) { idx ->
                                 ItemCard(items[idx], onClick = { onItemClick(items[idx]) })
                             }
@@ -768,7 +720,6 @@ private fun BannerCarousel(
             }
         }
     }
-    // 响应式高度：按宽度 1:2 比例、280~640dp 钳制（之前固定 640dp，小窗口占满屏）
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier.fillMaxWidth()
             .pointerInput(Unit) {
@@ -784,7 +735,6 @@ private fun BannerCarousel(
                 }
             }
     ) {
-        val bannerHeight = (maxWidth * 0.5f).coerceIn(280.dp, 640.dp)
         Box(modifier = Modifier.fillMaxWidth()) {
         androidx.compose.foundation.pager.HorizontalPager(
             state = pagerState,
@@ -792,7 +742,7 @@ private fun BannerCarousel(
             key = { items[it].id },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(bannerHeight)
+                .height(640.dp)
         ) { page ->
             val item = items[page]
             Box(
@@ -896,17 +846,21 @@ fun LibraryCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 背景色按库的 hue 取渐变首色（之前按中文库名子串猜颜色，“国产剧2”都命中不了）
-    val bgColor = posterColors(lib.hue).first
-    // 类型标签按 CollectionType（之前硬编码“TV”，电影库也显示 TV）
-    val typeLabel = when (lib.type.lowercase()) {
-        "movies" -> "电影"
-        "tvshows" -> "剧集"
-        "music" -> "音乐"
-        "mixed" -> "混合"
-        "boxsets" -> "合集"
-        "playlists" -> "播放列表"
-        else -> "媒体库"
+    // 根据库名选择背景色（对齐截图：国产剧青、港台剧浅绿、日韩剧金、欧美剧橄榄绿、短剧亮绿等）
+    val bgColor = when {
+        lib.name.contains("国产") -> Color(0xFF2E9AA6)
+        lib.name.contains("港台") -> Color(0xFF7BC8A4)
+        lib.name.contains("日韩") -> Color(0xFFD4A017)
+        lib.name.contains("欧美") -> Color(0xFF9AA653)
+        lib.name.contains("短剧") -> Color(0xFF2ECC71)
+        lib.name.contains("电影") -> Color(0xFF1A6B7A)
+        lib.name.contains("综艺") -> Color(0xFFE67E22)
+        lib.name.contains("动漫") -> Color(0xFF9B59B6)
+        lib.name.contains("纪录") -> Color(0xFF5D6D7E)
+        else -> {
+            val hues = listOf(0xFF2E9AA6, 0xFF7BC8A4, 0xFFD4A017, 0xFF9AA653, 0xFF2ECC71, 0xFF1A6B7A)
+            Color(hues[Math.abs(lib.name.hashCode()) % hues.size])
+        }
     }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -937,7 +891,7 @@ fun LibraryCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    typeLabel,
+                    "TV",
                     fontSize = 10.sp,
                     color = Color(0xB3FFFFFF),
                     modifier = Modifier.padding(top = 2.dp)
@@ -1754,13 +1708,10 @@ private fun ServerCard(
                     serverName = server.name.ifEmpty { server.host },
                     serverKey = server.key(),
                     modifier = Modifier.size(32.dp),
+                    // 无匹配时 resolveIcon 已回落到图标库默认 emby 图标；
+                    // 图标库不可达时留白，不显示服务器名首字
                     fallback = {
-                        Text(
-                            server.name.take(1).uppercase().ifEmpty { "服" },
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GomeTheme.Accent
-                        )
+                        Box(Modifier.size(32.dp))
                     }
                 )
             }
@@ -1894,20 +1845,15 @@ private fun AddServerDialog(
                                     .clip(androidx.compose.foundation.shape.CircleShape)
                                     .clickable { showIconPicker = true },
                                 fallback = {
+                                    // 无匹配时 resolveIcon 已回落到图标库默认 emby 图标；
+                                    // 图标库不可达时留灰底空白，不显示服务器名首字
                                     Box(
                                         modifier = Modifier
                                             .size(48.dp)
                                             .clip(androidx.compose.foundation.shape.CircleShape)
                                             .background(Color(0xFFF2F2F2)),
                                         contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            existing.name.take(1).uppercase().ifEmpty { "服" },
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = GomeTheme.Accent
-                                        )
-                                    }
+                                    ) {}
                                 }
                             )
                         }
@@ -3815,132 +3761,92 @@ private fun DetailStrokeIcon(paths: List<String>, tint: Color, modifier: Modifie
     }
 }
 
-
-
-// 5 功能图标（白环+毛玻璃风格，2026-10-13 定稿）
-// 全部用 Canvas 直接图元手绘（坐标由 size 现算），不经过 PathParser/withTransform：
-// 旧实现用 PathParser 解析 pathData 再经 withTransform 缩放，实测 5 个图标只剩左上角碎片。
-// 已看=圆盘+对勾镂空；收藏=实心红心形；版本=胶片条；音频=耳机；字幕=CC 框。
-private enum class DetailIconKind { CHECK, HEART, FILM, HEADPHONES, CC }
-
-/** 详情页 5 功能图标：直接图元手绘，完整居中，不被裁切 */
+/** 详情页填充 vector 图标 */
 @Composable
-private fun DetailIconGlyph(kind: DetailIconKind, tint: Color, modifier: Modifier = Modifier) {
+private fun DetailFillIcon(pathData: String, tint: Color, modifier: Modifier = Modifier) {
+    val path = remember(pathData) { PathParser().parsePathString(pathData).toPath() }
     Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val sw = w * 0.07f // 描边宽度（与 24 视口下 1.8f 等价）
-        when (kind) {
-            DetailIconKind.CHECK -> {
-                // 白圆盘 + 对勾镂空（EvenOdd：对勾多边形与圆盘重叠处变透明）
-                val path = Path().apply {
-                    addOval(Rect(Offset(w * 0.05f, h * 0.05f), Size(w * 0.9f, h * 0.9f)))
-                    moveTo(w * 0.28f, h * 0.52f)
-                    lineTo(w * 0.43f, h * 0.67f)
-                    lineTo(w * 0.73f, h * 0.33f)
-                    lineTo(w * 0.73f, h * 0.47f)
-                    lineTo(w * 0.43f, h * 0.80f)
-                    lineTo(w * 0.28f, h * 0.65f)
-                    close()
-                }
-                path.fillType = PathFillType.EvenOdd
-                drawPath(path, tint)
-            }
-            DetailIconKind.HEART -> {
-                // Material 红心（pathData 坐标 /24 换算为画布比例）
-                val path = Path().apply {
-                    moveTo(w * 0.5f, h * 0.8896f)
-                    cubicTo(w * 0.225f, h * 0.64f, w * 0.0833f, h * 0.5117f, w * 0.0833f, h * 0.3542f)
-                    cubicTo(w * 0.0833f, h * 0.2258f, w * 0.1842f, h * 0.125f, w * 0.3125f, h * 0.125f)
-                    cubicTo(w * 0.385f, h * 0.125f, w * 0.4546f, h * 0.1588f, w * 0.5f, h * 0.2121f)
-                    cubicTo(w * 0.5454f, h * 0.1588f, w * 0.615f, h * 0.125f, w * 0.6875f, h * 0.125f)
-                    cubicTo(w * 0.8158f, h * 0.125f, w * 0.9167f, h * 0.2258f, w * 0.9167f, h * 0.3542f)
-                    cubicTo(w * 0.9167f, h * 0.5117f, w * 0.775f, h * 0.64f, w * 0.5f, h * 0.8896f)
-                    close()
-                }
-                drawPath(path, tint)
-            }
-            DetailIconKind.FILM -> {
-                // 胶片条：外框 + 两条竖线 + 四个齿孔刻度
-                drawRoundRect(
-                    tint,
-                    topLeft = Offset(w * 0.1458f, h * 0.2292f),
-                    size = Size(w * 0.7084f, h * 0.5416f),
-                    cornerRadius = CornerRadius(w * 0.03f),
-                    style = Stroke(width = sw)
-                )
-                drawLine(tint, Offset(w * 0.3125f, h * 0.2292f), Offset(w * 0.3125f, h * 0.7708f), strokeWidth = sw)
-                drawLine(tint, Offset(w * 0.6875f, h * 0.2292f), Offset(w * 0.6875f, h * 0.7708f), strokeWidth = sw)
-                drawLine(tint, Offset(w * 0.1458f, h * 0.4167f), Offset(w * 0.3125f, h * 0.4167f), strokeWidth = sw)
-                drawLine(tint, Offset(w * 0.1458f, h * 0.5833f), Offset(w * 0.3125f, h * 0.5833f), strokeWidth = sw)
-                drawLine(tint, Offset(w * 0.6875f, h * 0.4167f), Offset(w * 0.8542f, h * 0.4167f), strokeWidth = sw)
-                drawLine(tint, Offset(w * 0.6875f, h * 0.5833f), Offset(w * 0.8542f, h * 0.5833f), strokeWidth = sw)
-            }
-            DetailIconKind.HEADPHONES -> {
-                // 耳机：头带半圆弧 + 两段竖线 + 两个耳罩
-                drawArc(
-                    tint,
-                    startAngle = 180f, sweepAngle = 180f, useCenter = false,
-                    topLeft = Offset(w * 0.1875f, h * 0.2083f),
-                    size = Size(w * 0.625f, h * 0.625f),
-                    style = Stroke(width = sw)
-                )
-                drawLine(tint, Offset(w * 0.1875f, h * 0.5208f), Offset(w * 0.1875f, h * 0.625f), strokeWidth = sw)
-                drawLine(tint, Offset(w * 0.8125f, h * 0.5208f), Offset(w * 0.8125f, h * 0.625f), strokeWidth = sw)
-                drawRoundRect(
-                    tint,
-                    topLeft = Offset(w * 0.1458f, h * 0.5833f),
-                    size = Size(w * 0.1667f, h * 0.2709f),
-                    cornerRadius = CornerRadius(w * 0.03f),
-                    style = Stroke(width = sw)
-                )
-                drawRoundRect(
-                    tint,
-                    topLeft = Offset(w * 0.6875f, h * 0.5833f),
-                    size = Size(w * 0.1667f, h * 0.2709f),
-                    cornerRadius = CornerRadius(w * 0.03f),
-                    style = Stroke(width = sw)
-                )
-            }
-            DetailIconKind.CC -> {
-                // 字幕 CC：外框 + 两个开口向右的 C
-                drawRoundRect(
-                    tint,
-                    topLeft = Offset(w * 0.1458f, h * 0.2292f),
-                    size = Size(w * 0.7084f, h * 0.5416f),
-                    cornerRadius = CornerRadius(w * 0.03f),
-                    style = Stroke(width = sw)
-                )
-                val r = w * 0.11f
-                drawArc(
-                    tint,
-                    startAngle = 60f, sweepAngle = 240f, useCenter = false,
-                    topLeft = Offset(w * 0.281f - r, h * 0.521f - r),
-                    size = Size(r * 2f, r * 2f),
-                    style = Stroke(width = sw)
-                )
-                drawArc(
-                    tint,
-                    startAngle = 60f, sweepAngle = 240f, useCenter = false,
-                    topLeft = Offset(w * 0.531f - r, h * 0.521f - r),
-                    size = Size(r * 2f, r * 2f),
-                    style = Stroke(width = sw)
-                )
-            }
+        val sc = size.minDimension / 24f
+        val dx = (size.width - 24f * sc) / 2f
+        val dy = (size.height - 24f * sc) / 2f
+        withTransform({ translate(dx, dy); scale(sc, sc) }) {
+            drawPath(path, tint)
         }
     }
 }
 
+/** 详情页填充 vector 图标（多 path 版，用于 5 功能按钮的 Material 填充图标） */
+@Composable
+private fun DetailFillIcons(paths: List<String>, tint: Color, modifier: Modifier = Modifier) {
+    val parsed = remember(paths) { paths.map { PathParser().parsePathString(it).toPath() } }
+    Canvas(modifier = modifier) {
+        val sc = size.minDimension / 24f
+        val dx = (size.width - 24f * sc) / 2f
+        val dy = (size.height - 24f * sc) / 2f
+        withTransform({ translate(dx, dy); scale(sc, sc) }) {
+            for (p in parsed) drawPath(p, tint)
+        }
+    }
+}
+
+// 5 功能图标 pathData（白环+毛玻璃风格，2026-10-13 定稿）
+// 已看/收藏：填充图标；版本/音频：描边图标；字幕：CC
+private val DETAIL_ICON_CHECK = listOf("M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM10,17l-5,-5 1.41,-1.41L10,14.17l7.59,-7.59L19,8l-9,9z")
+private val DETAIL_ICON_HEART_PLUS = listOf(
+    "M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"
+)
+private val DETAIL_ICON_FILM = listOf(
+    "M3.5,5.5h17v13h-17z",
+    "M7.5,5.5v13M16.5,5.5v13M3.5,10h4M3.5,14h4M16.5,10h4M16.5,14h4"
+)
+private val DETAIL_ICON_HEADPHONES = listOf(
+    "M4.5,15v-2.5a7.5,7.5 0 0,1 15,0V15",
+    "M3.5,14h4v6.5h-4zM16.5,14h4v6.5h-4z"
+)
+private val DETAIL_ICON_COMMENTS = listOf("M4,4h16c1.1,0 2,0.9 2,2v10c0,1.1 -0.9,2 -2,2H8l-4,4V6c0,-1.1 0.9,-2 2,-2z")
+// 字幕 CC 图标（描边圆角矩形 + CC 文字用 path 绘制）
+private val DETAIL_ICON_SUBTITLE_CC = listOf(
+    "M3.5,5.5h17v13h-17z",
+    "M9.2,10.2c-0.5,-0.4 -1.2,-0.6 -1.9,-0.6c-1.7,0 -3,1.2 -3,2.9s1.3,2.9 3,2.9c0.7,0 1.4,-0.2 1.9,-0.6M15.2,10.2c-0.5,-0.4 -1.2,-0.6 -1.9,-0.6c-1.7,0 -3,1.2 -3,2.9s1.3,2.9 3,2.9c0.7,0 1.4,-0.2 1.9,-0.6"
+)
+private const val DETAIL_ICON_BACK = "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z"
+private const val DETAIL_ICON_SEARCH = "M15.5,14h-0.79l-0.28,-0.27c1.2,-1.4 1.82,-3.31 1.48,-5.34c-0.47,-2.78 -2.79,-5 -5.59,-5.34c-4.23,-0.52 -7.79,3.04 -7.27,7.27c0.34,2.8 2.56,5.12 5.34,5.59c2.03,0.34 3.94,-0.28 5.34,-1.48l0.27,0.28v0.79l4.25,4.25c0.41,0.41 1.08,0.41 1.49,0c0.41,-0.41 0.41,-1.08 0,-1.49L15.5,14zM9.5,14C7.01,14 5,11.99 5,9.5S7.01,5 9.5,5S14,7.01 14,9.5S11.99,14 9.5,14z"
+private const val DETAIL_ICON_MORE = "M12,8c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2zM12,5c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2zM12,11c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2z"
 private const val DETAIL_ICON_CHEVRON_DOWN = "M7,10l5,5 5,-5"
 
-/** 海报上的白色圆环按钮（白环+环内毛玻璃+手绘图标，2026-10-13 定稿） */
+/** 详情页功能按钮：5 个白图标，各占 1/5 宽，高 40dp（1:1 Android） */
+@Composable
+private fun DetailActionBtn(paths: List<String>, desc: String, tint: Color = Color.White, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxWidth(0.2f).height(40.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        DetailStrokeIcon(paths = paths, tint = tint, modifier = Modifier.size(26.dp))
+    }
+}
+
+/** 海报上的白色圆环按钮（白环+环内毛玻璃+文字图标，2026-10-13 定稿） */
 @Composable
 private fun PosterCircleBtn(
-    kind: DetailIconKind,
+    paths: List<String>,
     desc: String,
+    isStroke: Boolean = false,
     tint: Color = Color.White,
     onClick: () -> Unit
 ) {
+    // 文字图标映射（Canvas SVG 在真机上不渲染，改用文字保证显示）
+    val iconText = when (desc) {
+        "已看" -> "✓"
+        "收藏" -> "♥"
+        "版本" -> "🎬"
+        "音频" -> "🎧"
+        "字幕" -> "CC"
+        else -> "•"
+    }
+    val iconSize = when (desc) {
+        "字幕" -> 18.sp
+        else -> 26.sp
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable(onClick = onClick)
@@ -3953,7 +3859,7 @@ private fun PosterCircleBtn(
                 .border(2.5.dp, Color.White, CircleShape), // 白色圆环
             contentAlignment = Alignment.Center
         ) {
-            DetailIconGlyph(kind = kind, tint = Color.White, modifier = Modifier.size(30.dp))
+            Text(iconText, fontSize = iconSize, color = Color.White)
         }
         Spacer(Modifier.height(4.dp))
         Text(desc, fontSize = 12.sp, color = Color.White)
@@ -4012,7 +3918,22 @@ private fun DetailSingleChoiceDialog(
     }
 }
 
-
+/** 详情页顶部 40dp 白圆按钮（1:1 Android） */
+@Composable
+private fun DetailTopCircleBtn(pathData: String, desc: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .shadow(4.dp, CircleShape)
+            .clip(CircleShape)
+            .background(Color.White)
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        DetailFillIcon(pathData = pathData, tint = Color(0xFF1A1A1A), modifier = Modifier.fillMaxSize())
+    }
+}
 
 private fun formatEpDuration(ticks: Long): String {
     if (ticks <= 0) return ""
@@ -4199,14 +4120,8 @@ fun DetailScreen(
                     contentPadding = PaddingValues(bottom = 110.dp)
                 ) {
                     // 海报头 640dp（1:1 安卓：标题/5圆按钮/播放/简介叠在海报上）
-                    // 海报不贴边：四周留 16dp 边距 + 16dp 圆角（之前 fillMaxWidth 无边距，海报直接顶到窗口边框）
                     item {
-                        Box(
-                            Modifier.fillMaxWidth()
-                                .padding(start = 16.dp, end = 16.dp, top = 16.dp)
-                                .height(640.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                        ) {
+                        Box(Modifier.fillMaxWidth().height(640.dp)) {
                             if (it.imageUrl != null) {
                                 EmbyImage(
                                     url = YambyClient.imageUrl(it.id, "Backdrop", 1280),
@@ -4260,7 +4175,7 @@ fun DetailScreen(
                                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     // 已看：电影管自己，剧集管未看的第一集
                                     PosterCircleBtn(
-                                        DetailIconKind.CHECK, "已看",
+                                        DETAIL_ICON_CHECK, "已看",
                                         tint = Color.White
                                     ) {
                                         detailScope.launch {
@@ -4292,7 +4207,7 @@ fun DetailScreen(
                                     }
                                     // 收藏
                                     PosterCircleBtn(
-                                        DetailIconKind.HEART, "收藏",
+                                        DETAIL_ICON_HEART_PLUS, "收藏",
                                         tint = Color.White
                                     ) {
                                         detailScope.launch {
@@ -4312,7 +4227,7 @@ fun DetailScreen(
                                         }
                                     }
                                     // 合集→版本选择
-                                    PosterCircleBtn(DetailIconKind.FILM, "版本") {
+                                    PosterCircleBtn(DETAIL_ICON_FILM, "版本", isStroke = true) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -4354,7 +4269,7 @@ fun DetailScreen(
                                         }
                                     }
                                     // 音频
-                                    PosterCircleBtn(DetailIconKind.HEADPHONES, "音频") {
+                                    PosterCircleBtn(DETAIL_ICON_HEADPHONES, "音频", isStroke = true) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -4407,7 +4322,7 @@ fun DetailScreen(
                                         }
                                     }
                                     // 评论→字幕选择
-                                    PosterCircleBtn(DetailIconKind.CC, "字幕") {
+                                    PosterCircleBtn(DETAIL_ICON_SUBTITLE_CC, "字幕", isStroke = true) {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -4539,16 +4454,6 @@ fun DetailScreen(
                                                 overflow = TextOverflow.Ellipsis,
                                                 modifier = Modifier.clickable { showFullOverview = true }
                                             )
-                                            // 简介展开提示：之前简介可点但无任何“可展开”提示
-                                            if (it.overview.length > 120) {
-                                                Text(
-                                                    "展开 ▸",
-                                                    fontSize = 12.sp,
-                                                    color = GomeTheme.Accent,
-                                                    modifier = Modifier.clickable { showFullOverview = true }
-                                                        .padding(top = 2.dp)
-                                                )
-                                            }
                                         }
                                     }
                                 }
