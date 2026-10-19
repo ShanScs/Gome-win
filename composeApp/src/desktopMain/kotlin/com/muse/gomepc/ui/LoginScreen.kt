@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +49,7 @@ import kotlinx.coroutines.launch
  * 调用 YambyClient.login()。成功后 Prefs 持久化（token/userId/服务器信息）。
  * 提供"演示模式"入口（无服务器时用 MockData）。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LoginScreen(
     onLoggedIn: () -> Unit,
