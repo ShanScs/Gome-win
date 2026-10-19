@@ -1,6 +1,7 @@
 package com.muse.gomepc.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +54,8 @@ fun IconPickerDialog(
     var loadError by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
     var query by remember { mutableStateOf("") }
+    // 当前已选图标（之前无选中态，用户看不出当前是哪个）
+    val currentUrl = remember(serverKey) { Prefs.getCustomIconUrl(serverKey) }
 
     LaunchedEffect(reloadKey) {
         loading = true
@@ -134,6 +137,7 @@ fun IconPickerDialog(
                         IconCell(
                             name = name,
                             url = url,
+                            selected = url == currentUrl,
                             onClick = {
                                 try {
                                     Prefs.setCustomIconUrl(serverKey, url)
@@ -168,6 +172,7 @@ fun IconPickerDialog(
 private fun IconCell(
     name: String,
     url: String,
+    selected: Boolean,
     onClick: () -> Unit
 ) {
     var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
@@ -180,10 +185,18 @@ private fun IconCell(
         modifier = Modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // 选中态：Accent 边框 + “✓ 当前”标签（之前无任何选中标识）
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(RoundedCornerShape(8.dp)),
+                .clip(RoundedCornerShape(8.dp))
+                .then(
+                    if (selected) Modifier.border(
+                        2.dp,
+                        GomeTheme.Accent,
+                        RoundedCornerShape(8.dp)
+                    ) else Modifier
+                ),
             contentAlignment = Alignment.Center
         ) {
             val bmp = bitmap
@@ -197,9 +210,10 @@ private fun IconCell(
             }
         }
         Text(
-            name,
+            // 图标名首字母大写（之前全小写 key 直接展示）
+            if (selected) "✓ 当前" else name.replaceFirstChar { it.titlecase() },
             fontSize = 10.sp,
-            color = GomeTheme.TextSecondary,
+            color = if (selected) GomeTheme.Accent else GomeTheme.TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,

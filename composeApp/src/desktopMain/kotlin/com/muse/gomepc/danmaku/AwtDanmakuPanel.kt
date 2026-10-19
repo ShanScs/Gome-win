@@ -480,8 +480,9 @@ ig.drawString(d.text, bx + ox, by + oy)
 }
 }
 }
-// 白字
-ig.color = Color(255, 255, 255, alphaInt)
+// 按条目颜色绘制（之前解析的颜色被丢弃，全画成白字）；颜色来自 DanmakuItem.color（0xRRGGBB）
+val dc = d.color
+ig.color = Color((dc shr 16) and 0xFF, (dc shr 8) and 0xFF, dc and 0xFF, alphaInt)
 ig.drawString(d.text, bx, by)
 ig.dispose()
 if (d.textWidth < 0) d.textWidth = tw.toFloat()

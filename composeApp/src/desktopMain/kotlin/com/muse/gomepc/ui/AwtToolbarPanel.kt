@@ -775,6 +775,18 @@ class AwtToolbarPanel(
                 action = { cycleRotate() }
             ),
             FrostedPopup.Row(
+                label = "快退10秒",
+                action = { seekBy(-10.0) }
+            ),
+            FrostedPopup.Row(
+                label = "快进10秒",
+                action = { seekBy(10.0) }
+            ),
+            FrostedPopup.Row(
+                label = if (isMutedNow()) "取消静音" else "静音",
+                action = { toggleMute() }
+            ),
+            FrostedPopup.Row(
                 label = "投屏",
                 action = { showCastDialog() }
             ),
@@ -1127,16 +1139,35 @@ class AwtToolbarPanel(
         showTip("旋转：${rotateModes[rotateIndex]}°", "旋转")
     }
 
+    /** 静音前保存的音量（恢复用） */
+    private var volumeBeforeMute = 100.0
+
+    private fun isMutedNow(): Boolean =
+        (try { player.getPropertyDouble("volume") } catch (_: Exception) { null })?.let { it <= 0.0 } ?: false
+
+    private fun toggleMute() {
+        val cur = try { player.getPropertyDouble("volume") } catch (_: Exception) { null } ?: return
+        if (cur > 0.0) {
+            volumeBeforeMute = cur
+            player.setProperty("volume", "0")
+            showTip("已静音", "静音")
+        } else {
+            player.setProperty("volume", volumeBeforeMute.toString())
+            showTip("音量 ${volumeBeforeMute.toInt()}%", "静音")
+        }
+    }
+
+    private fun seekBy(deltaSec: Double) {
+        val target = (player.timePos + deltaSec).coerceAtLeast(0.0)
+        if (player.seek(target)) showTip(if (deltaSec < 0) "快退10秒" else "快进10秒", "快进快退")
+    }
+
     private fun showCastDialog() {
         val owner = SwingUtilities.getWindowAncestor(this) ?: return
         val anchor = findButtonByTooltip("投屏") ?: this
+        // 诚实提示：之前是假的“正在搜索设备…”+“重新搜索”，点完只弹“正在搜索”提示，没有任何投屏功能
         val rows = listOf(
-            FrostedPopup.Row(label = "正在搜索设备…", enabled = false),
-            FrostedPopup.Row(
-                label = "重新搜索",
-                iconName = "ic_pl_search",
-                action = { showTip("正在搜索投屏设备…", "投屏") }
-            )
+            FrostedPopup.Row(label = "暂不支持投屏（DLNA 未实现）", enabled = false)
         )
         FrostedPopup(owner, anchor).show(rows, width = 250)
     }

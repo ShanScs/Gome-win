@@ -1,5 +1,7 @@
 package com.muse.gomepc.ui
 
+import com.muse.gomepc.emby.Prefs
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -33,19 +35,39 @@ object HomeDataCache {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loading = false
     private var serverKey = ""
+    /** 上次成功加载完成的时间戳：首页 TTL，5 分钟内切回首页直接用缓存，不重复拉 */
+    private var lastLoadedAt = 0L
+    private const val HOME_TTL_MS = 5 * 60 * 1000L
 
-    private fun currentServerKey(): String {
-        val p = com.muse.gomepc.emby.Prefs
-        return "${p.protocol}://${p.host}:${p.port}${p.path}|${p.username}"
-    }
+    // 直接复用 Prefs.currentServerKey()（之前自己拼格式，协议/端口归一化改了会漂移）
 
     /** 校验本次加载的 key 是否仍是当前服务器；切服务器后旧请求的返回一律丢弃 */
     private fun keyStillValid(key: String): Boolean =
-        key == serverKey && key == currentServerKey()
+        key == serverKey && key == Prefs.currentServerKey()
 
-    /** 第一次调用时后台加载一次；已加载过则直接返回缓存；服务器变了则重载 */
+    /** 手动刷新（首页“刷新”按钮用）：清掉内存态与磁盘缓存，强制重拉 */
+    fun refresh() {
+        loaded = false
+        loading = false
+        error = null
+        libs = null
+        resume = null
+        latest = null
+        libItems = emptyMap()
+        lastLoadedAt = 0L
+        try { HomeDiskCache.clear(Prefs.currentServerKey()) } catch (_: Exception) { }
+        ensureLoaded()
+    }
+
+    /** 第一次调用时后台加载一次；已加载过且在 TTL 内直接返回缓存；TTL 过了后台刷新；服务器变了则重载 */
     fun ensureLoaded() {
-        val key = currentServerKey()
+        val key = Prefs.currentServerKey()
+        if (loaded && key == serverKey && System.currentTimeMillis() - lastLoadedAt < HOME_TTL_MS) return
+        if (loaded && key == serverKey) {
+            // TTL 过了：先显示旧数据，后台刷新，不阻塞 UI
+            refreshInBackground(key)
+            return
+        }
         if (key != serverKey) {
             // 服务器变了，清空重载
             serverKey = key
@@ -58,6 +80,7 @@ object HomeDataCache {
             libItems = emptyMap()
         }
         if (loaded || loading) return
+        HomeDiskCache.pruneStale()
         // 先试磁盘缓存：有就秒开，后台再刷新（照抄安卓 DataCache 思路）
         val cachedLibs = HomeDiskCache.loadLibraries(key)
         if (cachedLibs != null) {
@@ -139,6 +162,7 @@ object HomeDataCache {
             // 库列表出来就标记完成，UI 先显示；剧集后台并行填
             withContext(Dispatchers.Main) {
                 loaded = true
+                lastLoadedAt = System.currentTimeMillis()
                 if (!isRefresh) loading = false
             }
             // 第二批：每个媒体库的 items（各 15 秒超时，并行，增量更新 UI）
@@ -173,7 +197,7 @@ object HomeDataCache {
 
     /** 手动重试（仅出错时用） */
     fun retry() {
-        serverKey = currentServerKey()
+        serverKey = Prefs.currentServerKey()
         loaded = false
         loading = false
         error = null
@@ -186,12 +210,12 @@ object HomeDataCache {
 
     /** 只刷新"继续观看"一行，不碰首页其它数据（播放器退出后调用） */
     fun refreshResumeOnly() {
-        val key = currentServerKey()
+        val key = Prefs.currentServerKey()
         scope.launch {
             try {
                 val data = Repo.resumeItems()
                 // 切服务器后返回的旧数据丢弃；状态赋值切 Main 线程
-                if (key != currentServerKey()) return@launch
+                if (key != Prefs.currentServerKey()) return@launch
                 withContext(Dispatchers.Main) {
                     resume = data
                 }

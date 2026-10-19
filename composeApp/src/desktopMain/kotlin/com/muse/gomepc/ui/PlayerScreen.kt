@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.danmaku.DanmakuEngine
@@ -224,6 +225,8 @@ fun PlayerScreen(
         e.setDelaySec(prefs.danmakuDelay)
         e.applyStyle(prefs.danmakuFontSize, prefs.danmakuStroke, prefs.danmakuOpacity)
     }
+    // 弹幕加载失败提示（之前 onError 只记日志，UI 无感知、无重试入口）
+    var danmakuError by remember { mutableStateOf<String?>(null) }
     val engine = remember {
         DanmakuEngine().apply {
             applyDanmakuStyleToEngine(this)
@@ -233,6 +236,7 @@ fun PlayerScreen(
             setEnabled(on)
             onError = { msg ->
                 com.muse.gomepc.player.DebugLog.d("Danmaku", "加载失败: $msg")
+                danmakuError = msg
             }
         }
     }
@@ -276,9 +280,9 @@ fun PlayerScreen(
     var introSkipped by remember(episodeId) { mutableStateOf(false) }
     // 监听播放进度，更新跳过按钮显示
     androidx.compose.runtime.LaunchedEffect(timePos, duration) {
-        val seriesId = itemId // 用 itemId 作为 seriesId
-        val manualIntro = prefs.getSkipIntroSec(seriesId)
-        val manualOutro = prefs.getSkipOutroSec(seriesId)
+        // 片头/片尾按集存（episodeId），不是按剧存：同剧不同集的片头位置不一样，按剧存会串
+        val manualIntro = prefs.getSkipIntroSec(episodeId)
+        val manualOutro = prefs.getSkipOutroSec(episodeId)
         // 片头：未跳过且在片头范围内
         showSkipIntro = !introSkipped && manualIntro > 0 && timePos < manualIntro && timePos >= 0
         // 片尾：剩余时间小于设定值且有下一集
@@ -298,11 +302,25 @@ fun PlayerScreen(
         val curIdx = episodeList.indexOfFirst { it.id == episodeId }
         return if (curIdx >= 0) episodeList.getOrNull(curIdx + 1) else null
     }
-    // 下一集倒计时
+    /** 按当前位置找上一集；找不到则返回 null */
+    fun prevEpisode(): UiEpisode? {
+        val curIdx = episodeList.indexOfFirst { it.id == episodeId }
+        return if (curIdx > 0) episodeList.getOrNull(curIdx - 1) else null
+    }
+    /** 切到上一集 / 下一集（底栏按钮与键盘 N/P 用；查不到就不切，绝不传空 episodeId） */
+    fun switchToEpisode(ep: UiEpisode?) {
+        if (ep != null) onSwitchEpisode?.invoke(ep.id, ep.index, ep.playTicks / 10_000_000.0)
+    }
+    // 下一集倒计时：可取消（点“取消”即停）；暂停时不倒计时（之前暂停仍跳集）
     androidx.compose.runtime.LaunchedEffect(showNextEp) {
         if (showNextEp) {
             nextEpCountdown = 5
             while (nextEpCountdown > 0 && showNextEp) {
+                // 暂停时等待，不消耗倒计时
+                if (paused) {
+                    kotlinx.coroutines.delay(500)
+                    continue
+                }
                 kotlinx.coroutines.delay(1000)
                 nextEpCountdown--
             }
@@ -315,7 +333,37 @@ fun PlayerScreen(
             }
         }
     }
-    var volume by remember { mutableStateOf(80f) }
+    // 音量持久化：启动时读 Prefs.playerVolume，不再每次回 80
+    var volume by remember { mutableStateOf(prefs.playerVolume) }
+    // 静音前音量（静音恢复用）；操作提示（seek/截图失败等，顶栏显示 3 秒）
+    var mutedBefore by remember { mutableStateOf(80f) }
+    var actionMsg by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(actionMsg) {
+        if (actionMsg != null) {
+            kotlinx.coroutines.delay(3000)
+            actionMsg = null
+        }
+    }
+    /** ±10 秒快进/快退：seek 返回值不再忽略，失败给提示 */
+    fun seekBy(deltaSec: Double) {
+        val target = (timePos + deltaSec).coerceIn(0.0, duration.coerceAtLeast(0.0))
+        if (!player.seek(target)) {
+            actionMsg = "定位失败"
+        } else {
+            engineOnSeek()
+        }
+    }
+    /** 静音切换：静音时记下当前音量，恢复时还原 */
+    fun toggleMute() {
+        if (volume > 0f) {
+            mutedBefore = volume
+            volume = 0f
+        } else {
+            volume = if (mutedBefore > 0f) mutedBefore else 80f
+        }
+        if (!player.setVolume(volume.toDouble())) actionMsg = "音量设置失败"
+        prefs.playerVolume = volume
+    }
     var dragging by remember(episodeId) { mutableStateOf(false) }
     var dragPos by remember(episodeId) { mutableStateOf(0f) }
     val lastTimePosUpdate = remember { java.util.concurrent.atomic.AtomicLong(0) }
@@ -333,7 +381,8 @@ fun PlayerScreen(
             kotlinx.coroutines.delay(100)
             val visible = controlsVisibleState.value
             toolbarVisibleFlag.set(visible)
-            if (visible && !dragging) {
+            // 暂停时控制条不自动隐藏（之前暂停时控制条也消失，用户找不到播放按钮）
+            if (visible && !dragging && !paused) {
                 if (System.currentTimeMillis() - lastInteraction.get() > 3000) {
                     com.muse.gomepc.player.DebugLog.d("UI", "controlsVisible 自动隐藏")
                     controlsVisibleState.value = false
@@ -350,6 +399,9 @@ fun PlayerScreen(
     var urlTestResult by remember { mutableStateOf<String?>(null) }
     // 💡 用 remember(episodeId) 确保切集时状态彻底重置，时序不乱
     var fileLoaded by remember(episodeId) { mutableStateOf(false) }
+    // 缓冲状态（paused-for-cache）与缓存时长（demuxer-cache-duration，供进度条画缓冲条）
+    var buffering by remember(episodeId) { mutableStateOf(false) }
+    var cacheDuration by remember(episodeId) { mutableStateOf(0.0) }
     // 断点续播：文件加载完成后只应用一次（1:1 Android pendingSeek 逻辑）；
     // 接近片尾（剩余不足60秒）则从头开始
     var resumeApplied by remember(episodeId) { mutableStateOf(false) }
@@ -435,20 +487,62 @@ fun PlayerScreen(
     }
     var mpvInitDone by remember(episodeId) { mutableStateOf(false) }
 
-    // D 键直接开关弹幕（1:1 Android；输入框聚焦时不触发）
+    // 键盘控制（输入框聚焦时不触发）：D=弹幕，空格=播放/暂停，←/→=∓10 秒，↑/↓=音量，M=静音，N/P=下一集/上一集
     androidx.compose.runtime.DisposableEffect(Unit) {
         val dispatcher = java.awt.KeyEventDispatcher { e ->
-            if (e.id == java.awt.event.KeyEvent.KEY_PRESSED &&
-                e.keyCode == java.awt.event.KeyEvent.VK_D &&
-                !e.isControlDown && !e.isAltDown && !e.isMetaDown
-            ) {
-                val focusOwner =
-                    java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
-                if (focusOwner is javax.swing.text.JTextComponent) return@KeyEventDispatcher false
-                javax.swing.SwingUtilities.invokeLater { toggleDanmaku() }
-                return@KeyEventDispatcher true
+            if (e.id != java.awt.event.KeyEvent.KEY_PRESSED ||
+                e.isControlDown || e.isAltDown || e.isMetaDown
+            ) return@KeyEventDispatcher false
+            val focusOwner =
+                java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+            if (focusOwner is javax.swing.text.JTextComponent) return@KeyEventDispatcher false
+            when (e.keyCode) {
+                java.awt.event.KeyEvent.VK_D -> {
+                    javax.swing.SwingUtilities.invokeLater { toggleDanmaku() }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_SPACE -> {
+                    javax.swing.SwingUtilities.invokeLater { player.togglePause() }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_LEFT -> {
+                    javax.swing.SwingUtilities.invokeLater { seekBy(-10.0) }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_RIGHT -> {
+                    javax.swing.SwingUtilities.invokeLater { seekBy(10.0) }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_UP -> {
+                    javax.swing.SwingUtilities.invokeLater {
+                        volume = (volume + 5f).coerceIn(0f, 100f)
+                        player.setVolume(volume.toDouble())
+                        prefs.playerVolume = volume
+                    }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_DOWN -> {
+                    javax.swing.SwingUtilities.invokeLater {
+                        volume = (volume - 5f).coerceIn(0f, 100f)
+                        player.setVolume(volume.toDouble())
+                        prefs.playerVolume = volume
+                    }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_M -> {
+                    javax.swing.SwingUtilities.invokeLater { toggleMute() }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_N -> {
+                    javax.swing.SwingUtilities.invokeLater { switchToEpisode(nextEpisode()) }
+                    true
+                }
+                java.awt.event.KeyEvent.VK_P -> {
+                    javax.swing.SwingUtilities.invokeLater { switchToEpisode(prevEpisode()) }
+                    true
+                }
+                else -> false
             }
-            false
         }
         java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
             .addKeyEventDispatcher(dispatcher)
@@ -557,6 +651,30 @@ fun PlayerScreen(
                 SwingUtilities.invokeLater { fileLoaded = true }
             }
             override fun onEndFile() {}
+            /**
+             * 自然播完（EOF）自动跳下一集：之前 onEndFile() 空实现 + keep-open=yes 停末帧，
+             * 单集播完无任何反应。STOP/QUIT/ERROR 不跳；循环播放时不跳；已是最后一集不跳。
+             */
+            override fun onEndFileReason(reason: Int) {
+                SwingUtilities.invokeLater {
+                    if (reason == com.muse.gomepc.player.MpvEndFileReason.EOF && fileLoaded &&
+                        System.getProperty("ui.loop", "false") != "true"
+                    ) {
+                        val next = nextEpisode()
+                        if (next != null) {
+                            onSwitchEpisode?.invoke(next.id, next.index, 0.0)
+                        }
+                    }
+                }
+            }
+            override fun onBuffering(bufferingState: Boolean) {
+                SwingUtilities.invokeLater { buffering = bufferingState }
+            }
+            override fun onCacheDuration(sec: Double) {
+                SwingUtilities.invokeLater {
+                    if (!sec.isNaN() && sec >= 0) cacheDuration = sec
+                }
+            }
             override fun onEndFileError(msg: String) {
                 SwingUtilities.invokeLater {
                     // 主地址播放失败：自动尝试下一个备用地址；全部失败才显示真实错误
@@ -576,7 +694,8 @@ fun PlayerScreen(
                     if (dragging) return@invokeLater
                     // 2. 节流：避免高频更新卡UI
                     val now = System.currentTimeMillis()
-                    if (now - lastTimePosUpdate.get() < 500) return@invokeLater
+                    // 进度节流 500ms→200ms：之前 2Hz 的进度更新连累弹幕同步滞后
+                    if (now - lastTimePosUpdate.get() < 200) return@invokeLater
                     lastTimePosUpdate.set(now)
                     // 3. 严格的 NaN 和有效值保护
                     if (!sec.isNaN() && sec >= 0) {
@@ -590,7 +709,11 @@ fun PlayerScreen(
                 }
             }
             override fun onPause(pausedState: Boolean) {
-                SwingUtilities.invokeLater { paused = pausedState }
+                SwingUtilities.invokeLater {
+                    paused = pausedState
+                    // 暂停时冻结弹幕推进（P0-1）：引擎暂停后 step() 不再移动/发射，恢复后不错位
+                    try { engine.setPaused(pausedState) } catch (_: Exception) { }
+                }
             }
             override fun onLog(prefix: String, level: String, text: String) {
                 SwingUtilities.invokeLater {
@@ -791,12 +914,13 @@ fun PlayerScreen(
     /** 详情页选的音轨/字幕：按序号取 mpv track-list 里同类第 N 条的 id 再设 aid/sid */
     fun applyTrackSelection() {
         try {
-            val count = player.getPropertyDouble("track-list/count")?.toInt() ?: return
+            // track-list/count 与 id 用 Long 读：mpv 的 track id 是 int64，走 Double 会丢精度
+            val count = player.getPropertyLong("track-list/count")?.toInt() ?: return
             fun trackIdsOf(type: String): List<Int> {
                 val ids = mutableListOf<Int>()
                 for (i in 0 until count) {
                     if (player.getPropertyString("track-list/$i/type") != type) continue
-                    player.getPropertyDouble("track-list/$i/id")?.toInt()?.let { ids.add(it) }
+                    player.getPropertyLong("track-list/$i/id")?.toInt()?.let { ids.add(it) }
                 }
                 return ids
             }
@@ -838,7 +962,7 @@ fun PlayerScreen(
         try {
             kotlinx.coroutines.delay(300)
             applyTrackSelection()
-            if (player.getPropertyDouble("track-list/count") == null) {
+            if (player.getPropertyLong("track-list/count") == null) {
                 kotlinx.coroutines.delay(1500)
                 applyTrackSelection()
             }
@@ -933,6 +1057,26 @@ fun PlayerScreen(
 
     // 浮动工具栏 root（切集时复用刷新回调）
     var toolbarRoot by remember { mutableStateOf<javax.swing.JFrame?>(null) }
+    /** 打开选集面板（底栏“选集”按钮与浮动工具栏共用同一实现，不再两套） */
+    fun showEpisodePanel() {
+        val root = toolbarRoot
+            ?: (javax.swing.SwingUtilities.getRoot(owner) as? javax.swing.JFrame)
+            ?: return
+        javax.swing.SwingUtilities.invokeLater {
+            val infos = episodeList.map {
+                EpisodePanel.EpisodeInfo(
+                    id = it.id, index = it.index, name = it.name,
+                    width = it.width, height = it.height,
+                    durationTicks = it.runTicks, sizeBytes = it.sizeBytes,
+                    playTicks = it.playTicks
+                )
+            }
+            val curPos = infos.indexOfFirst { it.id == episodeId }.takeIf { it >= 0 } ?: 0
+            EpisodePanel(root, infos, curPos) { ep, idx ->
+                onSwitchEpisode?.invoke(ep.id, ep.index, ep.playTicks / 10_000_000.0)
+            }.show()
+        }
+    }
     /** 刷新浮动工具栏（首建/切集时调用；单例窗口只更新回调与 player 引用） */
     fun refreshToolbar() {
         val root = toolbarRoot ?: return
@@ -1009,23 +1153,7 @@ fun PlayerScreen(
             }
         } else null,
         onPlaylist = if (onSwitchEpisode != null && episodeList.isNotEmpty()) {
-            {
-                javax.swing.SwingUtilities.invokeLater {
-                    val infos = episodeList.map {
-                        EpisodePanel.EpisodeInfo(
-                            id = it.id, index = it.index, name = it.name,
-                            width = it.width, height = it.height,
-                            durationTicks = it.runTicks, sizeBytes = it.sizeBytes,
-                            playTicks = it.playTicks
-                        )
-                    }
-                    val curPos = infos.indexOfFirst { it.id == episodeId }.takeIf { it >= 0 } ?: 0
-                    EpisodePanel(root, infos, curPos) { ep, idx ->
-                        // EpisodePanel 回调的 idx 是 0-based 位置，传回的 episodeIndex 用 ep.index（1-based）
-                        onSwitchEpisode(ep.id, ep.index, ep.playTicks / 10_000_000.0)
-                    }.show()
-                }
-            }
+            { showEpisodePanel() }
         } else null,
         getVolume = { volume },
         onVolumeChange = { volume = it }
@@ -1122,8 +1250,7 @@ fun PlayerScreen(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xCC000000))
                     .clickable {
-                        val seriesId = itemId
-                        val sec = prefs.getSkipIntroSec(seriesId)
+                        val sec = prefs.getSkipIntroSec(episodeId)
                         if (sec > 0) {
                             player.seek(sec.toDouble())
                             engineOnSeek()
@@ -1137,23 +1264,21 @@ fun PlayerScreen(
                 Text("跳过片头", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
+        // 片头/片尾设置确认态：点击即写即清容易误触，改成二次确认；按集存（episodeId）
+        var introConfirm by remember(episodeId) { mutableStateOf<String?>(null) }
+        var outroConfirm by remember(episodeId) { mutableStateOf<String?>(null) }
         // 设片头按钮（前3分钟内显示，左下角）
         val showIntroMark = timePos < 180 && timePos >= 0
         if (showIntroMark) {
-            val curIntroSet = prefs.getSkipIntroSec(itemId) > 0
+            val curIntroSet = prefs.getSkipIntroSec(episodeId) > 0
             Box(
                 Modifier.align(Alignment.BottomStart)
                     .padding(start = 20.dp, bottom = 140.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xCC000000).copy(alpha = if (curIntroSet) 1f else 0.7f))
                     .clickable {
-                        val cur = prefs.getSkipIntroSec(itemId)
-                        if (cur > 0) {
-                            prefs.setSkipIntroSec(itemId, 0)
-                        } else {
-                            val sec = timePos.toInt().coerceAtLeast(0)
-                            if (sec > 0) prefs.setSkipIntroSec(itemId, sec)
-                        }
+                        // 先弹确认，不直接写/清
+                        introConfirm = if (prefs.getSkipIntroSec(episodeId) > 0) "clear" else "set"
                     }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
@@ -1164,20 +1289,14 @@ fun PlayerScreen(
         // 设片尾按钮（剩余3分钟内显示，右下角）
         val showOutroMark = duration > 0 && (duration - timePos) < 180 && (duration - timePos) >= 0
         if (showOutroMark) {
-            val curOutroSet = prefs.getSkipOutroSec(itemId) > 0
+            val curOutroSet = prefs.getSkipOutroSec(episodeId) > 0
             Box(
                 Modifier.align(Alignment.BottomEnd)
                     .padding(end = 20.dp, bottom = 190.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xCC000000).copy(alpha = if (curOutroSet) 1f else 0.7f))
                     .clickable {
-                        val cur = prefs.getSkipOutroSec(itemId)
-                        if (cur > 0) {
-                            prefs.setSkipOutroSec(itemId, 0)
-                        } else {
-                            val remain = (duration - timePos).toInt().coerceAtLeast(0)
-                            if (remain > 0) prefs.setSkipOutroSec(itemId, remain)
-                        }
+                        outroConfirm = if (prefs.getSkipOutroSec(episodeId) > 0) "clear" else "set"
                     }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
@@ -1185,29 +1304,93 @@ fun PlayerScreen(
                 Text(if (curOutroSet) "片尾✓" else "设片尾", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
+        // 片头/片尾设置二次确认（确认后才写/清，避免误触）
+        if (introConfirm != null || outroConfirm != null) {
+            val isIntro = introConfirm != null
+            val action = introConfirm ?: outroConfirm
+            val msg = if (isIntro) {
+                if (action == "set") "将当前 ${timePos.toInt()} 秒设为本集片头？"
+                else "清除本集片头设置？"
+            } else {
+                if (action == "set") "将剩余 ${(duration - timePos).toInt().coerceAtLeast(0)} 秒设为本集片尾？"
+                else "清除本集片尾设置？"
+            }
+            Box(
+                Modifier.align(Alignment.Center)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xE6000000))
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(msg, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(16.dp))
+                    Row {
+                        Box(
+                            Modifier.clip(RoundedCornerShape(8.dp))
+                                .background(GomeTheme.Accent)
+                                .clickable {
+                                    if (isIntro) {
+                                        if (action == "set") {
+                                            val sec = timePos.toInt().coerceAtLeast(0)
+                                            if (sec > 0) prefs.setSkipIntroSec(episodeId, sec)
+                                        } else prefs.setSkipIntroSec(episodeId, 0)
+                                        introConfirm = null
+                                    } else {
+                                        if (action == "set") {
+                                            val remain = (duration - timePos).toInt().coerceAtLeast(0)
+                                            if (remain > 0) prefs.setSkipOutroSec(episodeId, remain)
+                                        } else prefs.setSkipOutroSec(episodeId, 0)
+                                        outroConfirm = null
+                                    }
+                                }
+                                .padding(horizontal = 24.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) { Text("确认", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                        Spacer(Modifier.width(12.dp))
+                        Box(
+                            Modifier.clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF555555))
+                                .clickable { introConfirm = null; outroConfirm = null }
+                                .padding(horizontal = 24.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) { Text("取消", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+        }
         // 下一集按钮（右下角，带倒计时；与"跳过片头"按钮错开，避免重叠点不到）
         if (showNextEp) {
+            // 倒计时可取消：点“取消”即停，不再自动跳集
             Box(
                 Modifier.align(Alignment.BottomEnd)
                     .padding(end = 20.dp, bottom = 150.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xCC000000))
-                    .clickable {
-                        showNextEp = false
-                        val next = nextEpisode()
-                        if (next != null) {
-                            onSwitchEpisode?.invoke(next.id, next.index, 0.0)
-                        }
-                    }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    if (nextEpCountdown > 0) "跳到下一集 ($nextEpCountdown)" else "跳到下一集",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (nextEpCountdown > 0) "跳到下一集 ($nextEpCountdown)" else "跳到下一集",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            showNextEp = false
+                            val next = nextEpisode()
+                            if (next != null) {
+                                onSwitchEpisode?.invoke(next.id, next.index, 0.0)
+                            }
+                        }.padding(horizontal = 8.dp)
+                    )
+                    Text(
+                        "取消",
+                        color = Color(0xFFBBBBBB),
+                        fontSize = 14.sp,
+                        modifier = Modifier.clickable { showNextEp = false }.padding(horizontal = 8.dp)
+                    )
+                }
             }
         }
 
@@ -1230,34 +1413,69 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     PlayPauseButton(paused = paused, onClick = { player.togglePause() })
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(8.dp))
+                    // 上一集 / 下一集 / 选集：之前底栏没有，换集只能去浮动工具栏
+                    if (onSwitchEpisode != null) {
+                        Text("上一集", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { switchToEpisode(prevEpisode()) }.padding(6.dp))
+                        Text("下一集", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { switchToEpisode(nextEpisode()) }.padding(6.dp))
+                        Text("选集", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { showEpisodePanel() }.padding(6.dp))
+                    }
+                    Text("－10s", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { seekBy(-10.0) }.padding(6.dp))
+                    Spacer(Modifier.width(4.dp))
                     Text(formatTime(if (dragging) dragPos.toDouble() else timePos),
                         color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    key(episodeId) {
-                    Slider(
-                        value = (if (dragging) dragPos else timePos.toFloat()).let { v -> if (v.isNaN()) 0f else v }.coerceIn(0f, duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f)),
-                        onValueChange = { dragging = true; dragPos = it },
-                        onValueChangeFinished = {
-                            dragging = false
-                            try {
-                                val pos = dragPos.toDouble()
-                                com.muse.gomepc.player.DebugLog.d("UI", "进度条拖动 seek 到 $pos 秒")
-                                player.seek(pos)
-                                engineOnSeek()
-                            } catch (e: Throwable) {
-                                com.muse.gomepc.player.DebugLog.d("UI", "进度条 seek 失败: ${e.message}")
-                            }
-                        },
-                        valueRange = 0f..duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f),
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                    )
-                    } // key(episodeId) - Slider
+                    // 进度条 + 缓冲条：缓冲进度（demuxer-cache-duration）画在滑杆下方，之前无缓冲条
+                    Box(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        if (duration > 0 && cacheDuration > 0) {
+                            Box(
+                                Modifier.align(Alignment.CenterStart)
+                                    .fillMaxWidth((cacheDuration / duration).toFloat().coerceIn(0f, 1f))
+                                    .height(4.dp)
+                                    .background(Color(0xFFBBBBBB), RoundedCornerShape(2.dp))
+                            )
+                        }
+                        key(episodeId) {
+                        Slider(
+                            value = (if (dragging) dragPos else timePos.toFloat()).let { v -> if (v.isNaN()) 0f else v }.coerceIn(0f, duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f)),
+                            onValueChange = { dragging = true; dragPos = it },
+                            onValueChangeFinished = {
+                                dragging = false
+                                try {
+                                    val pos = dragPos.toDouble()
+                                    com.muse.gomepc.player.DebugLog.d("UI", "进度条拖动 seek 到 $pos 秒")
+                                    // seek 返回值不再忽略：失败给提示
+                                    if (!player.seek(pos)) actionMsg = "定位失败" else engineOnSeek()
+                                } catch (e: Throwable) {
+                                    com.muse.gomepc.player.DebugLog.d("UI", "进度条 seek 失败: ${e.message}")
+                                }
+                            },
+                            valueRange = 0f..duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        } // key(episodeId) - Slider
+                    }
                     Text(formatTime(duration), color = Color(0xFF555555), fontSize = 13.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Text("音量", color = Color(0xFF555555), fontSize = 12.sp)
+                    Text("＋10s", color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { seekBy(10.0) }.padding(6.dp))
+                    Spacer(Modifier.width(8.dp))
+                    // 静音切换 + 音量百分比：之前无静音、无百分比
+                    Text(
+                        if (volume <= 0f) "已静音" else "音量 ${volume.toInt()}%",
+                        color = Color(0xFF555555), fontSize = 12.sp,
+                        modifier = Modifier.clickable { toggleMute() }.padding(4.dp)
+                    )
                     Slider(
                         value = volume,
-                        onValueChange = { volume = it; player.setVolume(it.toDouble()) },
+                        onValueChange = {
+                            volume = it
+                            // setVolume 返回值不再忽略
+                            if (!player.setVolume(it.toDouble())) actionMsg = "音量设置失败"
+                            prefs.playerVolume = it
+                        },
                         valueRange = 0f..100f,
                         modifier = Modifier.width(100.dp)
                     )
@@ -1275,6 +1493,15 @@ fun PlayerScreen(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable(onClick = onFullscreen).padding(8.dp)
+                    )
+                    Text(
+                        "截图",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            actionMsg = if (player.screenshot()) "已截图" else "截图失败"
+                        }.padding(8.dp)
                     )
                     Text(
                         "日志",
@@ -1301,19 +1528,45 @@ fun PlayerScreen(
                 modifier = Modifier.clickable(onClick = onBack).padding(8.dp)
             )
             Spacer(Modifier.width(8.dp))
+            // 顶栏显示集名（不只是“第 N 集”）
+            val epTitle = episodeList.find { it.id == episodeId }?.name?.takeIf { it.isNotBlank() }
+                ?: "第${episodeIndex}集"
             Text(
-                "$itemName 第${episodeIndex}集",
+                "$itemName $epTitle",
                 color = Color.White,
                 fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
             Spacer(Modifier.weight(1f))
             if (urlError != null) {
                 Text(urlError!!, color = Color(0xFFFF5252), fontSize = 12.sp)
             } else if (initError != null) {
                 Text("mpv: $initError", color = Color(0xFFFF5252), fontSize = 12.sp)
+            } else if (buffering) {
+                Text("缓冲中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
             } else if (videoUrl == null) {
                 Text("获取播放地址中…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
+            } else if (!fileLoaded) {
+                // 拿到地址到 FILE_LOADED 之间约 15 秒黑屏无提示：补加载态
+                Text("正在加载视频…", color = Color(0xFFBBBBBB), fontSize = 12.sp)
+            }
+            if (actionMsg != null) {
+                Text(actionMsg!!, color = Color(0xFF88CCFF), fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 8.dp))
+            }
+            if (danmakuError != null) {
+                Text("弹幕加载失败", color = Color(0xFFFF8888), fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 8.dp))
+                Text("重试", color = Color(0xFF88CCFF), fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 4.dp).clickable {
+                        danmakuError = null
+                        engine.setDanmakuList(emptyList())
+                        val urls = prefs.enabledDanmakuUrls()
+                        if (urls.isNotEmpty()) engineLoadFromApiMulti(urls, itemName, episodeIndex)
+                    })
             }
         }
         } // if (controlsVisible) 顶栏
@@ -1339,7 +1592,7 @@ fun PlayerScreen(
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF2F6FED))
+                                .background(GomeTheme.Accent)
                                 .clickable { retryPlayback() }
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center
@@ -1432,21 +1685,8 @@ fun PlayerScreen(
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         )
-                        Text(
-                            "测公网视频",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                                .background(Color(0xFF555555), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                                .clickable {
-                                    // 用公网示例视频测试 mpv 本体
-                                    val testUrl = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4"
-                                    val err = player.play(testUrl)
-                                    urlTestResult = if (err != null) "公网测试 play 失败: $err" else "已发送公网视频，看 fileLoaded 变不变"
-                                }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
+                        // “测公网视频”已删：它会劫持当前播放（player.play 公网地址），
+                        // 之后 fileLoaded/进度上报都被公网视频污染
                         if (urlTestResult != null) {
                             Text(
                                 urlTestResult!!,

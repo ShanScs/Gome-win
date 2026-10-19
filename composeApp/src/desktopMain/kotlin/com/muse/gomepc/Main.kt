@@ -29,7 +29,6 @@ import com.sun.jna.platform.win32.WinDef
 import com.sun.jna.platform.win32.WinUser
 import com.muse.gomepc.ui.CustomTitleBar
 import com.muse.gomepc.ui.DetailScreen
-import com.muse.gomepc.ui.DockBar
 import com.muse.gomepc.ui.FavoritesScreen
 import com.muse.gomepc.ui.GomeTheme
 import com.muse.gomepc.ui.HomeScreen
@@ -57,10 +56,19 @@ private fun detailIdFor(item: UiMediaItem): String {
     return result
 }
 
+// 应用级导航 Scope（openDetail 是顶层函数、无组合作用域；调用方传组合 Scope，默认本 Scope）
+private val appNavScope = kotlinx.coroutines.CoroutineScope(
+    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main
+)
+
 // 从列表进详情页：如果单集的 seriesId 为空，先同步取一次再导航，避免拿单集ID进详情页导致选集出不来
-private fun openDetail(item: UiMediaItem, setScreen: (Screen) -> Unit) {
+private fun openDetail(
+    item: UiMediaItem,
+    scope: kotlinx.coroutines.CoroutineScope = appNavScope,
+    setScreen: (Screen) -> Unit
+) {
     if (item.type == "Episode" && item.seriesId.isEmpty()) {
-        kotlinx.coroutines.MainScope().launch {
+        scope.launch {
             val sid = try {
                 val d = com.muse.gomepc.emby.YambyClient.getItem(item.id)
                 if (d.seriesId.isNotEmpty()) d.seriesId else item.id
@@ -211,7 +219,7 @@ fun main() = application {
 }
 }
 
-/** 主界面：内容区全屏 + 底部悬浮 Dock（对齐 Android HostActivity） */
+/** 主界面：内容区全屏（对齐 Android HostActivity） */
 
 @androidx.compose.runtime.Composable
 fun GomeApp(
@@ -228,6 +236,26 @@ fun GomeApp(
         mutableStateOf(System.getProperty("ui.demo", "false") == "true")
     }
     Repo.demoMode = demoMode
+
+    // 启动 Token 校验（P0-13）：之前 isLoggedIn() 只看字段非空，死 Token 直接进首页看空列表。
+    // 校验用轻量 getServerName；401 → 清登录态回登录页（走 onUnauthorized）；网络不通则保留登录态，不锁死离线用户。
+    // 登录成功后记一次服务器访问（统计影片/剧集数 + lastUsed，之前 recordServerVisit 零调用）。
+    androidx.compose.runtime.LaunchedEffect(loggedIn, demoMode) {
+        if (!loggedIn || demoMode) return@LaunchedEffect
+        com.muse.gomepc.emby.YambyClient.onUnauthorized = {
+            Prefs.clearLogin()
+            Repo.clearAllCaches()
+            loggedIn = false
+        }
+        Prefs.recordServerVisit(this)
+        try {
+            com.muse.gomepc.emby.YambyClient.getServerName()
+        } catch (e: com.muse.gomepc.emby.YambyClient.UnauthorizedException) {
+            // onUnauthorized 已清登录态；这里不再重复处理
+        } catch (_: Exception) {
+            // 网络错误等：保留登录态，首页按旧逻辑加载（失败时首页会给错误提示）
+        }
+    }
 
     if (!loggedIn && !demoMode) {
         LoginScreen(
@@ -327,39 +355,45 @@ fun GomeApp(
         return
     }
 
-    // 主界面：内容区 + 底部悬浮 Dock（Dock 永远在最上方，页面切换在 Dock 下面）
+    // 主界面：内容区
     val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     // 媒体库排序请求：标题栏排序图标点击时递增，LibraryScreen 监听后弹排序框
     var libSortRequest by remember { mutableStateOf(0) }
     // 点播导航 Job：快速连点时取消旧导航，只保留最后一次（防多路并发导航）
+    // 用 rememberCoroutineScope，不用裸 MainScope()（离开页面后 MainScope 的 Job 仍在跑、仍会跳转）
+    val navScope = androidx.compose.runtime.rememberCoroutineScope()
     var playNavJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val backgroundContent: @Composable () -> Unit = {
         when (val s = screen) {
                 is Screen.Home -> HomeScreen(
-                    onItemClick = { openDetail(it) { s -> screen = s } },
+                    onItemClick = { openDetail(it, navScope) { s -> screen = s } },
                     onResumeMore = { screen = Screen.ResumeList },
                     onServerIconClick = { screen = Screen.Settings },
                     onLibraryClick = { lib -> screen = Screen.Library(lib.id, lib.name) },
                     listState = homeListState
                 )
                 is Screen.ResumeList -> ResumeListScreen(
-                    onItemClick = { openDetail(it) { s -> screen = s } },
+                    onItemClick = { openDetail(it, navScope) { s -> screen = s } },
                     onBack = { screen = Screen.Home }
                 )
                 is Screen.Library -> LibraryScreen(
                     libId = s.libId,
                     libName = s.libName,
-                    onItemClick = { openDetail(it) { s -> screen = s } },
+                    onItemClick = { openDetail(it, navScope) { s -> screen = s } },
                     onBack = { screen = Screen.Home },
                     gridState = libraryGridState,
                     sortRequestKey = libSortRequest
                 )
-                is Screen.Search -> SearchScreen(onItemClick = { openDetail(it) { s -> screen = s } })
-                is Screen.Favorites -> FavoritesScreen(onItemClick = { openDetail(it) { s -> screen = s } })
+                is Screen.Search -> SearchScreen(onItemClick = { openDetail(it, navScope) { s -> screen = s } })
+                is Screen.Favorites -> FavoritesScreen(onItemClick = { openDetail(it, navScope) { s -> screen = s } })
                 is Screen.Settings -> SettingsScreen(
                     onServerSelected = { screen = Screen.Home },
                     onLogout = {
+                        // 退出登录：清登录态 + 清 Repo 缓存（之前只改了 loggedIn，缓存还在，
+                        // 同账号重登 5 分钟内读旧数据串态）
+                        Prefs.clearLogin()
+                        Repo.clearAllCaches()
                         loggedIn = false
                         demoMode = false
                         Repo.demoMode = false
@@ -369,7 +403,8 @@ fun GomeApp(
                         demoMode = enable
                         Repo.demoMode = enable
                         screen = Screen.Home
-                    }
+                    },
+                    demoMode = demoMode
                 )
                 is Screen.Detail -> DetailScreen(
                     itemId = s.itemId,
@@ -383,7 +418,7 @@ fun GomeApp(
                         com.muse.gomepc.player.DebugLog.d("NAV", "onPlay: item.name=${item.name} item.id=${item.id} seriesId=$seriesId ep=${ep.name}")
                         // 防抖：取消旧的点播导航，只保留最后一次点击
                         playNavJob?.cancel()
-                        playNavJob = kotlinx.coroutines.MainScope().launch {
+                        playNavJob = navScope.launch {
                             val posSec = try {
                                 val resumable = com.muse.gomepc.emby.YambyClient.getResumableEpisodes(seriesId)
                                 val r = resumable.firstOrNull { it.id == ep.id }
@@ -411,7 +446,6 @@ fun GomeApp(
                 else -> {}
             }
     }
-    // Dock 已删除（用户要求）：dock 模糊层专用背景/同步代码是死代码，已删
     // 统一透明标题栏配置（各页左侧 3 图标 + 可选中标题）
     val titleConfig: TitleBarConfig = when (val s = screen) {
         is Screen.Home -> TitleBarConfig(
@@ -465,7 +499,6 @@ fun GomeApp(
             onClose = onClose,
             modifier = Modifier.align(Alignment.TopCenter)
         )
-        // Dock已删除（用户要求）
     }
     // 首页服务器图标弹窗：媒体库排序 + 切换服务器
     if (showServerPopup) {

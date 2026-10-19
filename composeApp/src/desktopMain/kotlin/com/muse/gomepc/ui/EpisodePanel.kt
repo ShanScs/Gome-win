@@ -43,6 +43,12 @@ class EpisodePanel(
 
     private var dialog: JDialog? = null
     private var outsideClickListener: AWTEventListener? = null
+    /** 键盘监听（方向键/回车/ESC）：面板关闭时移除，避免泄漏 */
+    private var panelKeyListener: AWTEventListener? = null
+    /** 滚轮余数：触控板小增量不再被 .toInt() 截断丢掉，攒够 1px 再滚 */
+    private var wheelRemainder = 0.0
+    /** 缩略图占位图（加载中/失败时显示，不再空白） */
+    private val placeholderIcon: ImageIcon by lazy { makePlaceholderIcon() }
     // 缩略图加载：固定线程池 + 任务列表（关闭面板时取消未完成的）+ URL→图标缓存
     private val thumbFutures = mutableListOf<Future<*>>()
 
@@ -70,10 +76,9 @@ class EpisodePanel(
         val dlg = JDialog(owner as? Frame, "剧集", false).apply {
             isUndecorated = true
             background = Color(0, 0, 0, 0)
-            // 置顶：弹幕透明 JWindow 与本对话框在屏幕上重叠，且每 500ms setBounds
-            // 重定位，可能抢占层级截获滚轮事件并重发到主窗口，导致滚动路径中途
-            // 换目标、方向看起来翻了。置顶保证滚轮始终落到本面板的显式处理器。
-            isAlwaysOnTop = true
+            // 不用 isAlwaysOnTop：owned 对话框天然在宿主窗口之上；alwaysOnTop 会导致
+            // 切到别的 App 时本面板仍压在最上面。滚轮由本面板的显式处理器消费，不冒泡。
+            isAlwaysOnTop = false
         }
 
         val content = object : JPanel() {
@@ -106,18 +111,47 @@ class EpisodePanel(
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
         }
-        episodes.forEachIndexed { i, ep ->
-            val row = createEpisodeRow(ep, i, i == currentIndex)
-            // 包装一层防止拉伸
-            val wrapper = JPanel(BorderLayout()).apply {
-                isOpaque = false
-                alignmentX = Component.LEFT_ALIGNMENT
-                maximumSize = Dimension(PANEL_W - 12, row.preferredSize.height + 8)
-                add(row, BorderLayout.CENTER)
+        // 搜索框：按集名过滤（之前无搜索，集多时只能滚）
+        var filterText = ""
+        fun currentFiltered(): List<EpisodeInfo> =
+            if (filterText.isBlank()) episodes
+            else episodes.filter { it.name.contains(filterText, ignoreCase = true) }
+        fun rebuildList() {
+            listPanel.removeAll()
+            for (ep in currentFiltered()) {
+                val i = episodes.indexOf(ep)
+                val row = createEpisodeRow(ep, i, i == currentIndex)
+                // 包装一层防止拉伸
+                val wrapper = JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    maximumSize = Dimension(PANEL_W - 12, row.preferredSize.height + 8)
+                    add(row, BorderLayout.CENTER)
+                }
+                listPanel.add(wrapper)
+                listPanel.add(Box.createVerticalStrut(CARD_SPACING))
             }
-            listPanel.add(wrapper)
-            listPanel.add(Box.createVerticalStrut(CARD_SPACING))
+            listPanel.revalidate()
+            listPanel.repaint()
         }
+        val searchField = JTextField().apply {
+            toolTipText = "搜索剧集（按集名过滤）"
+            border = javax.swing.border.EmptyBorder(4, 20, 4, 20)
+        }
+        searchField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            private fun onChange() { filterText = searchField.text; rebuildList() }
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) { onChange() }
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) { onChange() }
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) { onChange() }
+        })
+        content.add(JLabel("搜索剧集").apply {
+            font = Font(Font.SANS_SERIF, Font.PLAIN, 12)
+            foreground = Color(0x8A, 0x8A, 0x8A)
+            border = EmptyBorder(2, 20, 0, 20)
+            alignmentX = Component.LEFT_ALIGNMENT
+        })
+        content.add(searchField)
+        rebuildList()
         val scroll = JScrollPane(listPanel).apply {
             isOpaque = false
             viewport.isOpaque = false
@@ -126,7 +160,8 @@ class EpisodePanel(
             // 隐藏滚动条但保留滚轮滚动功能
             verticalScrollBar.preferredSize = java.awt.Dimension(0, 0)
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            preferredSize = Dimension(320, 333)
+            // 宽度与 PANEL_W 一致（之前这里写死 320，与面板宽 265 不一致）
+            preferredSize = Dimension(PANEL_W, 333)
             // 鼠标滚轮加速
             verticalScrollBar.unitIncrement = 40
             // 滚轮：显式处理，关默认。默认处理器在缩略图异步加载（revalidate）
@@ -142,7 +177,11 @@ class EpisodePanel(
                     e.wheelRotation * bar.visibleAmount
                 } else {
                     val units = if (e.preciseWheelRotation != 0.0) e.preciseWheelRotation else e.unitsToScroll.toDouble()
-                    (units * bar.unitIncrement).toInt()
+                    // 触控板小增量（如 0.3）直接 .toInt() 会截成 0、永远滚不动：攒余数
+                    val raw = units * bar.unitIncrement + wheelRemainder
+                    val d = raw.toInt()
+                    wheelRemainder = raw - d
+                    d
                 }
                 if (delta != 0) {
                     val lo = bar.minimum
@@ -191,6 +230,50 @@ class EpisodePanel(
             }
         }
         Toolkit.getDefaultToolkit().addAWTEventListener(outsideClickListener, AWTEvent.MOUSE_EVENT_MASK)
+
+        // 键盘导航 + 全局 ESC：方向键移动选中、回车播放、ESC 关闭（之前 ESC 只在面板聚焦时生效，
+        // 焦点在主窗口时按 ESC 关不掉；点外部关闭仍保留）
+        var keyboardIndex = currentIndex
+        fun highlightKeyboard() {
+            for (ci in 0 until listPanel.componentCount) {
+                val comp = listPanel.getComponent(ci)
+                if (comp is JPanel) {
+                    val rowIdx = ci / 2
+                    comp.border = if (rowIdx == keyboardIndex) {
+                        javax.swing.border.LineBorder(Color(0x2F, 0x7C, 0xF6), 2)
+                    } else null
+                }
+            }
+        }
+        panelKeyListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
+        panelKeyListener = AWTEventListener { event ->
+            if (event is KeyEvent && event.id == KeyEvent.KEY_PRESSED && dialog != null) {
+                val filtered = currentFiltered()
+                when (event.keyCode) {
+                    KeyEvent.VK_ESCAPE -> SwingUtilities.invokeLater { dismiss() }
+                    KeyEvent.VK_UP -> {
+                        if (filtered.isNotEmpty()) {
+                            keyboardIndex = (keyboardIndex - 1).coerceAtLeast(0)
+                            highlightKeyboard()
+                        }
+                    }
+                    KeyEvent.VK_DOWN -> {
+                        if (filtered.isNotEmpty()) {
+                            keyboardIndex = (keyboardIndex + 1).coerceAtMost(filtered.size - 1)
+                            highlightKeyboard()
+                        }
+                    }
+                    KeyEvent.VK_ENTER -> {
+                        val ep = filtered.getOrNull(keyboardIndex)
+                        if (ep != null) {
+                            dismiss()
+                            onSelect(ep, episodes.indexOf(ep))
+                        }
+                    }
+                }
+            }
+        }
+        Toolkit.getDefaultToolkit().addAWTEventListener(panelKeyListener, AWTEvent.KEY_EVENT_MASK)
 
         dialog = dlg
         // 先算好高度再显示，避免显示后resize导致卡死
@@ -277,6 +360,8 @@ class EpisodePanel(
             setBounds(4, 4, THUMB_W, THUMB_H)
             horizontalAlignment = SwingConstants.CENTER
             verticalAlignment = SwingConstants.CENTER
+            // 先给占位图：加载中/失败都不再空白
+            icon = placeholderIcon
         }
         thumbPanel.add(thumbLabel)
         // 当前集：缩略图左上角"播放中"徽标
@@ -300,6 +385,8 @@ class EpisodePanel(
                     val conn = java.net.URL(thumbUrl).openConnection() as java.net.HttpURLConnection
                     conn.connectTimeout = 8000
                     conn.readTimeout = 15000
+                    // 认证走 Header：imageUrl 不再带 Token
+                    conn.setRequestProperty("X-Emby-Authorization", YambyClient.authHeader())
                     try {
                         if (conn.responseCode !in 200..299) return@submit
                         val bytes = readUpTo(conn.inputStream, THUMB_MAX_BYTES) ?: return@submit
@@ -308,6 +395,10 @@ class EpisodePanel(
                         // 内图与边框用同一圆角（同一 rect + 同一 arc = THUMB_RADIUS），同心无批锋
                         val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
                         val icon = ImageIcon(rounded)
+                        // 缩略图缓存上限 200 条：之前无界增长
+                        if (thumbCache.size >= 200) {
+                            thumbCache.keys.firstOrNull()?.let { thumbCache.remove(it) }
+                        }
                         thumbCache[thumbUrl] = icon
                         SwingUtilities.invokeLater {
                             // 面板已关闭则丢弃，避免往已 dispose 的组件写图标
@@ -342,6 +433,34 @@ class EpisodePanel(
         }
         titleWrapper.add(titleLabel)
         row.add(titleWrapper)
+
+        // 元信息行：时长 / 已看进度 / 大小 / 已看完（之前只显示集名，无进度/已看/时长）
+        val metaParts = mutableListOf<String>()
+        if (ep.durationTicks > 0) metaParts.add(YambyClient.durShort(ep.durationTicks))
+        if (ep.playTicks > 0 && ep.durationTicks > 0) {
+            metaParts.add("已看 ${(ep.playTicks * 100 / ep.durationTicks).toInt()}%")
+        }
+        if (ep.sizeBytes > 0) {
+            YambyClient.sizeLabel(ep.sizeBytes).takeIf { it.isNotEmpty() }?.let { metaParts.add(it) }
+        }
+        if (ep.played) metaParts.add("已看完")
+        if (metaParts.isNotEmpty()) {
+            val metaLabel = JLabel(metaParts.joinToString(" · ")).apply {
+                font = Font(Font.SANS_SERIF, Font.PLAIN, 11)
+                foreground = Color(0x8A, 0x8A, 0x8A)
+                alignmentX = Component.CENTER_ALIGNMENT
+                horizontalAlignment = SwingConstants.CENTER
+            }
+            val metaWrapper = JPanel(FlowLayout(FlowLayout.CENTER, 0, 0)).apply {
+                isOpaque = false
+                alignmentX = Component.CENTER_ALIGNMENT
+                maximumSize = Dimension(THUMB_W, 18)
+            }
+            metaWrapper.add(metaLabel)
+            row.add(metaWrapper)
+        }
+        // 悬停提示：完整集名 + 元信息（长集名被截断时悬停可见全文）
+        row.toolTipText = (listOf(ep.name) + metaParts).joinToString(" | ")
 
         // Swing 事件不冒泡：点击监听加到行及其全部后代组件上（缩略图/徽标/标题都会截获事件）
         val rowClickListener = object : java.awt.event.MouseAdapter() {
@@ -403,6 +522,22 @@ class EpisodePanel(
         return sb.toString()
     }
 
+    /** 占位图：灰底圆角 + “暂无缩略图”字样，与真实缩略图同尺寸同圆角 */
+    private fun makePlaceholderIcon(): ImageIcon {
+        val img = BufferedImage(THUMB_W, THUMB_H, BufferedImage.TYPE_INT_ARGB)
+        val g = img.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g.color = Color(0xE0, 0xE0, 0xE0)
+        g.fillRoundRect(0, 0, THUMB_W, THUMB_H, THUMB_RADIUS, THUMB_RADIUS)
+        g.color = Color(0x8A, 0x8A, 0x8A)
+        g.font = Font(Font.SANS_SERIF, Font.PLAIN, 13)
+        val text = "暂无缩略图"
+        val fm = g.fontMetrics
+        g.drawString(text, (THUMB_W - fm.stringWidth(text)) / 2, THUMB_H / 2 + fm.ascent / 2)
+        g.dispose()
+        return ImageIcon(img)
+    }
+
     private fun makeRounded(src: Image, w: Int, h: Int, radius: Int): BufferedImage {
         // 同步缩放到目标尺寸（getScaledInstance 是异步的，直接画会有残缺）
         val scaled = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
@@ -433,6 +568,10 @@ class EpisodePanel(
             outsideClickListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
         } catch (_: Throwable) { }
         outsideClickListener = null
+        try {
+            panelKeyListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
+        } catch (_: Throwable) { }
+        panelKeyListener = null
         try { dialog?.isVisible = false } catch (_: Throwable) { }
         try { dialog?.dispose() } catch (_: Throwable) { }
         dialog = null

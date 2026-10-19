@@ -97,6 +97,15 @@ class MpvPlayer : Closeable {
         fun onError(msg: String)
         fun onTimePos(sec: Double, duration: Double)
         fun onPause(paused: Boolean)
+        /** 缓冲状态变化（paused-for-cache）：true=正在缓冲，UI 应显示“缓冲中…” */
+        fun onBuffering(buffering: Boolean) {}
+        /** 缓存进度（秒，demuxer-cache-duration）：供进度条画缓冲条用 */
+        fun onCacheDuration(sec: Double) {}
+        /**
+         * END_FILE 带原因（P0-2）：EOF=自然播完（自动跳下一集用），其余 STOP/QUIT/ERROR 不自动跳。
+         * 默认空实现；PlayerScreen 重写它做 EOF 自动跳集。
+         */
+        fun onEndFileReason(reason: Int) {}
         fun onLog(prefix: String, level: String, text: String) {}
         /** mpv 收到 SHUTDOWN 事件（播放器正在关闭）。默认空实现。 */
         fun onShutdown() {}
@@ -277,7 +286,10 @@ class MpvPlayer : Closeable {
         val observed = listOf(
             Triple(1L, "time-pos", MpvFormat.DOUBLE),
             Triple(2L, "duration", MpvFormat.DOUBLE),
-            Triple(3L, "pause", MpvFormat.FLAG)
+            Triple(3L, "pause", MpvFormat.FLAG),
+            // 缓冲状态 + 缓存时长：之前只观察 time-pos/duration/pause，缓冲时 UI 无任何提示
+            Triple(4L, "paused-for-cache", MpvFormat.FLAG),
+            Triple(5L, "demuxer-cache-duration", MpvFormat.DOUBLE)
         )
         for ((userdata, name, format) in observed) {
             val rr = try { lib.mpv_observe_property(ctx, userdata, name, format) } catch (_: Throwable) { -1 }
@@ -369,6 +381,8 @@ class MpvPlayer : Closeable {
 
     /** 循环播放（演示/截图用）。 */
     fun setLoop(loop: Boolean): Boolean = setPropertyInternal("loop-file", if (loop) "inf" else "no")
+    /** 截图：mpv screenshot 命令，保存到 mpv 默认截图目录（返回 false = 命令失败） */
+    fun screenshot(): Boolean = runCommandString("screenshot")
 
     /** 通用属性设置（供工具栏等调用）。返回是否成功。 */
     fun setProperty(name: String, value: String): Boolean = setPropertyInternal(name, value)
@@ -647,6 +661,10 @@ class MpvPlayer : Closeable {
                             } catch (_: Throwable) { }
                         }
                         val l = listener
+                        val endReason = reason
+                        dispatchOnEdt {
+                            try { l?.onEndFileReason(endReason) } catch (_: Throwable) { }
+                        }
                         dispatchOnEdt {
                             try { l?.onEndFile() } catch (_: Throwable) { }
                         }
@@ -705,6 +723,28 @@ class MpvPlayer : Closeable {
                                         DebugLog.d("MPV", "duration format 非 DOUBLE: ${prop.format}，忽略")
                                     } else {
                                         synchronized(snapshotLock) { lastDuration = pdata.getDouble(0) }
+                                    }
+                                }
+                                "paused-for-cache" -> {
+                                    if (prop.format != MpvFormat.FLAG) {
+                                        DebugLog.d("MPV", "paused-for-cache format 非 FLAG: ${prop.format}，忽略")
+                                    } else {
+                                        val buffering = pdata.getInt(0) != 0
+                                        val l = listener
+                                        dispatchOnEdt {
+                                            try { l?.onBuffering(buffering) } catch (_: Throwable) { }
+                                        }
+                                    }
+                                }
+                                "demuxer-cache-duration" -> {
+                                    if (prop.format != MpvFormat.DOUBLE) {
+                                        DebugLog.d("MPV", "demuxer-cache-duration format 非 DOUBLE: ${prop.format}，忽略")
+                                    } else {
+                                        val cached = pdata.getDouble(0)
+                                        val l = listener
+                                        dispatchOnEdt {
+                                            try { l?.onCacheDuration(cached) } catch (_: Throwable) { }
+                                        }
                                     }
                                 }
                                 "pause" -> {

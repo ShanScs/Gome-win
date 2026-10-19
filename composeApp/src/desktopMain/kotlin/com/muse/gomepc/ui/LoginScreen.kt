@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,7 +31,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardActions
+import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.emby.Prefs
@@ -54,6 +60,8 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 密码可见切换（之前无，输错只能删了重输）
+    var passwordVisible by remember { mutableStateOf(false) }
 
     fun parseServerUrl(input: String): Boolean {
         val s = input.trim()
@@ -162,10 +170,45 @@ fun LoginScreen(
                     onValueChange = { password = it; error = null },
                     label = { Text("密码") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    // 回车直接登录（之前密码框按回车没反应）
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { doLogin() }),
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Text(
+                            if (passwordVisible) "隐藏" else "显示",
+                            fontSize = 13.sp,
+                            color = GomeTheme.Accent,
+                            modifier = Modifier.clickable { passwordVisible = !passwordVisible }
+                                .padding(8.dp)
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy
                 )
+
+                // 已保存服务器快捷选择：点一下填地址 + 用户名（之前每次都要手动输全地址）
+                val savedServers = remember { Prefs.getServers() }
+                if (savedServers.isNotEmpty()) {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("快速选择已保存服务器：", fontSize = 12.sp, color = GomeTheme.TextSecondary)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            savedServers.forEach { entry ->
+                                AssistChip(
+                                    onClick = {
+                                        serverUrl = "${entry.protocol}://${entry.host}:${entry.port}/${entry.path.trim('/')}"
+                                        username = entry.username
+                                        error = null
+                                    },
+                                    label = { Text(entry.name.ifEmpty { entry.host }, fontSize = 12.sp) }
+                                )
+                            }
+                        }
+                    }
+                }
 
                 if (error != null) {
                     Text(

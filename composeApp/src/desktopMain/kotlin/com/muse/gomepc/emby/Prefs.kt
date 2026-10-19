@@ -33,7 +33,7 @@ data class ServerEntry(
     val backupName: String = ""
 ) {
     /** 唯一键：地址+端口+路径+用户名（统一走 Prefs.normalizeServerKey，P1-E16） */
-    fun key(): String = Prefs.normalizeServerKey(host, port, path, username)
+    fun key(): String = Prefs.normalizeServerKey(host, port, path, username, protocol)
 }
 
 object Prefs {
@@ -48,10 +48,16 @@ object Prefs {
         prefs.put(key, value)
         try { prefs.flush() } catch (_: Exception) {}
     }
+    /** 不立即落盘的写：多字段批量操作时用，操作完统一调 flushPrefs()，避免删服务器一次操作落盘约 10 次 */
+    private fun putRaw(key: String, value: String) { prefs.put(key, value) }
     private fun remove(key: String) {
         prefs.remove(key)
         try { prefs.flush() } catch (_: Exception) {}
     }
+    /** 不立即落盘的删（配合 putRaw / flushPrefs 批量用） */
+    private fun removeRaw(key: String) { prefs.remove(key) }
+    /** 批量写完后统一落盘一次 */
+    fun flushPrefs() { try { prefs.flush() } catch (_: Exception) {} }
 
     var protocol: String
         get() = get("protocol", "http")
@@ -140,14 +146,16 @@ object Prefs {
     }
 
     /**
-     * 统一服务器 Key（P1-E16）：ServerEntry.key() 与 currentServerKey() 都走这里，
-     * 不再各写一套。规则：host 去空格转小写、port 为空按 80、path 去首尾 /、username 去空格。
+     * 统一服务器 Key：ServerEntry.key() 与 currentServerKey() 都走这里，不再各写一套。
+     * 规则：协议 + host 去空格转小写、port 为空时按协议默认端口（http→80 / https→443）、
+     * path 去首尾 /、username 去空格。http 与 https 必须不同 Key，否则两协议同 host 会撞 Key 串缓存。
      */
-    fun normalizeServerKey(host: String, port: String, path: String, username: String): String {
+    fun normalizeServerKey(host: String, port: String, path: String, username: String, protocol: String = ""): String {
+        val proto = protocol.trim().lowercase().let { if (it == "https") "https" else "http" }
         val h = host.trim().lowercase()
-        val p = port.trim().ifEmpty { "80" }
+        val p = port.trim().ifEmpty { if (proto == "https") "443" else "80" }
         val pa = path.trim().trim('/')
-        return "$h:$p/$pa/${username.trim()}"
+        return "$proto://$h:$p/$pa/${username.trim()}"
     }
 
     /** baseUrl 如 http://example.com:8096/emby（P0-E8：协议白名单、host 去尾部/拒绝非法字符、port 1-65535、path 拒绝 ..） */
@@ -186,9 +194,10 @@ object Prefs {
     /** 清登录态，并清干净派生键（P1-E19）：token / userId / 服务器显示名；同时清会话/DV 缓存 */
     fun clearLogin() {
         synchronized(rmwLock) {
-            remove("token")
-            remove("userId")
-            remove("serverName")
+            removeRaw("token")
+            removeRaw("userId")
+            removeRaw("serverName")
+            flushPrefs()
         }
         try { YambyClient.clearSessionCache() } catch (_: Exception) {}
     }
@@ -249,7 +258,8 @@ object Prefs {
                     .put("backupName", s.backupName)
             )
         }
-        put(KEY_SERVERS, arr.toString())
+        putRaw(KEY_SERVERS, arr.toString())
+        flushPrefs()
     }
 
     /** 新增或更新服务器（按 key 去重），读-改-写加锁（P1-E18） */
@@ -264,7 +274,7 @@ object Prefs {
 
     /** 当前正在用的服务器 key（统一走 normalizeServerKey，P1-E16） */
     fun currentServerKey(): String =
-        normalizeServerKey(host, port, path, username)
+        normalizeServerKey(host, port, path, username, protocol)
 
     /** 更新当前服务器条目的显示名 */
     fun updateCurrentServerName(name: String) {
@@ -302,16 +312,17 @@ object Prefs {
     /** 删除保存的服务器（含统计缓存与全部派生键，P1-E19） */
     fun removeServer(key: String) {
         synchronized(rmwLock) {
+            // 批量写：全程只落盘一次（saveServers/saveServerStats 内部用 putRaw，只在末尾 flush 一次）
             saveServers(getServers().filter { it.key() != key })
             val stats = getServerStats().toMutableMap()
             stats.remove(key)
             saveServerStats(stats)
             // 派生键一并清理：自定义图标 / 自定义名 / 搜索选中（若指向该服务器）
-            remove("server_icon_$key")
-            remove("custom_name_$key")
+            removeRaw("server_icon_$key")
+            removeRaw("custom_name_$key")
             if (searchServerKey == key) {
                 searchServerKey = ""
-                searchServerName = "聚合搜索"
+                searchServerName = "当前服务器"
             }
             // 删的是当前正在用的服务器：断开连接，清登录态与当前服务器信息
             if (key == currentServerKey()) {
@@ -321,8 +332,9 @@ object Prefs {
                 path = ""
                 username = ""
                 serverName = ""
-                remove("libOrder")
+                removeRaw("libOrder")
             }
+            flushPrefs()
         }
     }
 
@@ -372,7 +384,8 @@ object Prefs {
                 .put("series", s.series)
                 .put("lastUsed", s.lastUsed))
         }
-        put(KEY_SERVER_STATS, o.toString())
+        putRaw(KEY_SERVER_STATS, o.toString())
+        flushPrefs()
     }
 
     fun putServerStat(key: String, stat: ServerStat) {
@@ -420,9 +433,12 @@ object Prefs {
         return raw.split("\n").filter { it.isNotBlank() }.take(20)
     }
 
+    /** 空白正则只编译一次（每次 addSearchHistory 都 new Regex 是浪费） */
+    private val whitespaceRegex = Regex("\\s+")
+
     fun addSearchHistory(query: String) {
         // 换行符替换为空格（P2-E5）：历史按 \n 切分存储，查询里的 \n 必须先处理掉，否则一条变多条
-        val q = query.trim().replace(Regex("\\s+"), " ")
+        val q = query.trim().replace(whitespaceRegex, " ")
         if (q.isEmpty()) return
         synchronized(rmwLock) {
             val list = getSearchHistory().toMutableList()
@@ -434,6 +450,16 @@ object Prefs {
 
     fun clearSearchHistory() {
         put(KEY_SEARCH_HISTORY, "")
+    }
+
+    /** 删除单条搜索历史（搜索页历史标签上的 × 用） */
+    fun removeSearchHistoryItem(query: String) {
+        synchronized(rmwLock) {
+            val list = getSearchHistory().toMutableList()
+            if (list.remove(query)) {
+                put(KEY_SEARCH_HISTORY, list.joinToString("\n"))
+            }
+        }
     }
 
     // ===== 播放/界面设置（1:1 Android 1.22.75）=====
@@ -574,10 +600,10 @@ object Prefs {
         get() = prefs.getBoolean("danmaku_disabled", false)
         set(v) { prefs.putBoolean("danmaku_disabled", v); try { prefs.flush() } catch (_: Exception) {} }
 
-    /** Dock 样式：0=M玻璃 1=原玻璃，默认0 */
-    var dockStyle: Int
-        get() = prefs.getInt("dock_style", 0).let { if (it in 0..1) it else 0 }
-        set(v) { prefs.putInt("dock_style", v); try { prefs.flush() } catch (_: Exception) {} }
+    /** 播放器音量 0..100，持久化（每次启动不再回 80） */
+    var playerVolume: Float
+        get() = prefs.getFloat("player_volume", 80f).coerceIn(0f, 100f)
+        set(v) { prefs.putFloat("player_volume", v.coerceIn(0f, 100f)); try { prefs.flush() } catch (_: Exception) {} }
 
     /** 飞回动画模式：0=严格 1=标准 2=宽松，默认1 */
     var flybackMode: Int
@@ -632,14 +658,14 @@ object Prefs {
         }
     }
 
-    /** 搜索页选中的服务器 key（空=聚合搜索） */
+    /** 搜索页选中的服务器 key（空=当前服务器） */
     var searchServerKey: String
         get() = prefs.get("search_server_key", "")
         set(v) { prefs.put("search_server_key", v); try { prefs.flush() } catch (_: Exception) {} }
 
     /** 搜索页选中的服务器显示名 */
     var searchServerName: String
-        get() = prefs.get("search_server_name", "聚合搜索")
+        get() = prefs.get("search_server_name", "当前服务器")
         set(v) { prefs.put("search_server_name", v); try { prefs.flush() } catch (_: Exception) {} }
 
     /** 服务器自定义图标 URL（手动选择），按 serverKey 存 */

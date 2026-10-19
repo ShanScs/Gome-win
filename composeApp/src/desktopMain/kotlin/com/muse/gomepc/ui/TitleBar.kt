@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.emby.Prefs
 import kotlin.math.abs
+import androidx.compose.ui.text.style.TextOverflow
 
 /**
  * 自定义透明标题栏（无边框窗口用）。
@@ -142,15 +144,18 @@ fun CustomTitleBar(
                 }
             }
         }
-        // 中间：居中标题（媒体库名）
+        // 中间：居中标题（媒体库名）：宽度约束 + 省略（之前无宽度约束，长标题会把左右按钮顶出）
         config.centerTitle?.let { title ->
             Text(
                 title,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A),
-                modifier = Modifier.align(Alignment.Center),
-                maxLines = 1
+                modifier = Modifier.align(Alignment.Center)
+                    .widthIn(max = 420.dp)
+                    .padding(horizontal = 8.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
         // 右侧：椭圆毛玻璃背板 + 最小化/最大化/关闭（垂直居中）
@@ -209,13 +214,14 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
         when (icon) {
             is TitleLeftIcon.App -> AppGlyph()
             is TitleLeftIcon.Server -> ServerGlyph()
+            // 收藏图标用 Canvas 手绘红心路径，不再用 ♥ 字符（emoji 与手绘图标混用）
             is TitleLeftIcon.Favorites -> Box(
                 Modifier.size(26.dp)
                     .clip(CircleShape)
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                Text("♥", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
+                HeartGlyph()
             }
             is TitleLeftIcon.Back -> Box(
                 Modifier.size(26.dp)
@@ -226,6 +232,24 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
                 Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
             }
             is TitleLeftIcon.Sort -> SortGlyph()
+        }
+    }
+}
+
+/** 手绘红心（收藏图标）：与 Screens.HeartIcon 同一路径，不用 ♥ 字符 */
+@Composable
+private fun HeartGlyph() {
+    val path = remember {
+        PathParser().parsePathString(
+            "M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"
+        ).toPath()
+    }
+    Canvas(Modifier.size(18.dp)) {
+        val sc = size.minDimension / 24f
+        val dx = (size.width - 24f * sc) / 2f
+        val dy = (size.height - 24f * sc) / 2f
+        withTransform({ translate(dx, dy); scale(sc, sc) }) {
+            drawPath(path, Color(0xFFF44336))
         }
     }
 }
@@ -292,7 +316,7 @@ private fun ServerGlyph() {
                     serverName.take(1).uppercase().ifEmpty { "影" },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2F6FED)
+                    color = GomeTheme.Accent
                 )
             }
         )
