@@ -70,6 +70,10 @@ class EpisodePanel(
         val dlg = JDialog(owner as? Frame, "剧集", false).apply {
             isUndecorated = true
             background = Color(0, 0, 0, 0)
+            // 置顶：弹幕透明 JWindow 与本对话框在屏幕上重叠，且每 500ms setBounds
+            // 重定位，可能抢占层级截获滚轮事件并重发到主窗口，导致滚动路径中途
+            // 换目标、方向看起来翻了。置顶保证滚轮始终落到本面板的显式处理器。
+            isAlwaysOnTop = true
         }
 
         val content = object : JPanel() {
@@ -125,8 +129,31 @@ class EpisodePanel(
             preferredSize = Dimension(320, 333)
             // 鼠标滚轮加速
             verticalScrollBar.unitIncrement = 40
-            // 滚轮用 JScrollPane 默认处理（Windows 标准：滚轮向下 → 看后面的集，滚轮向上 → 看前面的集）。
-            // 1.0.342 曾加过一个自定义处理把 delta 取反，那是错的——它把标准方向改反了，这里恢复默认。
+            // 滚轮：显式处理，关默认。默认处理器在缩略图异步加载（revalidate）
+            // 与弹幕 JWindow 周期性 setBounds 重定位的共同作用下，滚动路径会中途
+            // 被抢走/改变，滑着滑着方向看起来就翻了。这里只留一个处理器：方向
+            // 固定为标准（滚轮向下 wheelRotation>0 → bar.value 增大 → 看后面的集），
+            // 事件消费掉不冒泡，值钳在合法范围。
+            // 注意：1.0.342 的显式处理用了减号（取反），那是错的；这里用加号。
+            isWheelScrollingEnabled = false
+            addMouseWheelListener { e ->
+                val bar = verticalScrollBar
+                val delta = if (e.scrollType == java.awt.event.MouseWheelEvent.WHEEL_BLOCK_SCROLL) {
+                    e.wheelRotation * bar.visibleAmount
+                } else {
+                    val units = if (e.preciseWheelRotation != 0.0) e.preciseWheelRotation else e.unitsToScroll.toDouble()
+                    (units * bar.unitIncrement).toInt()
+                }
+                if (delta != 0) {
+                    val lo = bar.minimum
+                    val hi = (bar.maximum - bar.visibleAmount).coerceAtLeast(lo)
+                    val next = (bar.value + delta).coerceIn(lo, hi)
+                    if (next != bar.value) {
+                        bar.value = next
+                        e.consume()
+                    }
+                }
+            }
         }
         content.add(scroll)
 
