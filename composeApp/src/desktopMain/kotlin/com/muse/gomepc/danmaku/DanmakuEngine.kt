@@ -429,7 +429,8 @@ com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕API base: $base, 清洗后: 
 // ---- 搜索：多试标题变体，取全部候选 ID，按标题相似度排序（Bug 1 + P1-D6 + Bug 11） ----
 var candidates: List<AnimeCandidate> = emptyList()
 var searchCode = 0
-for (q in searchTitleVariants(title, cleanTitle)) {
+val variants = searchTitleVariants(title, cleanTitle)
+for (q in variants) {
 if (isStale()) return null
 val searchUrl = "$base/api/v2/search/anime?keyword=${URLEncoder.encode(q, "UTF-8")}"
 val (code, body) = httpGet(searchUrl)
@@ -437,10 +438,19 @@ searchCode = code
 if (body == null) continue
 candidates = extractAnimeIds(body, q)
 if (candidates.isNotEmpty()) break
+// 诊断：HTTP 200 但解析出 0 候选——记一小段原始响应，区分“库里真没有”与“解析漏了”。
+com.muse.gomepc.player.DebugLog.d("Danmaku", "搜索无候选: q=$q HTTP $code 响应前300字: ${body.take(300)}")
 }
 if (candidates.isEmpty()) {
+if (searchCode == 200) {
+// API 通且正常返回，只是库里没有这部剧——明确告知，不要让用户以为软件坏了。
+val msg = "该剧在弹幕库中无记录：$title（已试 ${variants.size} 种标题，API 正常返回但无匹配番剧）"
+Log.w("Danmaku", msg)
+onErr(msg)
+} else {
 Log.w("Danmaku", "未搜到番剧: $title")
 onErr("未搜到番剧: $title (HTTP $searchCode)")
+}
 return null
 }
 
@@ -475,9 +485,9 @@ val episodeId = episodes.firstOrNull { it.number == episodeIndex + 1}?.episodeId
 ?: episodes.getOrNull(episodeIndex)?.episodeId
 ?: episodes.first().episodeId
 
-val (_, commentBody) = httpGet("$base/api/v2/comment/$episodeId?withRelated=true")
+val (commentCode, commentBody) = httpGet("$base/api/v2/comment/$episodeId?withRelated=true")
 if (commentBody == null) {
-lastDetail = "弹幕接口失败"
+lastDetail = "弹幕接口失败(HTTP $commentCode)"
 continue
 }
 val list = parseDandanComments(commentBody)
@@ -508,12 +518,27 @@ onError?.invoke(msg)
 }
 }
 
-/** 搜索标题变体：清洗后标题、原标题、去年份版（Bug 11）。 */
+/** 搜索标题变体：清洗后标题、原标题、去年份版（Bug 11）、分隔符前第一段、去常见后缀词。
+* 注意：分隔符只切全角中文符号与括号，不切 ASCII ':'/'-'，避免 "Re:从零开始" 切成 "Re"、"Spider-Man" 切成 "Spider"。 */
 private fun searchTitleVariants(title: String, cleanTitle: String): List<String> {
-return listOf(cleanTitle, title, removeYear(title), removeYear(cleanTitle))
-.map { it.trim()}
+val base = listOf(cleanTitle, title, removeYear(title), removeYear(cleanTitle))
+val extra = mutableListOf<String>()
+for (t in base) {
+// 分隔符前第一段（如“无可替代：特别篇”→“无可替代”）
+val firstSeg = t.split('：', '|', '（', '(', '【', '[').firstOrNull()?.trim() ?: ""
+if (firstSeg.isNotBlank()) extra.add(firstSeg)
+// 去常见后缀词（国产剧 Emby 标题里常见）
+var s = t
+for (suffix in listOf("电视剧", "完整版", "高清", "未删减", "全集", "抢先版", "正片")) {
+s = s.replace(suffix, "")
+}
+s = s.replace(Regex("\\s+"), " ").trim()
+if (s.isNotBlank()) extra.add(s)
+}
+return (base + extra)
+.map { it.trim() }
 .distinct()
-.filter { it.isNotBlank()}
+.filter { it.isNotBlank() }
 }
 
 private fun removeYear(t: String): String {
@@ -560,7 +585,7 @@ return t
 private fun extractAnimeIds(json: String, queryTitle: String = ""): List<AnimeCandidate> {
 val out = LinkedHashMap<String, AnimeCandidate>()
 try {
-val idRe = Regex("\"animeId\"\\s*:\\s*(\\d+)")
+val idRe = Regex("\"anime_?[Ii][Dd]\"\\s*:\\s*\"?(\\d+)\"?")
 for (m in idRe.findAll(json)) {
 val id = m.groupValues[1]
 if (id in out) continue
@@ -624,14 +649,14 @@ return prev[b.length]
 private fun extractEpisodes(json: String): List<EpisodeInfo> {
 val out = ArrayList<EpisodeInfo>()
 try {
-val idRe = Regex("\"episodeId\"\\s*:\\s*(\\d+)")
+val idRe = Regex("\"episodeId\"\\s*:\\s*\"?(\\d+)\"?")
 for (m in idRe.findAll(json)) {
 val id = m.groupValues[1]
 if (out.any { it.episodeId == id}) continue
 val start = max(0, m.range.first - 200)
 val end = minOf(json.length, m.range.last + 201)
 val window = json.substring(start, end)
-val numM = Regex("\"(episodeNumber|episode|number)\"\\s*:\\s*(\\d+)").find(window)
+val numM = Regex("\"(episodeNumber|episode|number)\"\\s*:\\s*\"?(\\d+)\"?").find(window)
 out.add(EpisodeInfo(id, numM?.groupValues?.get(2)?.toIntOrNull()))
 }
 } catch (_: Exception) {}
