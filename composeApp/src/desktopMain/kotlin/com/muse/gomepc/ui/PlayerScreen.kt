@@ -1487,10 +1487,31 @@ fun PlayerScreen(
                 ) {
                     PlayPauseButton(paused = paused, onClick = { player.togglePause() })
                     Spacer(Modifier.width(12.dp))
+                    // 上一集 / 下一集 / 选集：之前底栏没有，换集只能去浮动工具栏
+                    if (onSwitchEpisode != null) {
+                        Text("上一集", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { switchToEpisode(prevEpisode()) }.padding(6.dp))
+                        Text("下一集", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { switchToEpisode(nextEpisode()) }.padding(6.dp))
+                        Text("选集", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { showEpisodePanel() }.padding(6.dp))
+                    }
+                    Text("－10s", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { seekBy(-10.0) }.padding(6.dp))
+                    Spacer(Modifier.width(4.dp))
                     Text(formatTime(if (dragging) dragPos.toDouble() else timePos),
-                        color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    // 进度条
-                    key(episodeId) {
+                        color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold)
+                    // 进度条 + 缓冲条：缓冲进度（demuxer-cache-duration）画在滑杆下方，之前无缓冲条
+                    Box(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        if (duration > 0 && cacheDuration > 0) {
+                            Box(
+                                Modifier.align(Alignment.CenterStart)
+                                    .fillMaxWidth((cacheDuration / duration).toFloat().coerceIn(0f, 1f))
+                                    .height(4.dp)
+                                    .background(Color(0xFFBBBBBB), RoundedCornerShape(2.dp))
+                            )
+                        }
+                        key(episodeId) {
                         Slider(
                             value = (if (dragging) dragPos else timePos.toFloat()).let { v -> if (v.isNaN()) 0f else v }.coerceIn(0f, duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f)),
                             onValueChange = { dragging = true; dragPos = it },
@@ -1506,12 +1527,20 @@ fun PlayerScreen(
                                 }
                             },
                             valueRange = 0f..duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f),
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                            modifier = Modifier.fillMaxWidth()
                         )
-                    } // key(episodeId) - Slider
-                    Text(formatTime(duration), color = Color(0xFF555555), fontSize = 13.sp)
+                        } // key(episodeId) - Slider
+                    }
+                    Text(formatTime(duration), color = Color(0xFF555555), fontSize = GomeText.Secondary)
+                    Text("＋10s", color = Color(0xFF1A1A1A), fontSize = GomeText.Secondary, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { seekBy(10.0) }.padding(6.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("音量", color = Color(0xFF555555), fontSize = 12.sp)
+                    // 静音切换 + 音量百分比：之前无静音、无百分比
+                    Text(
+                        if (volume <= 0f) "已静音" else "音量 ${volume.toInt()}%",
+                        color = Color(0xFF555555), fontSize = GomeText.Caption,
+                        modifier = Modifier.clickable { toggleMute() }.padding(4.dp)
+                    )
                     Slider(
                         value = volume,
                         onValueChange = {
@@ -1527,21 +1556,30 @@ fun PlayerScreen(
                     Text(
                         if (danmakuUiOn) "弹幕开" else "弹幕关",
                         color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { toggleDanmaku() }.padding(8.dp)
                     )
                     Text(
                         "全屏",
                         color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable(onClick = onFullscreen).padding(8.dp)
                     )
                     Text(
+                        "截图",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = GomeText.Secondary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            actionMsg = if (player.screenshot()) "已截图" else "截图失败"
+                        }.padding(8.dp)
+                    )
+                    Text(
                         "日志",
                         color = Color(0xFF1A1A1A),
-                        fontSize = 13.sp,
+                        fontSize = GomeText.Secondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { showLogs = !showLogs }.padding(8.dp)
                     )

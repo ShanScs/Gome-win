@@ -542,7 +542,7 @@ class AwtToolbarPanel(
         }
 
         // 中：标题 20sp 白加粗居中，maxWidth 280dp，阴影
-        titleLabel = ShadowLabel(itemNameState, 20, bold = true).apply {
+        titleLabel = ShadowLabel(itemNameState, GomeAwtText.Section, bold = true).apply {
             horizontalAlignment = SwingConstants.CENTER
             preferredSize = Dimension(280, 36)
             maximumSize = Dimension(280, 36)
@@ -553,7 +553,7 @@ class AwtToolbarPanel(
         }
 
         // 右：网速 15sp 白加粗（电池图标已删）
-        speedLabel = ShadowLabel("", 15, bold = true)
+        speedLabel = ShadowLabel("", GomeAwtText.Body, bold = true)
         val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
             isOpaque = false
             add(speedLabel)
@@ -572,8 +572,8 @@ class AwtToolbarPanel(
         }
 
         // 进度行：18dp info图标 + 12sp当前时间 + SeekBar(6dp三色轨道) + 12sp时长
-        posLabel = ShadowLabel("00:00", 12, bold = false)
-        durLabel = ShadowLabel("-00:00", 12, bold = false)
+        posLabel = ShadowLabel("00:00", GomeAwtText.Caption, bold = false)
+        durLabel = ShadowLabel("-00:00", GomeAwtText.Caption, bold = false)
         val progressRow = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -891,6 +891,18 @@ class AwtToolbarPanel(
             FrostedPopup.Row(
                 label = "旋转：${rotateModes[rotateIndex]}°",
                 action = { cycleRotate() }
+            ),
+            FrostedPopup.Row(
+                label = "快退10秒",
+                action = { seekBy(-10.0) }
+            ),
+            FrostedPopup.Row(
+                label = "快进10秒",
+                action = { seekBy(10.0) }
+            ),
+            FrostedPopup.Row(
+                label = if (isMutedNow()) "取消静音" else "静音",
+                action = { toggleMute() }
             ),
             FrostedPopup.Row(
                 label = "投屏",
@@ -1243,6 +1255,29 @@ class AwtToolbarPanel(
         rotateIndex = (rotateIndex + 1) % rotateModes.size
         player.setProperty("video-rotate", rotateModes[rotateIndex].toString())
         showTip("旋转：${rotateModes[rotateIndex]}°", "旋转")
+    }
+
+    /** 静音前保存的音量（恢复用） */
+    private var volumeBeforeMute = 100.0
+
+    private fun isMutedNow(): Boolean =
+        (try { player.getPropertyDouble("volume") } catch (_: Exception) { null })?.let { it <= 0.0 } ?: false
+
+    private fun toggleMute() {
+        val cur = try { player.getPropertyDouble("volume") } catch (_: Exception) { null } ?: return
+        if (cur > 0.0) {
+            volumeBeforeMute = cur
+            player.setProperty("volume", "0")
+            showTip("已静音", "静音")
+        } else {
+            player.setProperty("volume", volumeBeforeMute.toString())
+            showTip("音量 ${volumeBeforeMute.toInt()}%", "静音")
+        }
+    }
+
+    private fun seekBy(deltaSec: Double) {
+        val target = (player.timePos + deltaSec).coerceAtLeast(0.0)
+        if (player.seek(target)) showTip(if (deltaSec < 0) "快退10秒" else "快进10秒", "快进快退")
     }
 
     private fun showCastDialog() {
