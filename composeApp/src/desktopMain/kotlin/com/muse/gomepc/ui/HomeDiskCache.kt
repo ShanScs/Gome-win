@@ -12,34 +12,6 @@ import java.security.MessageDigest
  */
 object HomeDiskCache {
 
-    /** 磁盘缓存有效期 24 小时：过期视为 miss，load 时直接删文件，不读旧数据 */
-    private const val CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
-    /** 全量清理阈值：超过 7 天没动过的服务器缓存目录整体删除 */
-    private const val PRUNE_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
-
-    /** 删除过期文件：超过 24 小时的缓存文件视为 miss，读之前删掉 */
-    private fun freshOrNull(f: File): File? {
-        if (!f.exists()) return null
-        if (System.currentTimeMillis() - f.lastModified() > CACHE_MAX_AGE_MS) {
-            try { f.delete() } catch (_: Exception) { }
-            return null
-        }
-        return f
-    }
-
-    /** 清理超过 7 天未动的服务器缓存目录（启动/刷新时调一次，不让缓存无界增长） */
-    fun pruneStale() {
-        try {
-            val base = baseDir()
-            val now = System.currentTimeMillis()
-            base.listFiles()?.forEach { dir ->
-                if (dir.isDirectory && now - dir.lastModified() > PRUNE_MAX_AGE_MS) {
-                    try { dir.deleteRecursively() } catch (_: Exception) { }
-                }
-            }
-        } catch (_: Exception) { }
-    }
-
     private fun baseDir(): File {
         val home = System.getProperty("user.home") ?: "."
         return File(home, ".gome/home_cache").apply { mkdirs() }
@@ -74,7 +46,8 @@ object HomeDiskCache {
 
     fun loadLibraries(serverKey: String): List<UiLibrary>? {
         return try {
-            val f = freshOrNull(File(dir(serverKey), "libraries.json")) ?: return null
+            val f = File(dir(serverKey), "libraries.json")
+            if (!f.exists()) return null
             val arr = JSONArray(f.readText())
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
@@ -108,14 +81,6 @@ object HomeDiskCache {
             .put("type", it.type)
             .put("played", it.played)
             .put("genres", JSONArray(it.genres))
-            // 之前丢了 seriesId 与 people：继续观看的单集从磁盘缓存恢复后 seriesId 为空，
-            // 点进详情页要多发一次请求补；people 丢了则详情页演职人员为空
-            .put("seriesId", it.seriesId)
-            .put("people", JSONArray().apply {
-                it.people.forEach { person ->
-                    put(JSONObject().put("id", person.id).put("name", person.name).put("role", person.role))
-                }
-            })
 
     private fun itemFromJson(o: JSONObject): UiMediaItem =
         UiMediaItem(
@@ -138,15 +103,7 @@ object HomeDiskCache {
             genres = try {
                 val arr = o.optJSONArray("genres")
                 if (arr == null) emptyList() else (0 until arr.length()).map { arr.optString(it) }
-            } catch (_: Exception) { emptyList() },
-            people = try {
-                val arr = o.optJSONArray("people")
-                if (arr == null) emptyList() else (0 until arr.length()).map {
-                    val po = arr.getJSONObject(it)
-                    UiPerson(po.optString("id"), po.optString("name"), po.optString("role"))
-                }
-            } catch (_: Exception) { emptyList() },
-            seriesId = o.optString("seriesId")
+            } catch (_: Exception) { emptyList() }
         )
 
     private fun saveItems(serverKey: String, filename: String, items: List<UiMediaItem>) {
@@ -159,7 +116,8 @@ object HomeDiskCache {
 
     private fun loadItems(serverKey: String, filename: String): List<UiMediaItem>? {
         return try {
-            val f = freshOrNull(File(dir(serverKey), filename)) ?: return null
+            val f = File(dir(serverKey), filename)
+            if (!f.exists()) return null
             val arr = JSONArray(f.readText())
             (0 until arr.length()).map { itemFromJson(arr.getJSONObject(it)) }.ifEmpty { null }
         } catch (_: Exception) { null }

@@ -12,9 +12,7 @@ import java.util.Locale
 data class UiLibrary(
     val id: String,
     val name: String,
-    val hue: Float = 210f,
-    /** Emby CollectionType：movies/tvshows/music/...（之前 LibraryCard 靠中文库名猜颜色和“TV”标签） */
-    val type: String = ""
+    val hue: Float = 210f
 )
 
 /** 演职人员 */
@@ -117,7 +115,7 @@ fun YambyClient.Library.toUi(): UiLibrary {
         "music" -> 280f
         else -> 190f
     }
-    return UiLibrary(id, name, hue, type)
+    return UiLibrary(id, name, hue)
 }
 
 /** MockItem → UiMediaItem（演示模式） */

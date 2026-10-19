@@ -205,9 +205,7 @@ object ServerIconHelper {
     }
 
     /**
-     * 解析服务器图标。优先级：手动指定 > 自动匹配 > 图标库默认（emby 官方 logo）> null。
-     * 注意：服务器名在库里无匹配时（如名字含库里没有的字）也要用库里的默认图标，
-     * 绝不要让调用方兜底显示服务器名首字（如“垃”）或手绘假图标。
+     * 解析服务器图标。优先级：手动指定 > 自动匹配 > null（调用方显示默认占位）。
      */
     suspend fun resolveIcon(serverName: String, serverKey: String?): ImageBitmap? {
         // 1. 手动指定的图标（serverKey 为空/非法时跳过，不用旧 key 的缓存）
@@ -218,23 +216,11 @@ object ServerIconHelper {
                 if (bmp != null) return bmp
             }
         }
+        // 2. 自动匹配
+        if (serverName.isBlank()) return null
         val map = ensureMap()
-        // 2. 自动匹配（按服务器名在图标库里找）
-        if (serverName.isNotBlank()) {
-            val url = findIconUrl(serverName, map)
-            if (url != null) {
-                val bmp = loadFileCached(url)
-                if (bmp != null) return bmp
-            }
-        }
-        // 3. 图标库默认图标：库里第一个 emby 条目（官方 Emby logo）。
-        // 无匹配时用它，不返回 null，不让调用方显示首字兜底。
-        val defaultUrl = map["emby"]
-        if (!defaultUrl.isNullOrBlank()) {
-            val bmp = loadFileCached(defaultUrl)
-            if (bmp != null) return bmp
-        }
-        return null
+        val url = findIconUrl(serverName, map) ?: return null
+        return loadFileCached(url)
     }
 
     /** serverKey 形如 host:port/path/username（path 可为空）；含 .. 或首尾段为空视为非法，不用于查缓存 */

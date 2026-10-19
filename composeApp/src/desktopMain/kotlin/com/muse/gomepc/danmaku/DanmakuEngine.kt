@@ -34,9 +34,6 @@ var x: Float,
 val row: Int,
 val speed: Float,
 val bornAt: Long,
-/** 弹幕颜色（解析后保留，之前解析完就丢了，全变白字滚动）；置顶/置底模式（4=置底 5=置顶） */
-val color: Int = 0xFFFFFF,
-val mode: Int = 1,
 /** 文本宽度缓存（px），-1 表示未测量 */
 var textWidth: Float = -1f,
 /** 可见时间戳（ms，delaySec 延迟后才可见）；0 表示立即见 */
@@ -125,10 +122,6 @@ com.muse.gomepc.player.DebugLog.d("Danmaku", "池已填充: ${pool.size} 条，�
 
 /** P0-D?/Bug 5：加载代次，只接受最新一次加载的结果，旧集慢请求直接丢弃。 */
 private val loadGeneration = AtomicInteger(0)
-/** 弹幕 IO 线程池（共享守护线程池，替代裸 Thread：命名 + 可复用 + 不泄漏未命名线程） */
-private val ioExecutor = java.util.concurrent.Executors.newCachedThreadPool { r ->
-    Thread(r, "danmaku-io").apply { isDaemon = true }
-}
 private var lastFontSizePx: Float = 0f
 
 /** 视图尺寸（px），由 UI 层通过 onSizeChanged 设置；变化时重算行数。 */
@@ -148,13 +141,6 @@ val alpha: Float get() = (opacityPct / 100f).coerceIn(0.1f, 1f)
 
 /** 错误回调（UI 线程） */
 var onError: ((String) -> Unit)? = null
-
-/** 暂停状态：播放器暂停时置 true，step() 冻结弹幕（之前 Timer 无条件 step，暂停时弹幕继续飞、恢复后错位） */
-@Volatile var paused: Boolean = false
-    private set
-
-/** 播放器暂停/恢复时调用：冻结/解冻弹幕推进 */
-fun setPaused(p: Boolean) { paused = p }
 
 companion object {
 /** P1-D7：共享单例 OkHttpClient，不设 proxy，走 OkHttp 默认系统代理。 */
@@ -301,8 +287,6 @@ return (row + 0.8f) * rowPitchPx(fontSizePx)
 * @param measureText 文本宽度测量（px），由 UI 层提供（需与绘制同字号）
 */
 fun step(dt: Float, measureText: (String) -> Float) {
-// 暂停时冻结：不移动、不发射，恢复后从同一位置继续，不错位
-if (paused) return
 // P1-D11：dt 钳制到 [0, 0.1]。
 val dtC = dt.coerceIn(0f, 0.1f)
 val w = viewWidth
@@ -313,14 +297,9 @@ val snapshot = items.toList()
 for (d in snapshot) {
 if (d.textWidth < 0) d.textWidth = measureText(d.text)
 if (now < d.visibleAt) continue
-// 置顶/置底弹幕（mode 5/4）：静止居中显示，5 秒后消失；不随滚动弹幕移动
-if (d.mode == 4 || d.mode == 5) {
-d.x = (w - d.textWidth) / 2f
-continue
-}
 d.x -= d.speed * speedFactor * dtC
 }
-items.removeIf { (it.textWidth >= 0 && it.x + it.textWidth < 0) || ((it.mode == 4 || it.mode == 5) && now - it.bornAt > 5000) }
+items.removeIf { it.textWidth >= 0 && it.x + it.textWidth < 0}
 // 发射新弹幕（无数据源时 pool 为空，不显示任何弹幕）
 // P1-D10：延迟期间的弹幕不计入 maxItems（只数已可见的）。
 val visibleCount = items.count { now >= it.visibleAt}
@@ -358,7 +337,7 @@ scanIdx++
 val idx = candidateIdx ?: break
 val item = poolSnapshot[idx]
 emittedIndices.add(idx)
-if (!emit(item, w, measureText, now)) break
+if (!emit(item.text, w, measureText, now)) break
 emittedThisFrame++
 }
 if (emittedThisFrame > 0) lastTimedEmitAtMs = now
@@ -374,13 +353,13 @@ if (!fallbackLogged) {
 fallbackLogged = true
 com.muse.gomepc.player.DebugLog.d("Danmaku", "定时发射 10 秒无产出，回落随机发射：池 ${pool.size} 条，当前进度 $currentTimeSec 秒，池填充时进度 $poolFilledAtSec 秒")
 }
-emit(poolSnapshot.random(), w, measureText, now)
+emit(poolSnapshot.random().text, w, measureText, now)
 }
 } else {
 // 无时间信息池子：保留旧随机发射行为。
 val emitProb = 0.4f
 if (Random.nextFloat() < emitProb) {
-emit(poolSnapshot.random(), w, measureText, now)
+emit(poolSnapshot.random().text, w, measureText, now)
 }
 }
 }
@@ -388,8 +367,7 @@ emit(poolSnapshot.random(), w, measureText, now)
 /** 发射一条弹幕：做行重叠检查，delaySec 用 visibleAt 时间戳（出生点不再右移）。
 * 返回是否成功发射。旧版随机抽一行、该行拥挤就直接丢弃（已标记已发射，永久丢失），
 * 密集时大量弹幕因此丢失；现按随机顺序试全部行，只在所有行都拥挤时才丢弃。 */
-private fun emit(item: DanmakuItem, w: Float, measureText: (String) -> Float, now: Long): Boolean {
-val text = item.text
+private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long): Boolean {
 val rowOrder = (0 until max(1, rows)).shuffled()
 // 单次遍历算各行最右位置与最慢速度，避免每行 filter 一次（O(rows×items) 分配）。
 val rowCount = max(1, rows)
@@ -401,14 +379,6 @@ if (d.textWidth < 0) d.textWidth = measureText(d.text)
 val right = d.x + d.textWidth
 if (right > rowRightmost[d.row]) rowRightmost[d.row] = right
 if (d.speed < rowSlowest[d.row]) rowSlowest[d.row] = d.speed
-}
-// 置顶/置底弹幕不走滚动行分配：直接放顶行/底行、静止居中，颜色与模式随条目保留
-if (item.mode == 4 || item.mode == 5) {
-val tw = measureText(text)
-val row = if (item.mode == 5) 0 else max(0, rows - 1)
-val visibleAt = now + (delaySec * 1000f).toLong()
-items.add(Danmaku(text, (w - tw) / 2f, row, 0f, now, item.color, item.mode, tw, visibleAt))
-return true
 }
 for (row in rowOrder) {
 // 检查该行最右弹幕位置，避免重叠（未到可见时间的弹幕也占行，避免延迟期内堆叠）。
@@ -428,7 +398,7 @@ val slowest = rowSlowest[row]
 if (slowest != Float.MAX_VALUE && speed > slowest) speed = slowest
 // P1-D10：delaySec 只推迟可见时间，不右移出生点、不占 maxItems 名额。
 val visibleAt = now + (delaySec * 1000f).toLong()
-items.add(Danmaku(text, w, row, speed, now, item.color, item.mode, tw, visibleAt))
+items.add(Danmaku(text, w, row, speed, now, tw, visibleAt))
 return true
 }
 }
@@ -446,7 +416,7 @@ return false
 fun loadFromApi(url: String, title: String = "", episodeIndex: Int = 0) {
 if (url.isBlank()) return
 val gen = loadGeneration.incrementAndGet()
-ioExecutor.execute {
+Thread {
 val list = doLoadFromApi(url.trim().trimEnd('/'), title, episodeIndex, gen) { postError(it)}
 if (list != null && list.isNotEmpty() && loadGeneration.get() == gen) {
 pool.clear()
@@ -455,7 +425,7 @@ emittedIndices.clear()
 items.clear()
 onPoolFilled()
 }
-}
+}.start()
 }
 
 /**
@@ -475,7 +445,7 @@ val lastErr = java.util.concurrent.atomic.AtomicReference("")
 val latch = java.util.concurrent.CountDownLatch(list.size)
 val allResults = Collections.synchronizedList(mutableListOf<List<DanmakuItem>>())
 for (base in list) {
-ioExecutor.execute {
+Thread {
 try {
 if (loadGeneration.get() == gen) {
 val r = doLoadFromApi(base, title, episodeIndex, gen) { lastErr.set(it)}
@@ -484,9 +454,9 @@ if (r != null && r.isNotEmpty()) allResults.add(r)
 } catch (_: Exception) {} finally {
 latch.countDown()
 }
+}.start()
 }
-}
-ioExecutor.execute {
+Thread {
 // 分段等全部源返回：单源全程（搜索重试 + bangumi + 弹幕抓取 60s 读超时 + 退避重试）
 // 可超过 45 秒（实测约 47 秒），1.0.348 的单次 await(45s) 会在好源还在抓弹幕时
 // 误判“全部失败”并退出，导致之后完成的源结果无人合并、池永不填充。
@@ -495,21 +465,21 @@ var waitedMs = 0L
 while (latch.count > 0 && waitedMs < 180_000) {
 latch.await(15, TimeUnit.SECONDS)
 waitedMs += 15_000
-if (loadGeneration.get() != gen) return@execute
+if (loadGeneration.get() != gen) return@Thread
 if (latch.count > 0 && allResults.isEmpty() && waitedMs >= 45_000) {
 com.muse.gomepc.player.DebugLog.d("Danmaku", "合并等待中：已等 ${waitedMs / 1000} 秒，仍有 ${latch.count} 个源未返回，继续等待")
 }
 }
-if (loadGeneration.get() != gen) return@execute
+if (loadGeneration.get() != gen) return@Thread
 if (allResults.isEmpty()) {
 if (latch.count > 0) {
 // 总上限到了仍有源在飞：没有已完成的结果可合并，只记超时，不报“库里无记录”
 // （lastErr 可能来自早失败的源，会误导成整部剧无弹幕）。
 com.muse.gomepc.player.DebugLog.d("Danmaku", "合并等待超时：180 秒已到，仍有 ${latch.count} 个源未返回，无已完成结果可合并")
-return@execute
+return@Thread
 }
 postError(if (lastErr.get().isNotEmpty()) lastErr.get() else "所有弹幕源均无结果")
-return@execute
+return@Thread
 }
 val merged = evenSampleByTime(
 allResults.flatten()
@@ -523,7 +493,7 @@ emittedIndices.clear()
 items.clear()
 onPoolFilled()
 com.muse.gomepc.player.DebugLog.d("Danmaku", "多源合并：${allResults.size} 个源有结果，合并去重后 ${merged.size} 条")
-}
+}.start()
 }
 
 /** 单次 GET：返回 (HTTP 码, 成功时 body / 失败时 null)。响应用 use{} 关闭（P1-D7）。 */
@@ -910,15 +880,13 @@ else parts.getOrNull(2)?.toIntOrNull() ?: 0xFFFFFF
  * 禁止“取前 N 条”：服务端返回全集弹幕（时间升序）时 take(N) 只保留最早 N 条，
  * 池只覆盖前几分钟，断点续播到后半集时发射窗口内永远无弹幕。
  * 未超长时原样返回，不改变任何行为。 */
-private /** 采样前去重（同文本+同时间只留一条），再按时间等间隔采样到 max 条 */
-fun evenSampleByTime(list: List<DanmakuItem>, max: Int): List<DanmakuItem> {
-val deduped = list.distinctBy { it.text to it.timeSec }
-if (deduped.size <= max) return deduped.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE }
-val sorted = deduped.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE }
+private fun evenSampleByTime(list: List<DanmakuItem>, max: Int): List<DanmakuItem> {
+if (list.size <= max) return list
+val sorted = list.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE }
 val step = sorted.size.toDouble() / max
 val out = ArrayList<DanmakuItem>(max)
 for (i in 0 until max) out.add(sorted[(i * step).toInt().coerceIn(0, sorted.size - 1)])
-com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕等间隔采样：原始 ${list.size} 条 → 去重 ${deduped.size} 条 → 保留 ${out.size} 条（覆盖全集时间范围）")
+com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕等间隔采样：原始 ${list.size} 条 → 保留 ${out.size} 条（覆盖全集时间范围）")
 return out
 }
 
@@ -951,24 +919,18 @@ if (s.isNotBlank()) out.add(DanmakuItem(s, -1f))
 return evenSampleByTime(out, 20000)
 }
 
-/** 导入/解析用正则只编译一次（之前每次调用、甚至每个 JSON 块都 new Regex） */
-private val danmakuTagRe = Regex("<d\\s*([^>]*)>([^<]+)</d>")
-private val danmakuPAttrRe = Regex("p\\s*=\\s*\"([^\"]*)\"")
-private val jsonBlockRe = Regex("\\{[^{}]*\\}")
-private val jsonTextRe = Regex("\"(text|m|content)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
-private val jsonTimeRe = Regex("\"(time|timeSec|p)\"\\s*:\\s*\"?([0-9]+(?:\\.[0-9]+)?)\"?")
-
 /** 从本地文件内容导入弹幕：支持 B站 XML 或 JSON 数组；返回导入条数 */
 fun importFromText(content: String): Int {
 val list = mutableListOf<DanmakuItem>()
 val t = content.trim()
 try {
 if (t.startsWith("<")) {
-danmakuTagRe.findAll(t).forEach { m ->
+val re = Regex("<d\\s*([^>]*)>([^<]+)</d>")
+re.findAll(t).forEach { m ->
 val attrs = m.groupValues[1]
 val s = decodeXmlEntities(m.groupValues[2].trim())
 if (s.isNotEmpty()) {
-val p = danmakuPAttrRe.find(attrs)?.groupValues?.get(1)?: ""
+val p = Regex("p\\s*=\\s*\"([^\"]*)\"").find(attrs)?.groupValues?.get(1)?: ""
 val parts = p.split(",")
 val timeSec = parts.getOrNull(0)?.toFloatOrNull()?: -1f
 val mode = parts.getOrNull(1)?.toIntOrNull()?: 1
@@ -1001,13 +963,14 @@ fun danmakuCount(): Int = pool.size
 private fun parseDanmakuJson(json: String): List<DanmakuItem> {
 val out = mutableListOf<DanmakuItem>()
 try {
-for (block in jsonBlockRe.findAll(json)) {
+val blockRe = Regex("\\{[^{}]*\\}")
+for (block in blockRe.findAll(json)) {
 val b = block.value
-val textM = jsonTextRe.find(b)
+val textM = Regex("\"(text|m|content)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(b)
 ?: continue
 val text = unescapeJsonString(textM.groupValues[2])
 if (text.isBlank()) continue
-val timeM = jsonTimeRe.find(b)
+val timeM = Regex("\"(time|timeSec|p)\"\\s*:\\s*\"?([0-9]+(?:\\.[0-9]+)?)\"?").find(b)
 val timeSec = timeM?.groupValues?.get(2)?.toFloatOrNull()?: -1f
 out.add(DanmakuItem(text, timeSec))
 }

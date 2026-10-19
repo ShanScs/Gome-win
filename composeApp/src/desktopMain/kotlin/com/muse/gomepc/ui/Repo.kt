@@ -2,7 +2,6 @@ package com.muse.gomepc.ui
 
 import com.muse.gomepc.emby.Prefs
 import com.muse.gomepc.emby.YambyClient
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
@@ -36,15 +35,12 @@ object Repo {
     private val cacheMutex = Mutex()
 
     /**
-     * 当前缓存 Key：服务器 Key + demoMode + 登录态 + Token 哈希。
-     * 切换服务器 / 登出 / demoMode 变化 / Token 变化时 Key 变化，旧条目即视为 miss；
+     * 当前缓存 Key：服务器 Key + demoMode + 登录态。
+     * 切换服务器 / 登出 / demoMode 变化时 Key 变化，旧条目即视为 miss；
      * 写路径还会把旧 Key 条目全清，不让旧服务器数据残留串台。
-     * 注意：之前 Key 里只有 isLoggedIn 布尔值，同账号重登（Token 换了）5 分钟内仍读旧缓存串态；
-     * 现在 Key 含 Token 哈希（只存哈希，不存 Token 明文），重登即失效。
      */
     private fun currentCacheKey(): String =
-        Prefs.currentServerKey() + "|demo=" + demoMode + "|in=" + Prefs.isLoggedIn() +
-            "|tok=" + Prefs.token.hashCode()
+        Prefs.currentServerKey() + "|demo=" + demoMode + "|in=" + Prefs.isLoggedIn()
 
     /** 条目新鲜：同 Key 且在 TTL 内 */
     private fun <T> CacheEntry<T>?.isFresh(key: String): Boolean {
@@ -212,55 +208,8 @@ object Repo {
     }
 
     /**
-     * 媒体库增量分页：每拉到一页就回调一次累计列表，UI 首屏不用等全量取完。
-     * 分页不依赖总数（不再多发一次 getItemsTotal 请求：总数在分页循环里用不上，
-     * 之前每次进媒体库都多一次请求）；页满继续、页不满停止；按 Id 去重。
-     */
-    suspend fun libraryItemsPaged(
-        libId: String,
-        sortBy: String = "PremiereDate",
-        sortOrder: String = "Descending",
-        maxItems: Int = 2000,
-        libName: String = "",
-        onPage: (List<UiMediaItem>) -> Unit
-    ) {
-        if (demoMode) {
-            val lib = mockLibraries.find { it.id == libId } ?: mockLibraries.first()
-            onPage(mockItems(lib, 120).map { it.toUi() })
-            return
-        }
-        val name = libName.ifBlank {
-            try {
-                libraries().find { it.id == libId }?.name ?: ""
-            } catch (_: Exception) { "" }
-        }
-        val pageSize = 200
-        val out = mutableListOf<YambyClient.Item>()
-        val seenIds = mutableSetOf<String>()
-        var start = 0
-        while (start < maxItems) {
-            val page = try {
-                YambyClient.getItems(
-                    libId, limit = pageSize,
-                    sortBy = sortBy, sortOrder = sortOrder,
-                    startIndex = start
-                )
-            } catch (e: Exception) {
-                // 首页失败必须抛给调用方（UI 区分“失败”与“空库”）；后续页失败则按已有数据截断
-                if (start == 0) throw e
-                break
-            }
-            if (page.isEmpty()) break
-            for (item in page) if (seenIds.add(item.id)) out.add(item)
-            onPage(out.map { it.toUi(name) })
-            if (page.size < pageSize) break
-            start += pageSize
-        }
-    }
-
-    /**
      * 媒体库全量列表（分页取全，对齐 Android 的排序参数）。
-     * 分页不依赖 total：不再多发一次 getItemsTotal 请求，页满继续、页不满停止。
+     * 分页不依赖 total：total<=0 时用“页满继续、页不满停止”；total>0 时取到总数即停。
      * 按 Id 去重，避免服务器重复返回同一条目。
      */
     suspend fun libraryItems(
@@ -279,22 +228,22 @@ object Repo {
                 libraries().find { it.id == libId }?.name ?: ""
             } catch (_: Exception) { "" }
         }
+        val total = try { YambyClient.getItemsTotal(libId) } catch (_: Exception) { 0 }
         val pageSize = 200
         val out = mutableListOf<YambyClient.Item>()
         val seenIds = mutableSetOf<String>()
         var start = 0
-        // 不依赖总数：页满继续、页不满停止（不再为总数多发一次请求）
+        // total<=0 时不依赖总数：页满继续、页不满停止；total>0 时取到总数即停
+        val useTotal = total > 0
         while (start < maxItems) {
+            if (start > 0 && useTotal && start >= total) break
             val page = try {
                 YambyClient.getItems(
                     libId, limit = pageSize,
                     sortBy = sortBy, sortOrder = sortOrder,
                     startIndex = start
                 )
-            } catch (e: Exception) {
-                if (start == 0) throw e
-                break
-            }
+            } catch (_: Exception) { break }
             if (page.isEmpty()) break
             for (item in page) if (seenIds.add(item.id)) out.add(item)
             if (page.size < pageSize) break  // 最后一页
@@ -333,10 +282,14 @@ object Repo {
                 .filter { it.name.contains(query) }
                 .map { it.toUi() }
         }
-        // 只搜当前服务器：真正的多服务器聚合需要各服务器的独立 Token，而 Prefs 只存当前
-        // 服务器的 Token（密码不落盘），之前的“聚合搜索”分支实际也只是搜当前服务器，
-        // 是假分支，已删；搜索页的服务器选择器也相应改为只显示“当前服务器”。
-        return YambyClient.searchItems(query).map { it.toUi() }
+        // 按搜索页选中的服务器路由：空 = 聚合搜索；选中当前服务器 = 本服务器搜索；
+        // 选中其它服务器时暂无该服务器的独立 token，聚合搜索兜底为当前服务器（不静默错配）。
+        val key = Prefs.searchServerKey
+        return if (key.isEmpty() || key != Prefs.currentServerKey()) {
+            YambyClient.searchAggregated(query).map { it.toUi() }
+        } else {
+            YambyClient.searchItems(query).map { it.toUi() }
+        }
     }
 
     suspend fun favorites(): List<UiMediaItem> {
@@ -374,33 +327,9 @@ object Repo {
      * 取选集。电影返回单集"正片"；剧集按季取（默认第一季）。
      * 返回 Pair(剧集列表, 季列表)——季列表用于多季切换，演示模式为空。
      */
-    /** 选集在途请求去重：同剧并发进详情/播放器时只发一次请求，其余等同一份结果 */
-    private val episodesInFlight = ConcurrentHashMap<String, CompletableDeferred<EpisodeData>>()
-
     suspend fun episodes(itemId: String): EpisodeData {
         // 先查缓存
         getCachedEpisodes(itemId)?.let { return it }
-        // 在途去重：已有同剧请求在飞，等它的结果，不再重复发
-        episodesInFlight[itemId]?.let { return it.await() }
-        val deferred = CompletableDeferred<EpisodeData>()
-        // 只有一个调用方能抢到占位；抢不到的等占位者的结果
-        if (episodesInFlight.putIfAbsent(itemId, deferred) != null) {
-            return episodesInFlight[itemId]!!.await()
-        }
-        try {
-            val result = loadEpisodes(itemId)
-            deferred.complete(result)
-            return result
-        } catch (e: Exception) {
-            deferred.completeExceptionally(e)
-            throw e
-        } finally {
-            episodesInFlight.remove(itemId, deferred)
-        }
-    }
-
-    /** episodes() 的实际加载体（被 in-flight 去重包装） */
-    private suspend fun loadEpisodes(itemId: String): EpisodeData {
         val result: EpisodeData = if (demoMode) {
             val libId = itemId.substringBefore("-")
             val lib = mockLibraries.find { it.id == libId }

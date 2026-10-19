@@ -7,8 +7,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import java.util.Locale
-import java.util.concurrent.ConcurrentLinkedQueue
 import okhttp3.OkHttpClient
 import java.net.Proxy
 import okhttp3.Request
@@ -54,28 +52,10 @@ object YambyClient {
     private val lastProgressAt = ConcurrentHashMap<String, Long>()
     private val lastProgressPaused = ConcurrentHashMap<String, Boolean>()
 
-    /**
-     * 401 全局回调（P0-12）：任一接口收到 401（Token 过期）时触发，调用方（Main.GomeApp）
-     * 在此把用户踢回登录页。之前 UnauthorizedException 只在 YambyClient 内抛、UI 层零处理，
-     * 表现为继续观看为空、收藏点不动等假象。
-     */
-    @Volatile var onUnauthorized: (() -> Unit)? = null
-
-    private fun notifyUnauthorized() {
-        try { onUnauthorized?.invoke() } catch (_: Exception) { }
-    }
-
-    /** 停止上报待重试队列（P0-14）：reportStopped 失败不再丢进度，下次任一上报时先重发 */
-    private data class PendingStopped(val itemId: String, val ticks: Long, val mediaSourceId: String, val playSessionId: String)
-    private val pendingStopped = ConcurrentLinkedQueue<PendingStopped>()
-    private const val MAX_PENDING_STOPPED = 50
-
     private fun sessionKey(itemId: String, mediaSourceId: String) = "$itemId|$mediaSourceId"
 
     private fun rememberPlaySessionId(itemId: String, mediaSourceId: String, sessionId: String) {
         if (sessionId.isEmpty()) return
-        // 会话 Map 上限（P2）：超 200 条时清掉旧会话，避免无界增长；会话本身有时效，清掉只会多拉一次 PlaybackInfo
-        if (playSessionIds.size > 200) playSessionIds.clear()
         playSessionIds[sessionKey(itemId, "")] = sessionId
         if (mediaSourceId.isNotEmpty()) playSessionIds[sessionKey(itemId, mediaSourceId)] = sessionId
     }
@@ -197,21 +177,6 @@ object YambyClient {
      * - 401 单独抛 UnauthorizedException（P0-E13），不重试；
      * - 错误信息里的 URL 与服务端回显先脱敏（P0-E3）。
      */
-    /** 带上限读文本：超限抛异常，不把超大响应全读进内存 */
-    private fun readCappedText(stream: java.io.InputStream, maxBytes: Int): String {
-        val out = java.io.ByteArrayOutputStream()
-        val buf = ByteArray(8192)
-        var total = 0
-        while (true) {
-            val n = stream.read(buf)
-            if (n < 0) break
-            total += n
-            if (total > maxBytes) throw Exception("响应体超过 ${maxBytes / 1024 / 1024}MB 上限")
-            out.write(buf, 0, n)
-        }
-        return out.toString(Charsets.UTF_8)
-    }
-
     private suspend fun requestJson(
         method: String,
         u: String,
@@ -232,7 +197,7 @@ object YambyClient {
                     if (body != null) doOutput = true
                     setRequestProperty(headerName, headerValue ?: authHeader())
                     if (body != null) setRequestProperty("Content-Type", "application/json")
-                    // 注意：不发 Cache-Control: no-cache——HttpURLConnection 默认无缓存，该头无效
+                    if (method == "GET") setRequestProperty("Cache-Control", "no-cache")
                 }
                 try {
                     if (body != null) {
@@ -240,11 +205,9 @@ object YambyClient {
                     }
                     val code = c.responseCode
                     val stream = if (code in 200..299) c.inputStream else c.errorStream
-                    // 响应体上限 10MB：超限直接判错，不再全量读入内存（防超大响应 OOM）
-                    val txt = stream?.use { readCappedText(it, 10 * 1024 * 1024) } ?: ""
+                    val txt = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
                     if (code == 401) {
                         if (isLogin) throw UnauthorizedException("用户名或密码错误", isLogin = true)
-                        notifyUnauthorized()
                         throw UnauthorizedException("未授权（Token 可能已过期，请重新登录）", isLogin = false)
                     }
                     if (code !in 200..299) {
@@ -267,8 +230,6 @@ object YambyClient {
             } catch (e: UnauthorizedException) {
                 throw e
             } catch (e: Exception) {
-                // 立即失败的错误不重试：DNS 解析失败重试也一样失败，只会白等
-                if (e is java.net.UnknownHostException) throw e
                 if ((e is SocketTimeoutException || e is IOException) && attempt < MAX_RETRIES) {
                     lastError = e
                     delay(RETRY_DELAY_MS)
@@ -455,16 +416,16 @@ object YambyClient {
             "/Users/${Prefs.userId}/Items",
             "ParentId=$parentId&Recursive=true&IncludeItemTypes=Movie,Series&Limit=1"
         )
-        return try { getJson(u, "获取总数").optInt("TotalRecordCount", -1) } catch (_: Exception) { -1 }
+        return getJson(u, "获取总数").optInt("TotalRecordCount", 0)
     }
 
-    /** 资源库卡片统计：某类型的总数（Movie / Series）；失败返回 -1，与真 0 区分（P2） */
+    /** 资源库卡片统计：某类型的总数（Movie / Series） */
     suspend fun getTotalCount(types: String): Int {
         val u = url(
             "/Users/${Prefs.userId}/Items",
             "Recursive=true&IncludeItemTypes=$types&Limit=1"
         )
-        return try { getJson(u, "获取总数").optInt("TotalRecordCount", -1) } catch (_: Exception) { -1 }
+        return getJson(u, "获取总数").optInt("TotalRecordCount", 0)
     }
 
     suspend fun getLatestItems(limit: Int = 8): List<Item> {
@@ -735,10 +696,7 @@ object YambyClient {
                     val code = c.responseCode
                     try { c.inputStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } } catch (_: Exception) {}
                     try { c.errorStream?.close() } catch (_: Exception) {}
-                    if (code == 401) {
-                        notifyUnauthorized()
-                        throw UnauthorizedException("未授权（Token 可能已过期，请重新登录）", isLogin = false)
-                    }
+                    if (code == 401) throw UnauthorizedException("未授权（Token 可能已过期，请重新登录）", isLogin = false)
                     if (code !in 200..299) {
                         Log.w("YambyFav", "$what 失败（HTTP $code）")
                         return@withContext false
@@ -763,10 +721,6 @@ object YambyClient {
      * 图片地址（P2-E8）：路径段走 HttpUrl.Builder 编码，w 钳制到 1..4096；itemId 为空返回 ""。
      * 认证参数同样由 Builder 编码，不再手写字符串拼接。
      */
-    /**
-     * 图片 URL：不带 Token（P2）。Token 在 query 里会进图片缓存 key、日志与代理记录；
-     * 调用方（EmbyImageLoader / EpisodePanel）请求时带 X-Emby-Authorization 头认证。
-     */
     fun imageUrl(itemId: String, type: String = "Primary", w: Int = 400): String {
         if (itemId.isBlank()) return ""
         val width = w.coerceIn(1, 4096)
@@ -776,8 +730,7 @@ object YambyClient {
             .addPathSegment(itemId)
             .addPathSegment("Images")
             .addPathSegment(imgType)
-        // 只带非敏感客户端参数，绝不带 Token
-        addAuthParams(b, withToken = false)
+        addAuthParams(b, withToken = true)
         b.addQueryParameter("maxWidth", width.toString())
         return b.build().toString()
     }
@@ -819,14 +772,13 @@ object YambyClient {
     }
 
     /** 文件大小：1.34G / 856M / 512K；小于 1K 显示 xB（不再是 0K，P1-E4），负值返回 "" */
-    /** 文件大小：Locale.US 固定小数点（默认 Locale 下德语等会打出 1,34G，P2） */
     fun sizeLabel(bytes: Long): String = when {
         bytes <= 0 -> ""
         bytes < 1024L -> "${bytes}B"
-        bytes >= 1024L * 1024 * 1024 * 1024 -> "%.2fT".format(Locale.US, bytes / 1024.0 / 1024 / 1024 / 1024)
-        bytes >= 1024L * 1024 * 1024 -> "%.2fG".format(Locale.US, bytes / 1024.0 / 1024 / 1024)
-        bytes >= 1024L * 1024 -> "%.0fM".format(Locale.US, bytes / 1024.0 / 1024)
-        else -> "%.0fK".format(Locale.US, bytes / 1024.0)
+        bytes >= 1024L * 1024 * 1024 * 1024 -> "%.2fT".format(bytes / 1024.0 / 1024 / 1024 / 1024)
+        bytes >= 1024L * 1024 * 1024 -> "%.2fG".format(bytes / 1024.0 / 1024 / 1024)
+        bytes >= 1024L * 1024 -> "%.0fM".format(bytes / 1024.0 / 1024)
+        else -> "%.0fK".format(bytes / 1024.0)
     }
 
     // ---------- 播放地址（YP 1.0 原始逻辑） ----------
@@ -837,13 +789,10 @@ object YambyClient {
 
     /** 取原始 PlaybackInfo JSON（含 MediaSources 与 MediaStreams），供版本/音轨/字幕选择器用 */
     suspend fun getPlaybackInfoJson(itemId: String): JSONObject = withContext(Dispatchers.IO) {
-        // 带 DeviceProfile：与 getPlaybackUrls 同一套 body，详情与播放的播放信息不再不一致
-        // （之前详情页的 PlaybackInfo 无 DeviceProfile，服务器可能因容器不在列表里拒绝直链）
         val body = JSONObject()
             .put("UserId", Prefs.userId)
             .put("MaxStreamingBitrate", 140_000_000)
             .put("StartTimeTicks", 0)
-            .put("DeviceProfile", buildDeviceProfile())
         val u = url("/Items/$itemId/PlaybackInfo", "UserId=${Prefs.userId}")
         // 取 PlaySessionId 供后续上报用（按 itemId 存入会话缓存，P0-E6）
         val json = postJson(u, body, "获取播放信息(详情页)")
@@ -1069,10 +1018,7 @@ object YambyClient {
                         // 消费掉响应体，避免连接复用问题；204 无内容也算成功
                         try { c.inputStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } } catch (_: Exception) {}
                         try { c.errorStream?.close() } catch (_: Exception) {}
-                        if (code == 401) {
-                            notifyUnauthorized()
-                            throw UnauthorizedException("未授权（Token 可能已过期，请重新登录）", isLogin = false)
-                        }
+                        if (code == 401) throw UnauthorizedException("未授权（Token 可能已过期，请重新登录）", isLogin = false)
                         if (code !in 200..299) {
                             if (code >= 500 && attempt < MAX_RETRIES) {
                                 delay(RETRY_DELAY_MS)
@@ -1122,32 +1068,11 @@ object YambyClient {
         }
     }
 
-    /** 先把待重试的停止上报发出去（失败的留在队列里，下次再试；队列有上限，防无界增长） */
-    private suspend fun flushPendingStopped() {
-        while (true) {
-            val p = pendingStopped.peek() ?: return
-            try {
-                val u = url("/Sessions/Playing/Stopped")
-                val body = JSONObject()
-                    .put("ItemId", p.itemId)
-                    .put("PositionTicks", p.ticks)
-                    .put("PlaySessionId", p.playSessionId.ifEmpty { getCachedPlaySessionId(p.itemId, p.mediaSourceId) })
-                if (p.mediaSourceId.isNotEmpty()) body.put("MediaSourceId", p.mediaSourceId)
-                postNoContent(u, body, "停止上报（重试）")
-                pendingStopped.poll()
-            } catch (_: Exception) {
-                return
-            }
-        }
-    }
-
     suspend fun reportStopped(itemId: String, ticks: Long, mediaSourceId: String = "", playSessionId: String = "") {
         if (itemId.isEmpty()) return
         // 停止上报不节流；同时清掉该条目的节流状态，避免下一轮播放被旧时间戳挡住
         lastProgressAt.remove(sessionKey(itemId, mediaSourceId))
         lastProgressPaused.remove(sessionKey(itemId, mediaSourceId))
-        // 先重发上次失败的停止上报（退出时网络抖动丢的进度，在下次上报时补上，不再静默丢弃）
-        try { flushPendingStopped() } catch (_: Exception) { }
         try {
             val u = url("/Sessions/Playing/Stopped")
             val body = JSONObject()
@@ -1157,9 +1082,6 @@ object YambyClient {
             if (mediaSourceId.isNotEmpty()) body.put("MediaSourceId", mediaSourceId)
             postNoContent(u, body, "停止上报")
         } catch (_: Exception) {
-            // 失败进待重试队列（上限 50，超了丢最旧的），不再静默丢进度
-            if (pendingStopped.size >= MAX_PENDING_STOPPED) pendingStopped.poll()
-            pendingStopped.add(PendingStopped(itemId, ticks, mediaSourceId, playSessionId))
         }
     }
 
