@@ -34,6 +34,8 @@ private var hadItems = false
 // 连续无弹幕帧数：弹幕间隙短暂为空时不立即隐藏窗口（防时隐时现闪烁），
 // 连续 15 帧（约 0.5s）无弹幕才隐藏。
 private var emptyFrames = 0
+// 诊断节流时间戳（面板 Timer 里 5 秒一记状态）。
+private var lastDiagMs = 0L
 // 供外部查询：面板是否希望窗口可见（有弹幕且启用）
 var wantVisible = false
 private set
@@ -50,6 +52,12 @@ timer = null
 override fun removeNotify() {
 stop()
 super.removeNotify()
+}
+
+/** 面板被重新挂上时重建 Timer（removeNotify 停掉后若不重建，step 再也不跑、弹幕永远不显示）。 */
+override fun addNotify() {
+super.addNotify()
+startTimer()
 }
 
 override fun contains(x: Int, y: Int): Boolean {
@@ -218,13 +226,16 @@ addMouseMotionListener(mouseAdapter)
 addMouseWheelListener(mouseAdapter)
 }
 
-init {
-// 30fps 驱动；无弹幕/未启用时不重绘，避免透明 JWindow 空转拖慢 DWM 合成
-val danmakuFont = try {
+private val danmakuFont = try {
 Font("Noto Sans CJK SC", Font.BOLD, 30)
 } catch (_: Throwable) {
 Font("SansSerif", Font.BOLD, 30)
 }
+
+/** 启动驱动 Timer（timer == null 时才建，避免重复）。removeNotify 停掉后若面板被重新挂上，addNotify 会调它重建，避免 Timer 停了就再也不动、弹幕永远不显示。 */
+private fun startTimer() {
+if (timer != null) return
+// 30fps 驱动；无弹幕/未启用时不重绘，避免透明 JWindow 空转拖慢 DWM 合成
 val t = Timer(33) {
 // P0-D4：enabled=false 时显式 wantVisible=false 并隐藏窗口。
 // 原代码整个 Timer 体包在 if (engine.enabled) 里，关闭后 wantVisible stale、
@@ -271,11 +282,24 @@ wantVisible = true
 } else {
 wantVisible = false
 }
+// 诊断（5 秒一记，池非空时）：池/进度/视图/在屏/可见意愿/窗口可见 ——
+// 下次日志直接定位是“没发射”还是“发射了没显示”。
+if (engine.pool.isNotEmpty()) {
+val diagNow = System.currentTimeMillis()
+if (diagNow - lastDiagMs >= 5000) {
+lastDiagMs = diagNow
+com.muse.gomepc.player.DebugLog.d("Danmaku", "面板状态: 启用=${engine.enabled} 池=${engine.pool.size} 进度=${engine.currentTimeSec} 视图=${vw}x${vh} 在屏=${engine.items.size} wantVisible=$wantVisible 窗口可见=${win?.isVisible}")
+}
+}
 }
 }
 }
 timer = t
 t.start()
+}
+
+init {
+startTimer()
 }
 
 override fun paintComponent(g: Graphics) {

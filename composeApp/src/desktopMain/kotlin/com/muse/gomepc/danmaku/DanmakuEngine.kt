@@ -81,6 +81,33 @@ private set
 private val emittedIndices: MutableSet<Int> =
 Collections.synchronizedSet(mutableSetOf())
 
+/** 池填充时刻（wall clock ms）/ 填充时播放进度（秒）/ 上次定时发射成功时刻（0=自填充以来从未成功），用于诊断与发射回落。 */
+@Volatile var poolFilledAtMs: Long = 0L
+private set
+@Volatile var poolFilledAtSec: Float = 0f
+private set
+@Volatile var lastTimedEmitAtMs: Long = 0L
+private set
+private var fallbackLogged = false
+private var lastFallbackEmitMs: Long = 0L
+
+/** 池填充/清空后记一笔：池大小 + 时间范围 + 当前进度。时间范围异常（如全 -1、全 0、毫秒级）时下一条日志能直接定位。 */
+private fun onPoolFilled() {
+poolFilledAtMs = System.currentTimeMillis()
+poolFilledAtSec = currentTimeSec
+lastTimedEmitAtMs = 0L
+fallbackLogged = false
+lastFallbackEmitMs = 0L
+if (pool.isEmpty()) {
+com.muse.gomepc.player.DebugLog.d("Danmaku", "池已清空，当前进度: $currentTimeSec 秒")
+return
+}
+val times = pool.mapNotNull { if (it.timeSec >= 0f) it.timeSec else null }
+val min = times.minOrNull()
+val max = times.maxOrNull()
+com.muse.gomepc.player.DebugLog.d("Danmaku", "池已填充: ${pool.size} 条，带时间 ${times.size} 条，时间范围: ${min}~${max} 秒，当前进度: $currentTimeSec 秒，前5条时间: ${times.take(5)}")
+}
+
 /** P0-D?/Bug 5：加载代次，只接受最新一次加载的结果，旧集慢请求直接丢弃。 */
 private val loadGeneration = AtomicInteger(0)
 private var lastFontSizePx: Float = 0f
@@ -140,6 +167,7 @@ pool.clear()
 pool.addAll(list.take(2000))
 emittedIndices.clear()
 items.clear()
+onPoolFilled()
 }
 
 fun setSpeedFactor(f: Float) { speedFactor = f.coerceIn(0.5f, 2f)}
@@ -299,6 +327,21 @@ emittedIndices.add(candidateIdx)
 if (!emit(item.text, w, measureText, now)) break
 emittedThisFrame++
 }
+if (emittedThisFrame > 0) lastTimedEmitAtMs = now
+// 回落：池已填 10 秒、播放已推进 10 秒，但定时发射一次都没成功 ——
+// 说明时间对齐有问题（池时间与播放进度对不上），再等下去屏幕永远没弹幕。
+// 回落到随机发射（原版行为），至少让弹幕可见；只记一次日志，不刷屏。
+// 一旦某次定时发射成功，回落自动停止（lastTimedEmitAtMs != 0）。
+if (emittedThisFrame == 0 && lastTimedEmitAtMs == 0L && poolFilledAtMs > 0 &&
+now - poolFilledAtMs > 10_000 && currentTimeSec - poolFilledAtSec > 10f &&
+now - lastFallbackEmitMs >= 1000) {
+lastFallbackEmitMs = now
+if (!fallbackLogged) {
+fallbackLogged = true
+com.muse.gomepc.player.DebugLog.d("Danmaku", "定时发射 10 秒无产出，回落随机发射：池 ${pool.size} 条，当前进度 $currentTimeSec 秒，池填充时进度 $poolFilledAtSec 秒")
+}
+emit(poolSnapshot.random().text, w, measureText, now)
+}
 } else {
 // 无时间信息池子：保留旧随机发射行为。
 val emitProb = when (position) { 0 -> 0.5f; 1 -> 0.4f; else -> 0.25f}
@@ -349,6 +392,7 @@ pool.clear()
 pool.addAll(list)
 emittedIndices.clear()
 items.clear()
+onPoolFilled()
 }
 }.start()
 }
@@ -396,6 +440,7 @@ pool.clear()
 pool.addAll(merged)
 emittedIndices.clear()
 items.clear()
+onPoolFilled()
 com.muse.gomepc.player.DebugLog.d("Danmaku", "多源合并：${allResults.size} 个源有结果，合并去重后 ${merged.size} 条")
 }.start()
 }
@@ -772,6 +817,14 @@ out = out.replace("&lt;", "<").replace("&gt;", ">")
 return out
 }
 
+/** 从 p 字段取颜色：按段数区分格式。DanDanPlay 4 段 time,mode,color,uid，颜色在 [2]；
+* danmu_api 5 段 time,type,size,color,timestamp 与 B 站 XML 8 段 time,mode,fontsize,color,…，颜色在 [3]。
+* 旧代码固定取 [2]，对 danmu_api 会取到字号（25）而非颜色。 */
+private fun colorFromP(parts: List<String>): Int {
+return if (parts.size >= 5) parts.getOrNull(3)?.toIntOrNull() ?: 0xFFFFFF
+else parts.getOrNull(2)?.toIntOrNull() ?: 0xFFFFFF
+}
+
 /** 解析 DanDanPlay 格式弹幕：p 字段第一个值为秒（P0-D1），m 为文本。 */
 private fun parseDandanComments(json: String): List<DanmakuItem> {
 val out = mutableListOf<DanmakuItem>()
@@ -786,7 +839,7 @@ val p = Regex("\"p\"\\s*:\\s*\"([^\"]*)\"").find(b)?.groupValues?.get(1)?: ""
 val parts = p.split(",")
 val timeSec = parts.getOrNull(0)?.toFloatOrNull()?: -1f
 val mode = parts.getOrNull(1)?.toIntOrNull()?: 1
-val color = parts.getOrNull(2)?.toIntOrNull()?: 0xFFFFFF
+val color = colorFromP(parts)
 out.add(DanmakuItem(text, timeSec, mode, color))
 }
 if (out.isEmpty()) {
@@ -816,7 +869,7 @@ val p = Regex("p\\s*=\\s*\"([^\"]*)\"").find(attrs)?.groupValues?.get(1)?: ""
 val parts = p.split(",")
 val timeSec = parts.getOrNull(0)?.toFloatOrNull()?: -1f
 val mode = parts.getOrNull(1)?.toIntOrNull()?: 1
-val color = parts.getOrNull(2)?.toIntOrNull()?: 0xFFFFFF
+val color = colorFromP(parts)
 list.add(DanmakuItem(s, timeSec, mode, color))
 }
 }
@@ -831,6 +884,7 @@ pool.clear()
 pool.addAll(result)
 emittedIndices.clear()
 items.clear()
+onPoolFilled()
 }
 return result.size
 }
