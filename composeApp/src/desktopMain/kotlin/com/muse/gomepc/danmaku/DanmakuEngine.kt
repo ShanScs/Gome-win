@@ -108,7 +108,9 @@ companion object {
 private val sharedClient: OkHttpClient by lazy {
 OkHttpClient.Builder()
 .connectTimeout(10, TimeUnit.SECONDS)
-.readTimeout(10, TimeUnit.SECONDS)
+// 读超时 60s（原 10s）：danmu_api 弹幕要实时去上游抓取，1.6 万条弹幕的集
+// 首次抓取超 10s 很常见；用户日志里 18s 的一次加载就是倒在弹幕接口超时上。
+.readTimeout(60, TimeUnit.SECONDS)
 .build()
 }
 }
@@ -380,7 +382,8 @@ latch.countDown()
 }.start()
 }
 Thread {
-latch.await()
+// 最多等 45s：读超时已放到 60s，个别源挂死时不等它拖垮合并，有结果的源先合并返回。
+latch.await(45, TimeUnit.SECONDS)
 if (loadGeneration.get() != gen) return@Thread
 if (allResults.isEmpty()) {
 postError(if (lastErr.get().isNotEmpty()) lastErr.get() else "所有弹幕源均无结果")
@@ -429,20 +432,47 @@ com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕API base: $base, 清洗后: 
 // ---- 搜索：多试标题变体，取全部候选 ID，按标题相似度排序（Bug 1 + P1-D6 + Bug 11） ----
 var candidates: List<AnimeCandidate> = emptyList()
 var searchCode = 0
+// 搜索返回过网页（非 JSON）：说明源不是 DanDanPlay 兼容接口或路径不对，需单独报错。
+var htmlResponse = false
 val variants = searchTitleVariants(title, cleanTitle)
+// 注意：不要去掉 base 的子路径。danmu_api（LogVar）的 TOKEN 就是 URL 路径段，
+// 如 https://dm.211.li/nonay 的 /nonay 就是 TOKEN，去掉后请求变成无 TOKEN，
+// 服务端会按未鉴权处理。用户填的 base 本身就是 API 根（含 TOKEN）。
+// 搜不到时只把整组变体重试一次（上游抓取偶发空结果），不再试“去路径的 origin”。
+for (searchAttempt in 0..1) {
+if (candidates.isNotEmpty()) break
+if (searchAttempt > 0) {
+try { Thread.sleep(2000) } catch (_: InterruptedException) { return null }
+if (isStale()) return null
+}
 for (q in variants) {
 if (isStale()) return null
 val searchUrl = "$base/api/v2/search/anime?keyword=${URLEncoder.encode(q, "UTF-8")}"
 val (code, body) = httpGet(searchUrl)
 searchCode = code
 if (body == null) continue
+// 诊断：记完整 URL + 原始响应（LogVar 等自定义源会回网页而非 JSON，
+// 仅记 query 看不出路径对错）。响应是 HTML 时直接标明，非 DanDanPlay 格式/路径错误。
+com.muse.gomepc.player.DebugLog.d("Danmaku", "搜索请求: $searchUrl HTTP $code 响应前1000字: ${body.take(1000)}")
+val trimmed = body.trimStart()
+if (trimmed.startsWith("<") || trimmed.startsWith("<!DOCTYPE", ignoreCase = true)) {
+com.muse.gomepc.player.DebugLog.d("Danmaku", "搜索返回了网页而非 JSON：该源可能不是 DanDanPlay 兼容接口，或 API 路径不对（当前请求：$searchUrl）")
+htmlResponse = true
+continue
+}
 candidates = extractAnimeIds(body, q)
 if (candidates.isNotEmpty()) break
 // 诊断：HTTP 200 但解析出 0 候选——记一小段原始响应，区分“库里真没有”与“解析漏了”。
 com.muse.gomepc.player.DebugLog.d("Danmaku", "搜索无候选: q=$q HTTP $code 响应前300字: ${body.take(300)}")
 }
+}
 if (candidates.isEmpty()) {
-if (searchCode == 200) {
+if (htmlResponse) {
+// 源返回了网页而非 JSON：不是“库里没有这部剧”，是接口格式/路径不对。
+val msg = "弹幕源返回了网页而非 JSON：$base 可能不是 DanDanPlay 兼容接口，或 API 路径不对（已试 $base/api/v2/search/anime）。请检查该源的实际接口格式。"
+Log.w("Danmaku", msg)
+onErr(msg)
+} else if (searchCode == 200) {
 // API 通且正常返回，只是库里没有这部剧——明确告知，不要让用户以为软件坏了。
 val msg = "该剧在弹幕库中无记录：$title（已试 ${variants.size} 种标题，API 正常返回但无匹配番剧）"
 Log.w("Danmaku", msg)
@@ -485,7 +515,24 @@ val episodeId = episodes.firstOrNull { it.number == episodeIndex + 1}?.episodeId
 ?: episodes.getOrNull(episodeIndex)?.episodeId
 ?: episodes.first().episodeId
 
-val (commentCode, commentBody) = httpGet("$base/api/v2/comment/$episodeId?withRelated=true")
+// 弹幕请求是重活：danmu_api 要实时去上游（优酷等）抓弹幕，1.6 万条弹幕的集
+// 首次抓取可能很慢；429（限流）/5xx 时退避重试。format=json 按 danmu_api
+// 文档显式要求 JSON（查询参数优先级高于服务端 DANMU_OUTPUT_FORMAT 环境变量，
+// 防止服务端配了 xml 时 PC 拿到 XML 却按 JSON 解析出 0 条）。
+var commentBody: String? = null
+var commentCode = 0
+for (commentAttempt in 0..2) {
+if (isStale()) return null
+if (commentAttempt > 0) {
+try { Thread.sleep(if (commentAttempt == 1) 2000 else 6000) } catch (_: InterruptedException) { return null }
+if (isStale()) return null
+}
+val (code, body) = httpGet("$base/api/v2/comment/$episodeId?format=json&withRelated=true")
+commentCode = code
+if (body != null) { commentBody = body; break }
+// 超时(-1)已耗尽 60s 读超时，重试无意义；只对 429/5xx 这类服务端侧失败重试。
+if (code != 429 && !(code in 500..599)) break
+}
 if (commentBody == null) {
 lastDetail = "弹幕接口失败(HTTP $commentCode)"
 continue
@@ -585,9 +632,9 @@ return t
 private fun extractAnimeIds(json: String, queryTitle: String = ""): List<AnimeCandidate> {
 val out = LinkedHashMap<String, AnimeCandidate>()
 try {
-val idRe = Regex("\"anime_?[Ii][Dd]\"\\s*:\\s*\"?(\\d+)\"?")
+val idRe = Regex("\"(anime_?[Ii][Dd]|bangumi_?[Ii][Dd])\"\\s*:\\s*\"?(\\d+)\"?")
 for (m in idRe.findAll(json)) {
-val id = m.groupValues[1]
+val id = m.groupValues[2]
 if (id in out) continue
 // 在 ID 附近窗口内找标题字段。
 val start = max(0, m.range.first - 300)
