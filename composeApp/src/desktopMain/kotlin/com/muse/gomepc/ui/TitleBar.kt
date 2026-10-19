@@ -236,9 +236,10 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
     }
 }
 
-/** 手绘红心（收藏图标）：与 Screens.HeartIcon 同一路径，不用 ♥ 字符。
- * 按路径包围盒居中（而非视口居中），再下移一点做光学居中：
- * 心形上重（双瓣）下尖（尖角），只按包围盒居中视觉上会显偏上。 */
+/** 手绘红心（收藏图标）：与 Screens.HeartIcon、BackGlyph 同一画法——
+ * 24 视口整体居中（不要按包围盒居中）。包围盒居中会把心形从
+ * Material 设计的光学位置上移开，再加光学下移后上下留白差 1.2dp，
+ * 看起来就是没居中；视口居中上下留白只差约 0.26dp，与其他图标一致。 */
 @Composable
 private fun HeartGlyph() {
     val path = remember {
@@ -248,13 +249,9 @@ private fun HeartGlyph() {
     }
     Canvas(Modifier.size(18.dp)) {
         val sc = size.minDimension / 24f
-        // 包围盒中心 → 画布中心；withTransform 先 translate 后 scale 时平移量在画布像素空间
-        val bounds = path.getBounds()
-        val bx = (bounds.left + bounds.right) / 2f
-        val by = (bounds.top + bounds.bottom) / 2f
-        val tx = size.width / 2f - sc * bx
-        val ty = size.height / 2f - sc * by + size.height * 0.033f // 光学居中：下移约 0.6dp
-        withTransform({ translate(tx, ty); scale(sc, sc) }) {
+        val dx = (size.width - 24f * sc) / 2f
+        val dy = (size.height - 24f * sc) / 2f
+        withTransform({ translate(dx, dy); scale(sc, sc) }) {
             drawPath(path, Color(0xFFF44336))
         }
     }

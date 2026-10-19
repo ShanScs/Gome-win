@@ -54,6 +54,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -460,7 +466,20 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
             state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState()
         ) {
-            // 手动刷新：之前首页无手动刷新，ensureLoaded 只加载一次、失败静默留旧数据
+            // 顶部轮播（最新入库）：latest 为空时用第一个媒体库的数据兜底
+            // 轮播图置顶全宽，顶栏悬浮在轮播图上方
+            val bannerItems = if (!latest.isNullOrEmpty()) latest!!
+                else libs?.firstOrNull()?.let { libItems[it.id]?.take(8) } ?: emptyList()
+            // 轮播图置顶全宽、直通顶边；顶栏已统一为透明悬浮标题栏（Main.GomeApp 叠加）
+            if (bannerItems.isNotEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        BannerCarousel(items = bannerItems, onItemClick = onItemClick)
+                    }
+                }
+            }
+            // 手动刷新：放在横幅下方，不抢第一项——横幅必须回到第一项满幅贴边
+            // 之前 1.0.355 把它放第一项，横幅被顶到第二项 + spacedBy(20.dp)，不再贴顶边
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
@@ -472,18 +491,6 @@ fun HomeScreen(
                         color = GomeTheme.Accent,
                         modifier = Modifier.clickable { HomeDataCache.refresh() }.padding(8.dp)
                     )
-                }
-            }
-            // 顶部轮播（最新入库）：latest 为空时用第一个媒体库的数据兜底
-            // 轮播图置顶全宽，顶栏悬浮在轮播图上方
-            val bannerItems = if (!latest.isNullOrEmpty()) latest!!
-                else libs?.firstOrNull()?.let { libItems[it.id]?.take(8) } ?: emptyList()
-            // 轮播图置顶全宽、直通顶边；顶栏已统一为透明悬浮标题栏（Main.GomeApp 叠加）
-            if (bannerItems.isNotEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        BannerCarousel(items = bannerItems, onItemClick = onItemClick)
-                    }
                 }
             }
             // 继续观看（放媒体库上面）
@@ -3808,81 +3815,132 @@ private fun DetailStrokeIcon(paths: List<String>, tint: Color, modifier: Modifie
     }
 }
 
-/** 详情页填充 vector 图标 */
+
+
+// 5 功能图标（白环+毛玻璃风格，2026-10-13 定稿）
+// 全部用 Canvas 直接图元手绘（坐标由 size 现算），不经过 PathParser/withTransform：
+// 旧实现用 PathParser 解析 pathData 再经 withTransform 缩放，实测 5 个图标只剩左上角碎片。
+// 已看=圆盘+对勾镂空；收藏=实心红心形；版本=胶片条；音频=耳机；字幕=CC 框。
+private enum class DetailIconKind { CHECK, HEART, FILM, HEADPHONES, CC }
+
+/** 详情页 5 功能图标：直接图元手绘，完整居中，不被裁切 */
 @Composable
-private fun DetailFillIcon(pathData: String, tint: Color, modifier: Modifier = Modifier) {
-    val path = remember(pathData) { PathParser().parsePathString(pathData).toPath() }
+private fun DetailIconGlyph(kind: DetailIconKind, tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
-        val sc = size.minDimension / 24f
-        val dx = (size.width - 24f * sc) / 2f
-        val dy = (size.height - 24f * sc) / 2f
-        withTransform({ translate(dx, dy); scale(sc, sc) }) {
-            drawPath(path, tint)
+        val w = size.width
+        val h = size.height
+        val sw = w * 0.07f // 描边宽度（与 24 视口下 1.8f 等价）
+        when (kind) {
+            DetailIconKind.CHECK -> {
+                // 白圆盘 + 对勾镂空（EvenOdd：对勾多边形与圆盘重叠处变透明）
+                val path = Path().apply {
+                    addOval(Rect(Offset(w * 0.05f, h * 0.05f), Size(w * 0.9f, h * 0.9f)))
+                    moveTo(w * 0.28f, h * 0.52f)
+                    lineTo(w * 0.43f, h * 0.67f)
+                    lineTo(w * 0.73f, h * 0.33f)
+                    lineTo(w * 0.73f, h * 0.47f)
+                    lineTo(w * 0.43f, h * 0.80f)
+                    lineTo(w * 0.28f, h * 0.65f)
+                    close()
+                }
+                path.fillType = PathFillType.EvenOdd
+                drawPath(path, tint)
+            }
+            DetailIconKind.HEART -> {
+                // Material 红心（pathData 坐标 /24 换算为画布比例）
+                val path = Path().apply {
+                    moveTo(w * 0.5f, h * 0.8896f)
+                    cubicTo(w * 0.225f, h * 0.64f, w * 0.0833f, h * 0.5117f, w * 0.0833f, h * 0.3542f)
+                    cubicTo(w * 0.0833f, h * 0.2258f, w * 0.1842f, h * 0.125f, w * 0.3125f, h * 0.125f)
+                    cubicTo(w * 0.385f, h * 0.125f, w * 0.4546f, h * 0.1588f, w * 0.5f, h * 0.2121f)
+                    cubicTo(w * 0.5454f, h * 0.1588f, w * 0.615f, h * 0.125f, w * 0.6875f, h * 0.125f)
+                    cubicTo(w * 0.8158f, h * 0.125f, w * 0.9167f, h * 0.2258f, w * 0.9167f, h * 0.3542f)
+                    cubicTo(w * 0.9167f, h * 0.5117f, w * 0.775f, h * 0.64f, w * 0.5f, h * 0.8896f)
+                    close()
+                }
+                drawPath(path, tint)
+            }
+            DetailIconKind.FILM -> {
+                // 胶片条：外框 + 两条竖线 + 四个齿孔刻度
+                drawRoundRect(
+                    tint,
+                    topLeft = Offset(w * 0.1458f, h * 0.2292f),
+                    size = Size(w * 0.7084f, h * 0.5416f),
+                    cornerRadius = CornerRadius(w * 0.03f),
+                    style = Stroke(width = sw)
+                )
+                drawLine(tint, Offset(w * 0.3125f, h * 0.2292f), Offset(w * 0.3125f, h * 0.7708f), strokeWidth = sw)
+                drawLine(tint, Offset(w * 0.6875f, h * 0.2292f), Offset(w * 0.6875f, h * 0.7708f), strokeWidth = sw)
+                drawLine(tint, Offset(w * 0.1458f, h * 0.4167f), Offset(w * 0.3125f, h * 0.4167f), strokeWidth = sw)
+                drawLine(tint, Offset(w * 0.1458f, h * 0.5833f), Offset(w * 0.3125f, h * 0.5833f), strokeWidth = sw)
+                drawLine(tint, Offset(w * 0.6875f, h * 0.4167f), Offset(w * 0.8542f, h * 0.4167f), strokeWidth = sw)
+                drawLine(tint, Offset(w * 0.6875f, h * 0.5833f), Offset(w * 0.8542f, h * 0.5833f), strokeWidth = sw)
+            }
+            DetailIconKind.HEADPHONES -> {
+                // 耳机：头带半圆弧 + 两段竖线 + 两个耳罩
+                drawArc(
+                    tint,
+                    startAngle = 180f, sweepAngle = 180f, useCenter = false,
+                    topLeft = Offset(w * 0.1875f, h * 0.2083f),
+                    size = Size(w * 0.625f, h * 0.625f),
+                    style = Stroke(width = sw)
+                )
+                drawLine(tint, Offset(w * 0.1875f, h * 0.5208f), Offset(w * 0.1875f, h * 0.625f), strokeWidth = sw)
+                drawLine(tint, Offset(w * 0.8125f, h * 0.5208f), Offset(w * 0.8125f, h * 0.625f), strokeWidth = sw)
+                drawRoundRect(
+                    tint,
+                    topLeft = Offset(w * 0.1458f, h * 0.5833f),
+                    size = Size(w * 0.1667f, h * 0.2709f),
+                    cornerRadius = CornerRadius(w * 0.03f),
+                    style = Stroke(width = sw)
+                )
+                drawRoundRect(
+                    tint,
+                    topLeft = Offset(w * 0.6875f, h * 0.5833f),
+                    size = Size(w * 0.1667f, h * 0.2709f),
+                    cornerRadius = CornerRadius(w * 0.03f),
+                    style = Stroke(width = sw)
+                )
+            }
+            DetailIconKind.CC -> {
+                // 字幕 CC：外框 + 两个开口向右的 C
+                drawRoundRect(
+                    tint,
+                    topLeft = Offset(w * 0.1458f, h * 0.2292f),
+                    size = Size(w * 0.7084f, h * 0.5416f),
+                    cornerRadius = CornerRadius(w * 0.03f),
+                    style = Stroke(width = sw)
+                )
+                val r = w * 0.11f
+                drawArc(
+                    tint,
+                    startAngle = 60f, sweepAngle = 240f, useCenter = false,
+                    topLeft = Offset(w * 0.281f - r, h * 0.521f - r),
+                    size = Size(r * 2f, r * 2f),
+                    style = Stroke(width = sw)
+                )
+                drawArc(
+                    tint,
+                    startAngle = 60f, sweepAngle = 240f, useCenter = false,
+                    topLeft = Offset(w * 0.531f - r, h * 0.521f - r),
+                    size = Size(r * 2f, r * 2f),
+                    style = Stroke(width = sw)
+                )
+            }
         }
     }
 }
 
-/** 详情页填充 vector 图标（多 path 版，用于 5 功能按钮的 Material 填充图标） */
-@Composable
-private fun DetailFillIcons(paths: List<String>, tint: Color, modifier: Modifier = Modifier) {
-    val parsed = remember(paths) { paths.map { PathParser().parsePathString(it).toPath() } }
-    Canvas(modifier = modifier) {
-        val sc = size.minDimension / 24f
-        val dx = (size.width - 24f * sc) / 2f
-        val dy = (size.height - 24f * sc) / 2f
-        withTransform({ translate(dx, dy); scale(sc, sc) }) {
-            for (p in parsed) drawPath(p, tint)
-        }
-    }
-}
-
-// 5 功能图标 pathData（白环+毛玻璃风格，2026-10-13 定稿）
-// 已看/收藏：填充图标；版本/音频：描边图标；字幕：CC
-private val DETAIL_ICON_CHECK = listOf("M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM10,17l-5,-5 1.41,-1.41L10,14.17l7.59,-7.59L19,8l-9,9z")
-private val DETAIL_ICON_HEART_PLUS = listOf(
-    "M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"
-)
-private val DETAIL_ICON_FILM = listOf(
-    "M3.5,5.5h17v13h-17z",
-    "M7.5,5.5v13M16.5,5.5v13M3.5,10h4M3.5,14h4M16.5,10h4M16.5,14h4"
-)
-private val DETAIL_ICON_HEADPHONES = listOf(
-    "M4.5,15v-2.5a7.5,7.5 0 0,1 15,0V15",
-    "M3.5,14h4v6.5h-4zM16.5,14h4v6.5h-4z"
-)
-private val DETAIL_ICON_COMMENTS = listOf("M4,4h16c1.1,0 2,0.9 2,2v10c0,1.1 -0.9,2 -2,2H8l-4,4V6c0,-1.1 0.9,-2 2,-2z")
-// 字幕 CC 图标（描边圆角矩形 + CC 文字用 path 绘制）
-private val DETAIL_ICON_SUBTITLE_CC = listOf(
-    "M3.5,5.5h17v13h-17z",
-    "M9.2,10.2c-0.5,-0.4 -1.2,-0.6 -1.9,-0.6c-1.7,0 -3,1.2 -3,2.9s1.3,2.9 3,2.9c0.7,0 1.4,-0.2 1.9,-0.6M15.2,10.2c-0.5,-0.4 -1.2,-0.6 -1.9,-0.6c-1.7,0 -3,1.2 -3,2.9s1.3,2.9 3,2.9c0.7,0 1.4,-0.2 1.9,-0.6"
-)
-private const val DETAIL_ICON_BACK = "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z"
-private const val DETAIL_ICON_SEARCH = "M15.5,14h-0.79l-0.28,-0.27c1.2,-1.4 1.82,-3.31 1.48,-5.34c-0.47,-2.78 -2.79,-5 -5.59,-5.34c-4.23,-0.52 -7.79,3.04 -7.27,7.27c0.34,2.8 2.56,5.12 5.34,5.59c2.03,0.34 3.94,-0.28 5.34,-1.48l0.27,0.28v0.79l4.25,4.25c0.41,0.41 1.08,0.41 1.49,0c0.41,-0.41 0.41,-1.08 0,-1.49L15.5,14zM9.5,14C7.01,14 5,11.99 5,9.5S7.01,5 9.5,5S14,7.01 14,9.5S11.99,14 9.5,14z"
-private const val DETAIL_ICON_MORE = "M12,8c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2zM12,5c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2zM12,11c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2z"
 private const val DETAIL_ICON_CHEVRON_DOWN = "M7,10l5,5 5,-5"
 
-/** 详情页功能按钮：5 个白图标，各占 1/5 宽，高 40dp（1:1 Android） */
-@Composable
-private fun DetailActionBtn(paths: List<String>, desc: String, tint: Color = Color.White, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier.fillMaxWidth(0.2f).height(40.dp).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        DetailStrokeIcon(paths = paths, tint = tint, modifier = Modifier.size(26.dp))
-    }
-}
-
-/** 海报上的白色圆环按钮（白环+环内毛玻璃+文字图标，2026-10-13 定稿） */
+/** 海报上的白色圆环按钮（白环+环内毛玻璃+手绘图标，2026-10-13 定稿） */
 @Composable
 private fun PosterCircleBtn(
-    paths: List<String>,
+    kind: DetailIconKind,
     desc: String,
-    isStroke: Boolean = false,
     tint: Color = Color.White,
     onClick: () -> Unit
 ) {
-    // paths 是真正的 vector 图标路径：之前被忽略、画成了 emoji（🎬/🎧 等与手绘图标混用）；
-    // 现用 Canvas 直接画 paths，与其它手绘图标一致
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable(onClick = onClick)
@@ -3895,11 +3953,7 @@ private fun PosterCircleBtn(
                 .border(2.5.dp, Color.White, CircleShape), // 白色圆环
             contentAlignment = Alignment.Center
         ) {
-            if (isStroke) {
-                DetailStrokeIcon(paths = paths, tint = Color.White, modifier = Modifier.size(30.dp))
-            } else {
-                DetailFillIcons(paths = paths, tint = Color.White, modifier = Modifier.size(30.dp))
-            }
+            DetailIconGlyph(kind = kind, tint = Color.White, modifier = Modifier.size(30.dp))
         }
         Spacer(Modifier.height(4.dp))
         Text(desc, fontSize = 12.sp, color = Color.White)
@@ -3958,22 +4012,7 @@ private fun DetailSingleChoiceDialog(
     }
 }
 
-/** 详情页顶部 40dp 白圆按钮（1:1 Android） */
-@Composable
-private fun DetailTopCircleBtn(pathData: String, desc: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(40.dp)
-            .shadow(4.dp, CircleShape)
-            .clip(CircleShape)
-            .background(Color.White)
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        DetailFillIcon(pathData = pathData, tint = Color(0xFF1A1A1A), modifier = Modifier.fillMaxSize())
-    }
-}
+
 
 private fun formatEpDuration(ticks: Long): String {
     if (ticks <= 0) return ""
@@ -4160,8 +4199,14 @@ fun DetailScreen(
                     contentPadding = PaddingValues(bottom = 110.dp)
                 ) {
                     // 海报头 640dp（1:1 安卓：标题/5圆按钮/播放/简介叠在海报上）
+                    // 海报不贴边：四周留 16dp 边距 + 16dp 圆角（之前 fillMaxWidth 无边距，海报直接顶到窗口边框）
                     item {
-                        Box(Modifier.fillMaxWidth().height(640.dp)) {
+                        Box(
+                            Modifier.fillMaxWidth()
+                                .padding(start = 16.dp, end = 16.dp, top = 16.dp)
+                                .height(640.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                        ) {
                             if (it.imageUrl != null) {
                                 EmbyImage(
                                     url = YambyClient.imageUrl(it.id, "Backdrop", 1280),
@@ -4215,7 +4260,7 @@ fun DetailScreen(
                                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     // 已看：电影管自己，剧集管未看的第一集
                                     PosterCircleBtn(
-                                        DETAIL_ICON_CHECK, "已看",
+                                        DetailIconKind.CHECK, "已看",
                                         tint = Color.White
                                     ) {
                                         detailScope.launch {
@@ -4247,7 +4292,7 @@ fun DetailScreen(
                                     }
                                     // 收藏
                                     PosterCircleBtn(
-                                        DETAIL_ICON_HEART_PLUS, "收藏",
+                                        DetailIconKind.HEART, "收藏",
                                         tint = Color.White
                                     ) {
                                         detailScope.launch {
@@ -4267,7 +4312,7 @@ fun DetailScreen(
                                         }
                                     }
                                     // 合集→版本选择
-                                    PosterCircleBtn(DETAIL_ICON_FILM, "版本", isStroke = true) {
+                                    PosterCircleBtn(DetailIconKind.FILM, "版本") {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -4309,7 +4354,7 @@ fun DetailScreen(
                                         }
                                     }
                                     // 音频
-                                    PosterCircleBtn(DETAIL_ICON_HEADPHONES, "音频", isStroke = true) {
+                                    PosterCircleBtn(DetailIconKind.HEADPHONES, "音频") {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
@@ -4362,7 +4407,7 @@ fun DetailScreen(
                                         }
                                     }
                                     // 评论→字幕选择
-                                    PosterCircleBtn(DETAIL_ICON_SUBTITLE_CC, "字幕", isStroke = true) {
+                                    PosterCircleBtn(DetailIconKind.CC, "字幕") {
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id

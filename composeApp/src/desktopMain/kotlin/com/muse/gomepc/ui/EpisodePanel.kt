@@ -53,6 +53,10 @@ class EpisodePanel(
     private val placeholderIcon: ImageIcon by lazy { makePlaceholderIcon() }
     // 缩略图加载：固定线程池 + 任务列表（关闭面板时取消未完成的）+ URL→图标缓存
     private val thumbFutures = mutableListOf<Future<*>>()
+    // 缩略图统计（本面板一次 rebuild）：汇总日志证明加载是否真正发起，
+    // 区分“客户端没发起加载”（bug）与“服务端 404 无图”（服务端缺图）
+    private var thumbStatHit = 0
+    private var thumbStatMiss = 0
 
     companion object {
         private val thumbExecutor = Executors.newFixedThreadPool(4)
@@ -119,6 +123,8 @@ class EpisodePanel(
             if (filterText.isBlank()) episodes
             else episodes.filter { it.name.contains(filterText, ignoreCase = true) }
         fun rebuildList() {
+            thumbStatHit = 0
+            thumbStatMiss = 0
             listPanel.removeAll()
             for (ep in currentFiltered()) {
                 val i = episodes.indexOf(ep)
@@ -133,6 +139,9 @@ class EpisodePanel(
                 listPanel.add(wrapper)
                 listPanel.add(Box.createVerticalStrut(CARD_SPACING))
             }
+            // 汇总日志：证明本次打开面板时缩略图加载是否真正发起。
+            // 若这里“发起加载”>0 但随后全是 404，即服务端该剧无集缩略图，非客户端 bug。
+            DebugLog.d("Thumb", "缩略图：共 ${currentFiltered().size} 集，缓存命中 $thumbStatHit，本次发起加载 $thumbStatMiss")
             listPanel.revalidate()
             listPanel.repaint()
         }
@@ -384,8 +393,10 @@ class EpisodePanel(
         val thumbUrl = YambyClient.imageUrl(ep.id, "Primary", 400)
         val cachedThumb = thumbCache[thumbUrl]
         if (cachedThumb != null) {
+            thumbStatHit++
             thumbLabel.icon = cachedThumb
         } else {
+            thumbStatMiss++
             val future = thumbExecutor.submit {
                 try {
                     val conn = java.net.URL(thumbUrl).openConnection() as java.net.HttpURLConnection
@@ -396,8 +407,16 @@ class EpisodePanel(
                     try {
                         val code = conn.responseCode
                         if (code !in 200..299) {
-                            // 失败必须记日志：URL 不含 Token，可直接记；404 通常是服务端该集无缩略图
-                            DebugLog.d("Thumb", "缩略图加载失败：集=${ep.name} id=${ep.id} url=$thumbUrl HTTP=$code")
+                            // 失败必须记日志且说清定性：404 = 服务端该集无缩略图（属服务端缺图，
+                            // 非客户端 bug，Emby 未生成集缩略图时即返回 404）；401 = 认证失败；
+                            // 其余按 HTTP 码排查。URL 不含 Token，可直接记。
+                            if (code == 404) {
+                                DebugLog.d("Thumb", "缩略图：服务端该集无缩略图（HTTP 404，属服务端缺图，非客户端 bug）：集=${ep.name} id=${ep.id} url=$thumbUrl")
+                            } else if (code == 401) {
+                                DebugLog.d("Thumb", "缩略图加载失败：认证失败（HTTP 401），请重新登录：集=${ep.name} id=${ep.id} url=$thumbUrl")
+                            } else {
+                                DebugLog.d("Thumb", "缩略图加载失败：集=${ep.name} id=${ep.id} url=$thumbUrl HTTP=$code")
+                            }
                             return@submit
                         }
                         val bytes = readUpTo(conn.inputStream, THUMB_MAX_BYTES)
