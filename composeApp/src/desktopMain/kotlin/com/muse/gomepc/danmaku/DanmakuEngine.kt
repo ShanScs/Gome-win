@@ -357,17 +357,25 @@ emit(poolSnapshot.random().text, w, measureText, now)
 private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long): Boolean {
 val rowOrder = (0 until max(1, rows)).shuffled()
 for (row in rowOrder) {
+val rowItems = items.filter { it.row == row }
 // 检查该行最右弹幕位置，避免重叠（未到可见时间的弹幕也占行，避免延迟期内堆叠）。
-val rightmost = items.filter { it.row == row}.maxOfOrNull {
+val rightmost = rowItems.maxOfOrNull {
 if (it.textWidth < 0) it.textWidth = measureText(it.text)
 it.x + it.textWidth
 }?: -1f
 if (rightmost < w - 100) {
 val tw = measureText(text)
-// 横穿时长固定约 10 秒：速度 = (窗口宽 + 文本宽) / 时长，与窗口宽度无关；
-// ±12% 随机避免齐步走。speedFactor 在 step() 里再乘（50%→20 秒，200%→5 秒）。
-val duration = 10f * (0.88f + Random.nextFloat() * 0.24f)
-val speed = (w + tw) / duration
+// 横穿时长固定约 15 秒：速度 = (窗口宽 + 文本宽) / 时长，与窗口宽度无关；
+// ±12% 随机避免齐步走。speedFactor 在 step() 里再乘（50%→30 秒，200%→7.5 秒）。
+val duration = 15f * (0.88f + Random.nextFloat() * 0.24f)
+var speed = (w + tw) / duration
+// 同行防追尾：每条弹幕各抽一次随机时长时，后发的可能比先发的快
+// （最快约 13.2 秒 vs 最慢约 16.8 秒，快约 27%），飞行中会追上先发的
+// 同行弹幕造成重叠；出生检查只保发射瞬间 100px 间距，防不住追尾。
+// 现新弹幕速度不超过该行已有的最慢速度，同行速度一致、间距只增不减，
+// 永不追尾；空行用新鲜随机速度，各行速度仍有差异。
+val rowSlowest = rowItems.minOfOrNull { it.speed }
+if (rowSlowest != null && speed > rowSlowest) speed = rowSlowest
 // P1-D10：delaySec 只推迟可见时间，不右移出生点、不占 maxItems 名额。
 val visibleAt = now + (delaySec * 1000f).toLong()
 items.add(Danmaku(text, w, row, speed, now, tw, visibleAt))
