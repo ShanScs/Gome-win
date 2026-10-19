@@ -164,7 +164,7 @@ fun setDanmakuItems(list: List<DanmakuItem>) {
 // 新池子使在途旧加载失效，避免旧结果覆盖手动设置的池子。
 loadGeneration.incrementAndGet()
 pool.clear()
-pool.addAll(list.take(2000))
+pool.addAll(evenSampleByTime(list, 20000))
 emittedIndices.clear()
 items.clear()
 onPoolFilled()
@@ -450,9 +450,12 @@ return@Thread
 postError(if (lastErr.get().isNotEmpty()) lastErr.get() else "所有弹幕源均无结果")
 return@Thread
 }
-val merged = allResults.flatten()
+val merged = evenSampleByTime(
+allResults.flatten()
 .distinctBy { it.text to it.timeSec }
-.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE}
+.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE },
+30000
+)
 pool.clear()
 pool.addAll(merged)
 emittedIndices.clear()
@@ -842,6 +845,20 @@ return if (parts.size >= 5) parts.getOrNull(3)?.toIntOrNull() ?: 0xFFFFFF
 else parts.getOrNull(2)?.toIntOrNull() ?: 0xFFFFFF
 }
 
+/** 等间隔采样封顶：列表超长时按时间均匀取样，保证保留的弹幕覆盖全集时间范围。
+ * 禁止“取前 N 条”：服务端返回全集弹幕（时间升序）时 take(N) 只保留最早 N 条，
+ * 池只覆盖前几分钟，断点续播到后半集时发射窗口内永远无弹幕。
+ * 未超长时原样返回，不改变任何行为。 */
+private fun evenSampleByTime(list: List<DanmakuItem>, max: Int): List<DanmakuItem> {
+if (list.size <= max) return list
+val sorted = list.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE }
+val step = sorted.size.toDouble() / max
+val out = ArrayList<DanmakuItem>(max)
+for (i in 0 until max) out.add(sorted[(i * step).toInt().coerceIn(0, sorted.size - 1)])
+com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕等间隔采样：原始 ${list.size} 条 → 保留 ${out.size} 条（覆盖全集时间范围）")
+return out
+}
+
 /** 解析 DanDanPlay 格式弹幕：p 字段第一个值为秒（P0-D1），m 为文本。 */
 private fun parseDandanComments(json: String): List<DanmakuItem> {
 val out = mutableListOf<DanmakuItem>()
@@ -868,7 +885,7 @@ if (s.isNotBlank()) out.add(DanmakuItem(s, -1f))
 }
 }
 } catch (_: Exception) {}
-return out.take(1000)
+return evenSampleByTime(out, 20000)
 }
 
 /** 从本地文件内容导入弹幕：支持 B站 XML 或 JSON 数组；返回导入条数 */
@@ -894,7 +911,7 @@ list.add(DanmakuItem(s, timeSec, mode, color))
 list.addAll(parseDanmakuJson(t))
 }
 } catch (_: Exception) {}
-val result = list.take(2000)
+val result = evenSampleByTime(list, 20000)
 if (result.isNotEmpty()) {
 loadGeneration.incrementAndGet()
 pool.clear()
@@ -927,6 +944,6 @@ val timeSec = timeM?.groupValues?.get(2)?.toFloatOrNull()?: -1f
 out.add(DanmakuItem(text, timeSec))
 }
 } catch (_: Exception) {}
-return out.take(500)
+return evenSampleByTime(out, 20000)
 }
 }

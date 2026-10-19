@@ -36,6 +36,8 @@ private var hadItems = false
 private var emptyFrames = 0
 // 诊断节流时间戳（面板 Timer 里 5 秒一记状态）。
 private var lastDiagMs = 0L
+// Timer 体异常日志节流。
+private var lastTimerErrMs = 0L
 // 供外部查询：面板是否希望窗口可见（有弹幕且启用）
 var wantVisible = false
 private set
@@ -45,6 +47,7 @@ private var timer: Timer? = null
 
 /** P2-D4：停止驱动 Timer（面板移除 / 窗口销毁时调用）。 */
 fun stop() {
+if (timer != null) com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 Timer 已停止")
 try { timer?.stop()} catch (_: Throwable) {}
 timer = null
 }
@@ -235,20 +238,36 @@ Font("SansSerif", Font.BOLD, 30)
 /** 启动驱动 Timer（timer == null 时才建，避免重复）。removeNotify 停掉后若面板被重新挂上，addNotify 会调它重建，避免 Timer 停了就再也不动、弹幕永远不显示。 */
 private fun startTimer() {
 if (timer != null) return
+com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 Timer 已启动")
 // 30fps 驱动；无弹幕/未启用时不重绘，避免透明 JWindow 空转拖慢 DWM 合成
 val t = Timer(33) {
 // P0-D4：enabled=false 时显式 wantVisible=false 并隐藏窗口。
 // 原代码整个 Timer 体包在 if (engine.enabled) 里，关闭后 wantVisible stale、
 // 窗口常驻。现每次都处理关闭分支。
 val win = hostWindow()
+// 诊断（5 秒一记，无条件）：之前诊断藏在 vw>0 分支里，尺寸为 0 / 未启用时
+// 静默跳过，日志里什么都看不到，无法定位“发射没被尝试”。
+if (engine.pool.isNotEmpty()) {
+val diagNow = System.currentTimeMillis()
+if (diagNow - lastDiagMs >= 5000) {
+lastDiagMs = diagNow
+val vwD = videoRectInParent?.invoke()?.width?: width
+val vhD = videoRectInParent?.invoke()?.height?: height
+com.muse.gomepc.player.DebugLog.d("Danmaku", "面板状态: 启用=${engine.enabled} 池=${engine.pool.size} 进度=${engine.currentTimeSec} 视图=${vwD}x${vhD} 在屏=${engine.items.size} wantVisible=$wantVisible 窗口可见=${win?.isVisible} 面板可见=$isVisible")
+}
+}
 if (!engine.enabled) {
 wantVisible = false
 hadItems = false
 emptyFrames = 0
 if (win!= null && win.isVisible) win.isVisible = false
 } else {
-val vw = videoRectInParent?.invoke()?.width?: width
-val vh = videoRectInParent?.invoke()?.height?: height
+var vw = videoRectInParent?.invoke()?.width?: width
+var vh = videoRectInParent?.invoke()?.height?: height
+// 尺寸兜底：面板自身还没布局出尺寸时用宿主窗口尺寸（面板填满窗口），
+// 否则 vw=0 会静默跳过整 tick，step 永远不跑。
+if (vw <= 0 && win != null && win.width > 0) vw = win.width
+if (vh <= 0 && win != null && win.height > 0) vh = win.height
 if (vw > 0) {
 engine.viewWidth = vw.toFloat()
 engine.viewHeight = vh.toFloat()
@@ -256,7 +275,17 @@ val fontSize = (engine.fontSp * 1.5f).toInt().coerceAtLeast(12)
 // P1-D1：尺寸/字号确定后重算行数。
 engine.recalcRows(fontSize.toFloat())
 val fm = getFontMetrics(danmakuFont.deriveFont(fontSize.toFloat()))
+try {
 engine.step(0.033f) { text -> fm.stringWidth(text).toFloat()}
+} catch (err: Throwable) {
+// step 抛异常时本 tick 剩余工作全跳过（诊断在外层已记），节流记一笔，
+// 否则异常静默、发射永远不跑，日志里看不到任何原因。
+val errNow = System.currentTimeMillis()
+if (errNow - lastTimerErrMs >= 5000) {
+lastTimerErrMs = errNow
+com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 step 异常: ${err.message}")
+}
+}
 // 有弹幕才显示窗口并重绘；无弹幕时隐藏窗口，DWM 零开销
 // 延迟未到可见时间的弹幕不算“有弹幕”。
 val now = System.currentTimeMillis()
@@ -282,15 +311,7 @@ wantVisible = true
 } else {
 wantVisible = false
 }
-// 诊断（5 秒一记，池非空时）：池/进度/视图/在屏/可见意愿/窗口可见 ——
-// 下次日志直接定位是“没发射”还是“发射了没显示”。
-if (engine.pool.isNotEmpty()) {
-val diagNow = System.currentTimeMillis()
-if (diagNow - lastDiagMs >= 5000) {
-lastDiagMs = diagNow
-com.muse.gomepc.player.DebugLog.d("Danmaku", "面板状态: 启用=${engine.enabled} 池=${engine.pool.size} 进度=${engine.currentTimeSec} 视图=${vw}x${vh} 在屏=${engine.items.size} wantVisible=$wantVisible 窗口可见=${win?.isVisible}")
-}
-}
+
 }
 }
 }
