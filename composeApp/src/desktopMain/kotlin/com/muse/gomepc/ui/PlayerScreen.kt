@@ -218,7 +218,8 @@ fun PlayerScreen(
     /** 把 Prefs 里的弹幕样式应用到引擎（1:1 Android applyDanmakuStyle） */
     fun applyDanmakuStyleToEngine(e: DanmakuEngine) {
         e.setAreaRatio(prefs.danmakuArea)
-        e.setPosition(prefs.danmakuPosition)
+        e.setDensityPct(prefs.danmakuDensity)
+        e.setLineSpacingPct(prefs.danmakuLineSpacing)
         e.setSpeedFactor(prefs.danmakuSpeed / 100f)
         e.setDelaySec(prefs.danmakuDelay)
         e.applyStyle(prefs.danmakuFontSize, prefs.danmakuStroke, prefs.danmakuOpacity)
@@ -432,7 +433,6 @@ fun PlayerScreen(
     fun refreshDanmakuStyle() {
         applyDanmakuStyleToEngine(engine)
     }
-    var danmakuPosition by remember { mutableStateOf(prefs.danmakuPosition) }
     var mpvInitDone by remember(episodeId) { mutableStateOf(false) }
 
     // D 键直接开关弹幕（1:1 Android；输入框聚焦时不触发）
@@ -966,14 +966,6 @@ fun PlayerScreen(
         getNetSpeed = { netSpeedText },
         onToggleDanmaku = { toggleDanmaku() },
         isDanmakuEnabled = { danmakuUiOn },
-        onDanmakuPosition = { pos ->
-            danmakuPosition = pos
-            prefs.danmakuPosition = pos
-            engine.setPosition(pos)
-        },
-        getDanmakuPosition = {
-            danmakuPosition
-        },
         onDanmakuSearch = { kw ->
             val url = prefs.enabledDanmakuUrls().firstOrNull()
             if (url != null) {
