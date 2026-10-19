@@ -28,10 +28,15 @@ class FrostedPopup(
         val iconName: String? = null,
         val checked: Boolean = false,
         val enabled: Boolean = true,
-        val action: () -> Unit = {}
+        val action: () -> Unit = {},
+        /** 分组标题行：小号灰字，不可点，无“›”前缀、无选中勾（字幕菜单用它分隔“字幕轨道/字幕大小”） */
+        val isHeader: Boolean = false
     )
 
     private var dialog: JDialog? = null
+
+    /** 弹窗关闭时回调（点外消失/点行/手动 dismiss 都会调）：调用方用它清除“当前弹窗”记录，实现多菜单互斥 */
+    var onDismiss: (() -> Unit)? = null
 
     // dp = px (mdpi baseline)
     private val POPUP_WIDTH = 210
@@ -98,6 +103,25 @@ class FrostedPopup(
         }
 
         rows.forEachIndexed { index, row ->
+            // 分组标题行：小号灰字，不可点，不画“›”前缀和选中勾
+            if (row.isHeader) {
+                val headerPanel = JPanel().apply {
+                    isOpaque = false
+                    layout = BoxLayout(this, BoxLayout.X_AXIS)
+                    border = EmptyBorder(0, scaledPadH, 0, scaledPadH)
+                    preferredSize = Dimension(scaledWidth, (scaledRowH * 0.62).roundToInt())
+                    maximumSize = Dimension(scaledWidth, (scaledRowH * 0.62).roundToInt())
+                    minimumSize = Dimension(scaledWidth, (scaledRowH * 0.62).roundToInt())
+                    alignmentX = Component.LEFT_ALIGNMENT
+                }
+                val headerLabel = JLabel(row.label).apply {
+                    font = Font(Font.SANS_SERIF, Font.BOLD, (scaledLabelSize * 0.8).roundToInt())
+                    foreground = Color(0x8E, 0x8E, 0x93)
+                }
+                headerPanel.add(headerLabel)
+                content.add(headerPanel)
+                return@forEachIndexed
+            }
             val rowPanel = JPanel().apply {
                 isOpaque = false
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -188,8 +212,8 @@ class FrostedPopup(
 
             content.add(rowPanel)
 
-            // 分隔线
-            if (index < rows.size - 1) {
+            // 分隔线：标题行上下不画（标题本身就是分隔）
+            if (index < rows.size - 1 && !row.isHeader && !rows[index + 1].isHeader) {
                 val divider = JSeparator().apply {
                     maximumSize = Dimension(scaledWidth - scaledDividerMargin * 2, 1)
                     preferredSize = Dimension(scaledWidth - scaledDividerMargin * 2, 1)
@@ -255,6 +279,10 @@ class FrostedPopup(
     private var outsideListener: AWTEventListener? = null
 
     fun dismiss() {
+        // 只有真正关掉过一个可见弹窗时才触发 onDismiss：
+        // show() 开头会调一次 dismiss()（新实例 dialog 为 null），那次不能触发回调，
+        // 否则调用方刚设置的“当前弹窗”记录会被新弹窗自己的初始 dismiss 清掉，互斥失效。
+        val hadDialog = dialog != null
         try {
             outsideListener?.let { Toolkit.getDefaultToolkit().removeAWTEventListener(it) }
             outsideListener = null
@@ -262,5 +290,9 @@ class FrostedPopup(
         try { dialog?.isVisible = false } catch (_: Throwable) { }
         try { dialog?.dispose() } catch (_: Throwable) { }
         dialog = null
+        // 通知调用方清除“当前弹窗”记录（互斥菜单依赖它；重复 dismiss 时回调里需自行判等）
+        if (hadDialog) {
+            try { onDismiss?.invoke() } catch (_: Throwable) { }
+        }
     }
 }
