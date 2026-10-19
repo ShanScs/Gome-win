@@ -31,6 +31,9 @@ private var cachedAlpha = -1
 private var cachedStrokePx = -1f
 // 上一帧是否有弹幕：用于弹幕清空时隐藏窗口
 private var hadItems = false
+// 连续无弹幕帧数：弹幕间隙短暂为空时不立即隐藏窗口（防时隐时现闪烁），
+// 连续 15 帧（约 0.5s）无弹幕才隐藏。
+private var emptyFrames = 0
 // 供外部查询：面板是否希望窗口可见（有弹幕且启用）
 var wantVisible = false
 private set
@@ -230,6 +233,7 @@ val win = hostWindow()
 if (!engine.enabled) {
 wantVisible = false
 hadItems = false
+emptyFrames = 0
 if (win!= null && win.isVisible) win.isVisible = false
 } else {
 val vw = videoRectInParent?.invoke()?.width?: width
@@ -246,15 +250,27 @@ engine.step(0.033f) { text -> fm.stringWidth(text).toFloat()}
 // 延迟未到可见时间的弹幕不算“有弹幕”。
 val now = System.currentTimeMillis()
 val hasItems = engine.items.any { now >= it.visibleAt}
-wantVisible = hasItems
 if (hasItems) {
+wantVisible = true
+emptyFrames = 0
 if (win!= null &&!win.isVisible) win.isVisible = true
 repaint()
+hadItems = true
 } else if (hadItems) {
-// 弹幕刚清空：隐藏窗口（无需清屏，不可见即无残留）
+// 弹幕刚清空：宽限期内保持可见（弹幕间隙短暂为空是常态，立即隐藏会时隐时现），
+// 连续 15 帧无弹幕才真正隐藏。
+emptyFrames++
+if (emptyFrames >= 15) {
+wantVisible = false
 if (win!= null && win.isVisible) win.isVisible = false
+hadItems = false
+emptyFrames = 0
+} else {
+wantVisible = true
 }
-hadItems = hasItems
+} else {
+wantVisible = false
+}
 }
 }
 }

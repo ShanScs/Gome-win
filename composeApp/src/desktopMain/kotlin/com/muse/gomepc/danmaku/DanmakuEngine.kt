@@ -7,7 +7,6 @@ import java.net.URLEncoder
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.SwingUtilities
 import kotlin.math.max
@@ -284,15 +283,20 @@ val poolSnapshot = pool.toList()
 val hasTimed = poolSnapshot.any { it.timeSec >= 0f}
 if (hasTimed) {
 // P0-D1：只发射时间窗口内的弹幕（当前进度 -1s ~ +0.5s，容忍帧抖动）。
+// 密集场景每帧最多发 3 条（旧版每帧只发 1 条，窗口滑过后未发出的直接丢失）。
+var emittedThisFrame = 0
+while (emittedThisFrame < 3) {
 val lo = currentTimeSec - 1f
 val hi = currentTimeSec + 0.5f
 val candidateIdx = poolSnapshot.indices.firstOrNull { idx ->
 idx!in emittedIndices &&
 poolSnapshot[idx].timeSec >= lo && poolSnapshot[idx].timeSec <= hi
-}?: return
+}?: break
 val item = poolSnapshot[candidateIdx]
 emittedIndices.add(candidateIdx)
-emit(item.text, w, measureText, now)
+if (!emit(item.text, w, measureText, now)) break
+emittedThisFrame++
+}
 } else {
 // 无时间信息池子：保留旧随机发射行为。
 val emitProb = when (position) { 0 -> 0.5f; 1 -> 0.4f; else -> 0.25f}
@@ -302,9 +306,12 @@ emit(poolSnapshot.random().text, w, measureText, now)
 }
 }
 
-/** 发射一条弹幕：做行重叠检查，delaySec 用 visibleAt 时间戳（出生点不再右移）。 */
-private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long) {
-val row = Random.nextInt(max(1, rows))
+/** 发射一条弹幕：做行重叠检查，delaySec 用 visibleAt 时间戳（出生点不再右移）。
+* 返回是否成功发射。旧版随机抽一行、该行拥挤就直接丢弃（已标记已发射，永久丢失），
+* 密集时大量弹幕因此丢失；现按随机顺序试全部行，只在所有行都拥挤时才丢弃。 */
+private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long): Boolean {
+val rowOrder = (0 until max(1, rows)).shuffled()
+for (row in rowOrder) {
 // 检查该行最右弹幕位置，避免重叠（未到可见时间的弹幕也占行，避免延迟期内堆叠）。
 val rightmost = items.filter { it.row == row}.maxOfOrNull {
 if (it.textWidth < 0) it.textWidth = measureText(it.text)
@@ -316,7 +323,10 @@ val tw = measureText(text)
 // P1-D10：delaySec 只推迟可见时间，不右移出生点、不占 maxItems 名额。
 val visibleAt = now + (delaySec * 1000f).toLong()
 items.add(Danmaku(text, w, row, speed, now, tw, visibleAt))
+return true
 }
+}
+return false
 }
 
 // ============ 数据源（从 Android 移植） ============
@@ -330,15 +340,21 @@ items.add(Danmaku(text, w, row, speed, now, tw, visibleAt))
 fun loadFromApi(url: String, title: String = "", episodeIndex: Int = 0) {
 if (url.isBlank()) return
 val gen = loadGeneration.incrementAndGet()
-val winner = AtomicBoolean(false)
 Thread {
-doLoadFromApi(url.trim().trimEnd('/'), title, episodeIndex, gen, winner) { postError(it)}
+val list = doLoadFromApi(url.trim().trimEnd('/'), title, episodeIndex, gen) { postError(it)}
+if (list != null && list.isNotEmpty() && loadGeneration.get() == gen) {
+pool.clear()
+pool.addAll(list)
+emittedIndices.clear()
+items.clear()
+}
 }.start()
 }
 
 /**
-* 多源弹幕：并行尝试各 API，任一成功即停；全部失败才回调一次错误。
-* 同一代次内首个成功者用 compareAndSet 抢写入权（P1-D4），其余结果丢弃。
+* 多源弹幕：并行尝试各 API，全部结果合并去重后填入池子；全部失败才回调一次错误。
+* 旧版同代首个成功者抢写入权、其余结果丢弃——用户配 3 个源只用 1 个源的量，弹幕不全。
+* 现等全部源返回后合并（文本+时间去重，按时间排序），覆盖更全。
 */
 fun loadFromApiMulti(urls: List<String>, title: String = "", episodeIndex: Int = 0) {
 val list = urls.map { it.trim().trimEnd('/')}.filter { it.isNotBlank()}
@@ -348,14 +364,15 @@ loadFromApi(list[0], title, episodeIndex)
 return
 }
 val gen = loadGeneration.incrementAndGet()
-val winner = AtomicBoolean(false)
 val lastErr = java.util.concurrent.atomic.AtomicReference("")
 val latch = java.util.concurrent.CountDownLatch(list.size)
+val allResults = Collections.synchronizedList(mutableListOf<List<DanmakuItem>>())
 for (base in list) {
 Thread {
 try {
 if (loadGeneration.get() == gen) {
-doLoadFromApi(base, title, episodeIndex, gen, winner) { lastErr.set(it)}
+val r = doLoadFromApi(base, title, episodeIndex, gen) { lastErr.set(it)}
+if (r != null && r.isNotEmpty()) allResults.add(r)
 }
 } catch (_: Exception) {} finally {
 latch.countDown()
@@ -364,9 +381,19 @@ latch.countDown()
 }
 Thread {
 latch.await()
-if (!winner.get() && loadGeneration.get() == gen) {
+if (loadGeneration.get() != gen) return@Thread
+if (allResults.isEmpty()) {
 postError(if (lastErr.get().isNotEmpty()) lastErr.get() else "所有弹幕源均无结果")
+return@Thread
 }
+val merged = allResults.flatten()
+.distinctBy { it.text to it.timeSec }
+.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE}
+pool.clear()
+pool.addAll(merged)
+emittedIndices.clear()
+items.clear()
+com.muse.gomepc.player.DebugLog.d("Danmaku", "多源合并：${allResults.size} 个源有结果，合并去重后 ${merged.size} 条")
 }.start()
 }
 
@@ -384,16 +411,16 @@ Pair(-1, null)
 
 /**
 * 单源拉取核心逻辑（供 loadFromApi / loadFromApiMulti 共用）。
-* @return true=成功取到弹幕并填入 pool（且抢到写入权）
+* @return 成功时返回解析排序后的弹幕列表（调用方负责填入 pool），失败返回 null。
+* 不直接写 pool：多源合并时由调用方统一合并去重，避免首个成功者丢弃其余源。
 */
 private fun doLoadFromApi(
 base: String,
 title: String,
 episodeIndex: Int = 0,
 gen: Int = loadGeneration.get(),
-winner: AtomicBoolean = AtomicBoolean(false),
 onErr: (String) -> Unit
-): Boolean {
+): List<DanmakuItem>? {
 fun isStale() = loadGeneration.get()!= gen
 try {
 val cleanTitle = cleanTitleForSearch(title)
@@ -403,7 +430,7 @@ com.muse.gomepc.player.DebugLog.d("Danmaku", "弹幕API base: $base, 清洗后: 
 var candidates: List<AnimeCandidate> = emptyList()
 var searchCode = 0
 for (q in searchTitleVariants(title, cleanTitle)) {
-if (isStale()) return false
+if (isStale()) return null
 val searchUrl = "$base/api/v2/search/anime?keyword=${URLEncoder.encode(q, "UTF-8")}"
 val (code, body) = httpGet(searchUrl)
 searchCode = code
@@ -414,21 +441,21 @@ if (candidates.isNotEmpty()) break
 if (candidates.isEmpty()) {
 Log.w("Danmaku", "未搜到番剧: $title")
 onErr("未搜到番剧: $title (HTTP $searchCode)")
-return false
+return null
 }
 
 // ---- Bug 1：逐个试候选 animeId，404/空继续下一个，全部失败才算源失败 ----
 var lastDetail = ""
 for (cand in candidates) {
-if (isStale()) return false
+if (isStale()) return null
 // ---- Bug 3：bangumi 失败延迟重试一次 ----
 var bangumiBody: String? = null
 var bangumiCode = 0
 for (attempt in 0..1) {
-if (isStale()) return false
+if (isStale()) return null
 if (attempt > 0) {
-try { Thread.sleep(800)} catch (_: InterruptedException) { return false}
-if (isStale()) return false
+try { Thread.sleep(800)} catch (_: InterruptedException) { return null}
+if (isStale()) return null
 }
 val (code, body) = httpGet("$base/api/v2/bangumi/${cand.animeId}")
 bangumiCode = code
@@ -459,23 +486,16 @@ if (list.isEmpty()) {
 lastDetail = "弹幕为空"
 continue
 }
-// ---- Bug 5：代次隔离 + 同代首个成功胜出 ----
-if (isStale()) return false
-if (!winner.compareAndSet(false, true)) return false
-if (isStale()) return false
-val sorted = list.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE}
-pool.clear()
-pool.addAll(sorted)
-emittedIndices.clear()
-items.clear()
-return true
+// ---- Bug 5：代次隔离，列表由调用方统一填入（多源合并时不再首个成功者独占） ----
+if (isStale()) return null
+return list.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE}
 }
 onErr("弹幕源无结果: $title ($lastDetail)")
-return false
+return null
 } catch (e: Exception) {
 Log.w("Danmaku", "API失败: ${e.message}")
 onErr("API失败: ${e.message}")
-return false
+return null
 }
 }
 
