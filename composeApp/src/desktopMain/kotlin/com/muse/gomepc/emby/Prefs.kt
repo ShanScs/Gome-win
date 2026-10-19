@@ -554,15 +554,20 @@ object Prefs {
         get() = prefs.getInt("danmaku_opacity", 100).let { if (it in 10..100) it else 100 }
         set(v) { prefs.putInt("danmaku_opacity", v); try { prefs.flush() } catch (_: Exception) {} }
 
-    /** 弹幕位置：0=顶部，1=半屏，2=全屏，默认 0 */
-    var danmakuPosition: Int
-        get() = prefs.getInt("danmaku_position", 0).let { if (it in 0..2) it else 0 }
-        set(v) { prefs.putInt("danmaku_position", v); try { prefs.flush() } catch (_: Exception) {} }
-
-    /** 弹幕显示区域比例，0.1~1，默认 0.35 */
+    /** 弹幕显示区域比例，0.1~1，默认 0.35：即弹幕占用屏幕高度的比例，唯一控制覆盖范围的项 */
     var danmakuArea: Float
         get() = prefs.getFloat("danmaku_area", 0.35f).let { if (it in 0.1f..1f) it else 0.35f }
         set(v) { prefs.putFloat("danmaku_area", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕密度（%）：同行弹幕水平间距的倒数，50~200，默认 100（100px 间距）；越高越密 */
+    var danmakuDensity: Int
+        get() = prefs.getInt("danmaku_density", 100).let { if (it in 50..200) it else 100 }
+        set(v) { prefs.putInt("danmaku_density", v); try { prefs.flush() } catch (_: Exception) {} }
+
+    /** 弹幕间隔（%）：行距为默认行距的百分比，50~200，默认 100；越大行距越大（越疏） */
+    var danmakuLineSpacing: Int
+        get() = prefs.getInt("danmaku_line_spacing", 100).let { if (it in 50..200) it else 100 }
+        set(v) { prefs.putInt("danmaku_line_spacing", v); try { prefs.flush() } catch (_: Exception) {} }
 
     /** 播放器内永久禁用弹幕（会话开关再次启用时清除） */
     var danmakuDisabled: Boolean

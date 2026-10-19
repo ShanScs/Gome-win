@@ -37,8 +37,6 @@ class AwtToolbarPanel(
     private val getNetSpeed: (() -> String)? = null,
     private val onToggleDanmaku: (() -> Unit)? = null,
     private val isDanmakuEnabled: (() -> Boolean)? = null,
-    private val onDanmakuPosition: ((Int) -> Unit)? = null,
-    private val getDanmakuPosition: (() -> Int)? = null,
     private val onDanmakuSearch: ((String) -> Unit)? = null,
     private val onDanmakuImport: ((String) -> Int)? = null,
     private val onDanmakuStyleChanged: (() -> Unit)? = null,
@@ -160,8 +158,6 @@ class AwtToolbarPanel(
 
     private var onToggleDanmakuCb: (() -> Unit)? = onToggleDanmaku
     private var isDanmakuEnabledCb: (() -> Boolean)? = isDanmakuEnabled
-    private var onDanmakuPositionCb: ((Int) -> Unit)? = onDanmakuPosition
-    private var getDanmakuPositionCb: (() -> Int)? = getDanmakuPosition
     private var onDanmakuSearchCb: ((String) -> Unit)? = onDanmakuSearch
     private var onDanmakuImportCb: ((String) -> Int)? = onDanmakuImport
     private var onDanmakuStyleChangedCb: (() -> Unit)? = onDanmakuStyleChanged
@@ -169,14 +165,10 @@ class AwtToolbarPanel(
 
     fun updateDanmakuCallbacks(
         onToggleDanmaku: (() -> Unit)?,
-        isDanmakuEnabled: (() -> Boolean)?,
-        onDanmakuPosition: ((Int) -> Unit)?,
-        getDanmakuPosition: (() -> Int)?
+        isDanmakuEnabled: (() -> Boolean)?
     ) {
         onToggleDanmakuCb = onToggleDanmaku
         isDanmakuEnabledCb = isDanmakuEnabled
-        onDanmakuPositionCb = onDanmakuPosition
-        getDanmakuPositionCb = getDanmakuPosition
         updateDanmakuBtnState()
     }
 
@@ -204,8 +196,6 @@ class AwtToolbarPanel(
         val owner = SwingUtilities.getWindowAncestor(this) ?: return
         val anchor = danmakuBtn
         val enabled = try { isDanmakuEnabledCb?.invoke() } catch (_: Exception) { null } ?: true
-        val pos = try { getDanmakuPositionCb?.invoke() } catch (_: Exception) { null } ?: 0
-        val posLabels = listOf("顶部", "半屏", "全屏")
         val srcs = com.muse.gomepc.emby.Prefs.danmakuSources
         val apiLabel = when {
             srcs.isEmpty() -> "API（未设置）"
@@ -234,11 +224,6 @@ class AwtToolbarPanel(
                     onToggleDanmakuCb?.invoke()
                     updateDanmakuBtnState()
                 }
-            ),
-            FrostedPopup.Row(
-                label = "＞ 弹幕位置：${posLabels.getOrNull(pos) ?: "顶部"}",
-                iconName = "ic_pl_position",
-                action = { showDanmakuPositionMenu() }
             ),
             FrostedPopup.Row(
                 label = "弹幕设置",
@@ -411,30 +396,16 @@ class AwtToolbarPanel(
         addStepper("显示区域", { "${(prefs.danmakuArea * 100).toInt()}%" },
             { prefs.danmakuArea = (prefs.danmakuArea - 0.05f).coerceAtLeast(0.1f) },
             { prefs.danmakuArea = (prefs.danmakuArea + 0.05f).coerceAtMost(1f) })
+        addStepper("弹幕密度", { "${prefs.danmakuDensity}%" },
+            { prefs.danmakuDensity = (prefs.danmakuDensity - 10).coerceAtLeast(50) },
+            { prefs.danmakuDensity = (prefs.danmakuDensity + 10).coerceAtMost(200) })
+        addStepper("弹幕间隔", { "${prefs.danmakuLineSpacing}%" },
+            { prefs.danmakuLineSpacing = (prefs.danmakuLineSpacing - 10).coerceAtLeast(50) },
+            { prefs.danmakuLineSpacing = (prefs.danmakuLineSpacing + 10).coerceAtMost(200) })
         if (panel.componentCount > 0) panel.remove(panel.componentCount - 1)
         JOptionPane.showMessageDialog(owner, panel, "弹幕设置", JOptionPane.PLAIN_MESSAGE)
     }
 
-    /** 弹幕位置子菜单 */
-    private fun showDanmakuPositionMenu() {
-        val prefs = com.muse.gomepc.emby.Prefs
-        val owner = SwingUtilities.getWindowAncestor(this) ?: return
-        val anchor = danmakuBtn
-        val current = try { getDanmakuPositionCb?.invoke() } catch (_: Exception) { null } ?: 0
-        val labels = listOf("顶部", "半屏", "全屏")
-        val rows = labels.mapIndexed { i, label ->
-            FrostedPopup.Row(
-                label = label,
-                checked = current == i,
-                action = {
-                    prefs.danmakuPosition = i
-                    onDanmakuPositionCb?.invoke(i)
-                    DebugLog.d("UI", "弹幕位置: $label")
-                }
-            )
-        }
-        FrostedPopup(owner, anchor).show(rows, width = 220)
-    }
 
     data class TrackInfo(val id: Int, val title: String, val lang: String)
 

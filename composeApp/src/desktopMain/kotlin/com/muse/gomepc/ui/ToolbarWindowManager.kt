@@ -70,8 +70,6 @@ object ToolbarWindowManager {
         onPlaylist: (() -> Unit)? = null,
         onToggleDanmaku: (() -> Unit)? = null,
         isDanmakuEnabled: (() -> Boolean)? = null,
-        onDanmakuPosition: ((Int) -> Unit)? = null,
-        getDanmakuPosition: (() -> Int)? = null,
         onDanmakuSearch: ((String) -> Unit)? = null,
         onDanmakuImport: ((String) -> Int)? = null,
         onDanmakuStyleChanged: (() -> Unit)? = null,
@@ -108,8 +106,6 @@ object ToolbarWindowManager {
                         onPlaylist = onPlaylist,
                         onToggleDanmaku = onToggleDanmaku,
                         isDanmakuEnabled = isDanmakuEnabled,
-                        onDanmakuPosition = onDanmakuPosition,
-                        getDanmakuPosition = getDanmakuPosition,
                         onDanmakuSearch = onDanmakuSearch,
                         onDanmakuImport = onDanmakuImport,
                         onDanmakuStyleChanged = onDanmakuStyleChanged,
@@ -133,7 +129,7 @@ object ToolbarWindowManager {
                     panel?.updateEpisodeCallbacks(onPrev, onNext, onPlaylist)
                     panel?.updateSeekCallbacks(getTimePos, getDuration, onSeek)
                     panel?.updateNetSpeedCallback(getNetSpeed)
-                    panel?.updateDanmakuCallbacks(onToggleDanmaku, isDanmakuEnabled, onDanmakuPosition, getDanmakuPosition)
+                    panel?.updateDanmakuCallbacks(onToggleDanmaku, isDanmakuEnabled)
                     panel?.updateDanmakuActionCallbacks(onDanmakuSearch, onDanmakuImport, onDanmakuStyleChanged)
                     panel?.updateVolumeCallback(onVolumeChange)
                     panel?.startRefreshTimer()
