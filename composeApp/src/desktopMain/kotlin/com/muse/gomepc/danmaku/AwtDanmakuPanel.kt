@@ -39,6 +39,15 @@ private var emptyFrames = 0
 private var lastDiagMs = 0L
 // Timer 体异常日志节流。
 private var lastTimerErrMs = 0L
+// 帧时间统计（Timer 每 tick 记一次帧间隔，5 秒随“面板状态”诊断一起记一行，记完清零）：
+// 用 nanoTime 计时，避免 currentTimeMillis 在 Windows 下的粒度问题；只做几次浮点累加，轻量无每帧日志。
+// 阈值：>33ms 计掉帧（30fps 下一帧的时长），>50ms 计严重卡顿。
+private var lastFrameNs = 0L
+private var frameStatCount = 0L
+private var frameStatTotalMs = 0.0
+private var frameStatMaxMs = 0.0
+private var frameStatDrop33 = 0L
+private var frameStatSevere50 = 0L
 // 供外部查询：面板是否希望窗口可见（有弹幕且启用）
 var wantVisible = false
 private set
@@ -240,8 +249,27 @@ Font("SansSerif", Font.BOLD, 30)
 private fun startTimer() {
 if (timer != null) return
 com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 Timer 已启动")
+// 帧统计清零：重建 Timer 后第一帧间隔无意义（可能跨越长时间停顿），不计入统计。
+lastFrameNs = 0L
+frameStatCount = 0L
+frameStatTotalMs = 0.0
+frameStatMaxMs = 0.0
+frameStatDrop33 = 0L
+frameStatSevere50 = 0L
 // 30fps 驱动；无弹幕/未启用时不重绘，避免透明 JWindow 空转拖慢 DWM 合成
 val t = Timer(33) {
+// 帧时间统计：每 tick 记一次帧间隔（当前时间 - 上一帧时间，nanoTime 计时）。
+// 放在 tick 最开头，统计的是帧与帧之间的真实间隔（含上一 tick 的执行耗时 + EDT 等待）。
+val frameNowNs = System.nanoTime()
+if (lastFrameNs != 0L) {
+val intervalMs = (frameNowNs - lastFrameNs) / 1_000_000.0
+frameStatCount++
+frameStatTotalMs += intervalMs
+if (intervalMs > frameStatMaxMs) frameStatMaxMs = intervalMs
+if (intervalMs > 33.0) frameStatDrop33++
+if (intervalMs > 50.0) frameStatSevere50++
+}
+lastFrameNs = frameNowNs
 // P0-D4：enabled=false 时显式 wantVisible=false 并隐藏窗口。
 // 原代码整个 Timer 体包在 if (engine.enabled) 里，关闭后 wantVisible stale、
 // 窗口常驻。现每次都处理关闭分支。
@@ -255,6 +283,16 @@ lastDiagMs = diagNow
 val vwD = videoRectInParent?.invoke()?.width?: width
 val vhD = videoRectInParent?.invoke()?.height?: height
 com.muse.gomepc.player.DebugLog.d("Danmaku", "面板状态: 启用=${engine.enabled} 池=${engine.pool.size} 进度=${engine.currentTimeSec} 视图=${vwD}x${vhD} 在屏=${engine.items.size} wantVisible=$wantVisible 窗口可见=${win?.isVisible} 面板可见=$isVisible")
+// 帧统计：随 5 秒诊断一起记一行（平均/最大帧间隔、>33ms 掉帧、>50ms 严重卡顿），记完清零，统计窗口为两次诊断之间。
+val avgFrameMs = if (frameStatCount > 0) frameStatTotalMs / frameStatCount else 0.0
+val avg1 = kotlin.math.round(avgFrameMs * 10) / 10.0
+val max1 = kotlin.math.round(frameStatMaxMs * 10) / 10.0
+com.muse.gomepc.player.DebugLog.d("Danmaku", "帧统计：平均 ${avg1}ms 最大 ${max1}ms 掉帧 ${frameStatDrop33} 次 严重 ${frameStatSevere50} 次")
+frameStatCount = 0L
+frameStatTotalMs = 0.0
+frameStatMaxMs = 0.0
+frameStatDrop33 = 0L
+frameStatSevere50 = 0L
 }
 }
 if (!engine.enabled) {

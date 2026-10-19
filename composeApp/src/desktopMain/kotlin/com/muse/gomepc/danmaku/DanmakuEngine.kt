@@ -58,8 +58,11 @@ var delaySec: Float = 0f
 private set
 var areaRatio: Float = 0.35f
 private set
-/** 弹幕位置：0=顶部（贴顶细条），1=半屏（上半屏），2=全屏 */
-var position: Int = 0
+/** 弹幕密度（%）：控制同行前后两条弹幕的水平间距。100=默认 100px 间距；密度越高间隔越小（200%→50px），越低间隔越大（50%→200px）。 */
+var densityPct: Int = 100
+private set
+/** 弹幕间隔（%）：控制行与行之间的竖直间距，为默认行距的百分比。100=默认；越大行距越大（越疏），越小越密。 */
+var lineSpacingPct: Int = 100
 private set
 var enabled: Boolean = true
 private set
@@ -173,18 +176,23 @@ onPoolFilled()
 fun setSpeedFactor(f: Float) { speedFactor = f.coerceIn(0.5f, 2f)}
 fun setDelaySec(s: Float) { delaySec = s.coerceIn(0f, 10f)}
 
-/** 设置弹幕区域比例（0.05~1.0），立即重算行数并清空重排 */
+/** 设置弹幕区域比例（0.05~1.0），即弹幕占用屏幕高度的比例，立即重算行数并清空重排 */
 fun setAreaRatio(ratio: Float) {
 areaRatio = ratio.coerceIn(0.05f, 1f)
 recalcRows(lastFontSizePx)
 items.clear()
 }
 
-fun setPosition(p: Int) {
-position = p.coerceIn(0, 2)
+/** 设置弹幕密度（50~200%）：只影响之后发射的弹幕的同行水平间距，不清空在屏弹幕 */
+fun setDensityPct(p: Int) {
+densityPct = p.coerceIn(50, 200)
+}
+
+/** 设置弹幕间隔（50~200%）：行距为默认行距的百分比，立即重算行数并清空重排 */
+fun setLineSpacingPct(p: Int) {
+lineSpacingPct = p.coerceIn(50, 200)
 recalcRows(lastFontSizePx)
 items.clear()
-invalidateWidthCache()
 }
 
 fun setEnabled(on: Boolean) {
@@ -228,44 +236,29 @@ for (d in items) d.textWidth = -1f
 // ============ 行数/位置计算（与 Android 一致） ============
 
 /**
-* P1-D2：areaRatio 实际生效。默认 areaRatio=0.35 时与旧默认值一致
-* （顶部 0.2 / 半屏 0.5 / 全屏 1.0），用户调小 areaRatio 则按比例缩小有效区。
+* 有效弹幕区域：显示区域（areaRatio）即弹幕占用屏幕高度的比例，不再有顶部/半屏/全屏三档位置。
+* 0.1=只占顶部 10% 高度，1.0=占满全屏高度。
 */
 private fun effectiveAreaRatio(): Float {
-return when (position) {
-0 -> (areaRatio / 0.35f * 0.2f).coerceIn(0.05f, 0.2f)
-1 -> (areaRatio / 0.35f * 0.5f).coerceIn(0.05f, 0.5f)
-else -> (areaRatio / 0.35f).coerceIn(0.05f, 1f)
-}
+return areaRatio.coerceIn(0.05f, 1f)
 }
 
-/** 固定排数：顶部3排，半屏5排，全屏按高度算（-1 表示按高度计算） */
-private fun fixedRows(): Int {
-return when (position) {
-0 -> 3
-1 -> 5
-else -> -1
-}
+/** 行距（px）= 字号*1.6 再乘弹幕间隔百分比。间隔 200% 时行距翻倍（更疏），50% 时减半（更密）。 */
+fun rowPitchPx(fontSizePx: Float): Float {
+return fontSizePx * 1.6f * (lineSpacingPct / 100f)
 }
 
-/** UI 层在尺寸或字号变化后调用 */
+/** 同行前后两条弹幕的最小水平间距（px），由弹幕密度控制：100%→100px（旧写死值），200%→50px（更密），50%→200px（更疏）。 */
+fun horizontalGapPx(): Float {
+return 100f * (100f / densityPct)
+}
+
+/** UI 层在尺寸或字号变化后调用：排数 = 屏幕高度 × 显示区域比例 / 行距 */
 fun recalcRows(fontSizePx: Float) {
 if (fontSizePx > 0) lastFontSizePx = fontSizePx
 val size = if (fontSizePx > 0) fontSizePx else lastFontSizePx
-val fixed = fixedRows()
-if (size <= 0 || viewHeight <= 0) {
-if (fixed > 0) rows = fixed
-return
-}
-rows = if (fixed > 0) {
-// 固定排数按 areaRatio 比例缩放，默认值下与旧排数一致。
-val base = if (position == 0) 0.2f else 0.5f
-val scale = (effectiveAreaRatio() / base).coerceIn(0.2f, 2f)
-max(1, (fixed * scale).roundToInt())
-} else {
-val rowPx = size * 1.6f // 每行高度 = 字号*1.6
-max(1, ((viewHeight * effectiveAreaRatio()) / rowPx).toInt())
-}
+if (size <= 0 || viewHeight <= 0) return
+rows = max(1, ((viewHeight * effectiveAreaRatio()) / rowPitchPx(size)).toInt())
 }
 
 /**
@@ -273,14 +266,7 @@ max(1, ((viewHeight * effectiveAreaRatio()) / rowPx).toInt())
 * Compose 绘制时需换算：top = baseline - firstBaseline。
 */
 fun rowBaseline(row: Int, fontSizePx: Float): Float {
-val rowPx = fontSizePx * 1.6f
-// 半屏：5排均匀分布在上半屏
-if (position == 1 && rows == 5 && viewHeight > 0) {
-val halfH = viewHeight * 0.5f
-val spacing = halfH / 5f
-return (row + 0.8f) * spacing.coerceAtLeast(rowPx)
-}
-return (row + 0.8f) * rowPx
+return (row + 0.8f) * rowPitchPx(fontSizePx)
 }
 
 // ============ 动画步进（与 Android step() 一致） ============
@@ -307,7 +293,7 @@ items.removeIf { it.textWidth >= 0 && it.x + it.textWidth < 0}
 // 发射新弹幕（无数据源时 pool 为空，不显示任何弹幕）
 // P1-D10：延迟期间的弹幕不计入 maxItems（只数已可见的）。
 val visibleCount = items.count { now >= it.visibleAt}
-val maxItems = when (position) { 0 -> 40; 1 -> 60; else -> 80}
+val maxItems = 60
 if (!enabled || pool.isEmpty() || visibleCount >= maxItems) return
 val poolSnapshot = pool.toList()
 val hasTimed = poolSnapshot.any { it.timeSec >= 0f}
@@ -344,7 +330,7 @@ emit(poolSnapshot.random().text, w, measureText, now)
 }
 } else {
 // 无时间信息池子：保留旧随机发射行为。
-val emitProb = when (position) { 0 -> 0.5f; 1 -> 0.4f; else -> 0.25f}
+val emitProb = 0.4f
 if (Random.nextFloat() < emitProb) {
 emit(poolSnapshot.random().text, w, measureText, now)
 }
@@ -363,7 +349,7 @@ val rightmost = rowItems.maxOfOrNull {
 if (it.textWidth < 0) it.textWidth = measureText(it.text)
 it.x + it.textWidth
 }?: -1f
-if (rightmost < w - 100) {
+if (rightmost < w - horizontalGapPx()) {
 val tw = measureText(text)
 // 横穿时长固定约 15 秒：速度 = (窗口宽 + 文本宽) / 时长，与窗口宽度无关；
 // ±12% 随机避免齐步走。speedFactor 在 step() 里再乘（50%→30 秒，200%→7.5 秒）。
