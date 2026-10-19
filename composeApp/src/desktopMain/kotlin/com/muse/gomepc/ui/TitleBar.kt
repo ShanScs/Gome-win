@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -34,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.emby.Prefs
 import kotlin.math.abs
-import androidx.compose.ui.text.style.TextOverflow
 
 /**
  * 自定义透明标题栏（无边框窗口用）。
@@ -144,17 +142,15 @@ fun CustomTitleBar(
                 }
             }
         }
-        // 中间：居中标题（媒体库名）。宽度约束 + 省略为功能保留（长标题会把左右按钮顶出），其余视觉与备份一致
+        // 中间：居中标题（媒体库名）
         config.centerTitle?.let { title ->
             Text(
                 title,
-                fontSize = GomeText.Title,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A),
-                modifier = Modifier.align(Alignment.Center)
-                    .widthIn(max = 420.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                modifier = Modifier.align(Alignment.Center),
+                maxLines = 1
             )
         }
         // 右侧：椭圆毛玻璃背板 + 最小化/最大化/关闭（垂直居中）
@@ -219,7 +215,7 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                Text("♥", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
+                Text("♥", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
             }
             is TitleLeftIcon.Back -> Box(
                 Modifier.size(26.dp)
@@ -227,7 +223,7 @@ private fun TitleBarIconButton(icon: TitleLeftIcon) {
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
-                Text("←", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
+                Text("←", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
             }
             is TitleLeftIcon.Sort -> SortGlyph()
         }
@@ -273,11 +269,7 @@ private fun AppGlyph() {
     }
 }
 
-/**
- * 服务器图标：从图标库自动加载（手动指定 > 按服务器名自动匹配 > 库默认 emby logo，
- * 见 ServerIconHelper.resolveIcon）。图标库本身拉取失败时显示空白圆，不显示
- * 服务器名首字（如“垃”）、不画手绘假图标。
- */
+/** 服务器图标：显示真实服务器图标（图标库自动匹配），加载失败时显示首字 */
 @Composable
 private fun ServerGlyph() {
     val serverName = Prefs.serverName
@@ -296,8 +288,12 @@ private fun ServerGlyph() {
             modifier = Modifier.size(26.dp),
             contentScale = ContentScale.Crop,
             fallback = {
-                // 图标库不可达时留白，不画任何兜底图标
-                Box(Modifier.size(26.dp))
+                Text(
+                    serverName.take(1).uppercase().ifEmpty { "影" },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2F6FED)
+                )
             }
         )
     }

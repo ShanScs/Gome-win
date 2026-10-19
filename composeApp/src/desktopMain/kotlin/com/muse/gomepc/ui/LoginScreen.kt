@@ -5,8 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,11 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.muse.gomepc.emby.Prefs
@@ -49,7 +42,6 @@ import kotlinx.coroutines.launch
  * 调用 YambyClient.login()。成功后 Prefs 持久化（token/userId/服务器信息）。
  * 提供"演示模式"入口（无服务器时用 MockData）。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LoginScreen(
     onLoggedIn: () -> Unit,
@@ -62,8 +54,6 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // 密码可见切换（之前无，输错只能删了重输）
-    var passwordVisible by remember { mutableStateOf(false) }
 
     fun parseServerUrl(input: String): Boolean {
         val s = input.trim()
@@ -142,10 +132,10 @@ fun LoginScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Gome", fontSize = GomeText.Hero, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
+                Text("Gome", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
                 Text(
                     "连接 Emby 服务器",
-                    fontSize = GomeText.Body,
+                    fontSize = 14.sp,
                     color = GomeTheme.TextSecondary
                 )
                 Spacer(Modifier.height(4.dp))
@@ -172,50 +162,15 @@ fun LoginScreen(
                     onValueChange = { password = it; error = null },
                     label = { Text("密码") },
                     singleLine = true,
-                    // 回车直接登录（之前密码框按回车没反应）
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { doLogin() }),
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        Text(
-                            if (passwordVisible) "隐藏" else "显示",
-                            fontSize = GomeText.Secondary,
-                            color = GomeTheme.Accent,
-                            modifier = Modifier.clickable { passwordVisible = !passwordVisible }
-                                .padding(8.dp)
-                        )
-                    },
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy
                 )
 
-                // 已保存服务器快捷选择：点一下填地址 + 用户名（之前每次都要手动输全地址）
-                val savedServers = remember { Prefs.getServers() }
-                if (savedServers.isNotEmpty()) {
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("快速选择已保存服务器：", fontSize = GomeText.Caption, color = GomeTheme.TextSecondary)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            savedServers.forEach { entry ->
-                                AssistChip(
-                                    onClick = {
-                                        serverUrl = "${entry.protocol}://${entry.host}:${entry.port}/${entry.path.trim('/')}"
-                                        username = entry.username
-                                        error = null
-                                    },
-                                    label = { Text(entry.name.ifEmpty { entry.host }, fontSize = GomeText.Caption) }
-                                )
-                            }
-                        }
-                    }
-                }
-
                 if (error != null) {
                     Text(
                         error!!,
-                        fontSize = GomeText.Secondary,
+                        fontSize = 13.sp,
                         color = Color(0xFFE53935),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -234,9 +189,9 @@ fun LoginScreen(
                             strokeWidth = 2.dp
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("连接中…", fontSize = GomeText.Body)
+                        Text("连接中…", fontSize = 15.sp)
                     } else {
-                        Text("登录", fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
+                        Text("登录", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -245,9 +200,9 @@ fun LoginScreen(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("没有服务器？", fontSize = GomeText.Secondary, color = GomeTheme.TextSecondary)
+                    Text("没有服务器？", fontSize = 13.sp, color = GomeTheme.TextSecondary)
                     TextButton(onClick = onDemoMode, enabled = !busy) {
-                        Text("进入演示模式", fontSize = GomeText.Secondary, color = GomeTheme.Accent)
+                        Text("进入演示模式", fontSize = 13.sp, color = GomeTheme.Accent)
                     }
                 }
             }

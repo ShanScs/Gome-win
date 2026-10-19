@@ -1,8 +1,6 @@
 package com.muse.gomepc.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -130,35 +128,6 @@ object GomeTheme {
     val SidebarBg = Color(0xFFECEDEF)
 }
 
-/**
- * App 字体规范：全库只用这套字号，禁止各处硬编码字号。
- * 字体统一默认 SansSerif（Compose 不设 fontFamily，AWT 用 Font.SANS_SERIF）。
- * 弹幕字号是用户设置，不走这套（AwtDanmakuPanel / DanmakuEngine）。
- */
-object GomeText {
-    val Hero = 30.sp        // 横幅 / 详情大标题（原 30/32）
-    val PageTitle = 26.sp   // 页面标题：资源库 / 设置（原 26/28）
-    val Section = 20.sp     // 分区 / 条目大标题（原 20）
-    val Title = 17.sp       // 标题（原 16/17/18/19）
-    val Body = 14.sp        // 正文（原 14/15）
-    val Secondary = 13.sp   // 次要文本（原 13）
-    val Caption = 12.sp     // 说明 / 小字（原 12）
-    val Tiny = 11.sp        // 最小字（原 11）
-    val Micro = 10.sp       // 极小（原 10）
-    val Glyph = 22.sp       // ‹ › ← + ↑ ↓ 等符号字形（原 20/22/24/26/28/32）
-    val PosterLetter = 40.sp // 海报占位首字（装饰）
-}
-
-/** Swing / AWT 字号规范，与 GomeText 同值（Int）。 */
-object GomeAwtText {
-    const val Title = 17
-    const val Body = 14
-    const val Section = 20
-    const val Caption = 12
-    const val Glyph = 22
-    const val Badge = 9
-}
-
 /** 红心 vector 图标（对齐 Android ic_heart_red，#F44336） */
 @Composable
 fun HeartIcon(
@@ -193,18 +162,18 @@ fun LoadingBox(modifier: Modifier = Modifier) {
 fun ErrorBox(msg: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("加载失败", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
+            Text("加载失败", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
             Spacer(Modifier.height(8.dp))
             Text(
                 msg.take(200),
-                fontSize = GomeText.Secondary,
+                fontSize = 13.sp,
                 color = GomeTheme.TextSecondary,
                 modifier = Modifier.padding(horizontal = 32.dp),
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(12.dp))
             androidx.compose.material3.TextButton(onClick = onRetry) {
-                Text("重试", color = GomeTheme.Accent, fontSize = GomeText.Body)
+                Text("重试", color = GomeTheme.Accent, fontSize = 14.sp)
             }
         }
     }
@@ -245,14 +214,14 @@ private fun PosterGradient(
     ) {
         Text(
             item.name.take(1),
-            fontSize = GomeText.PosterLetter,
+            fontSize = 40.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White.copy(alpha = 0.85f)
         )
         if (item.rating != null) {
             Text(
                 item.rating,
-                fontSize = GomeText.Tiny,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 modifier = Modifier
@@ -300,8 +269,8 @@ fun ResumeCard(
             if (item.badge != null) {
                 Text(
                     item.badge,
-                    fontSize = GomeText.Tiny,
-                    color = GomeTheme.Accent,
+                    fontSize = 11.sp,
+                    color = Color(0xFF2F6FED),
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(8.dp)
@@ -329,7 +298,7 @@ fun ResumeCard(
         Spacer(Modifier.height(6.dp))
         Text(
             item.name,
-            fontSize = GomeText.Body,
+            fontSize = 14.sp,
             color = GomeTheme.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -339,7 +308,7 @@ fun ResumeCard(
         if (item.subtitle.isNotEmpty()) {
             Text(
                 item.subtitle,
-                fontSize = GomeText.Caption,
+                fontSize = 12.sp,
                 color = GomeTheme.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -388,9 +357,9 @@ fun ItemCard(
                 ) {
                     Text(
                         item.episodeCount.toString(),
-                        fontSize = GomeText.Secondary,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = GomeTheme.Accent
+                        color = Color(0xFF2F6FED)
                     )
                 }
             }
@@ -416,7 +385,7 @@ fun ItemCard(
         Spacer(Modifier.height(6.dp))
         Text(
             item.name,
-            fontSize = GomeText.Secondary,
+            fontSize = 13.sp,
             color = GomeTheme.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -425,7 +394,7 @@ fun ItemCard(
         )
         Text(
             item.year,
-            fontSize = GomeText.Tiny,
+            fontSize = 11.sp,
             color = GomeTheme.TextSecondary,
             textAlign = TextAlign.Center,
             modifier = Modifier.width(120.dp)
@@ -501,7 +470,7 @@ fun HomeScreen(
                     Column(Modifier.padding(horizontal = 20.dp)) {
                         Text(
                             "媒体库",
-                            fontSize = GomeText.Title,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = GomeTheme.TextPrimary,
                             modifier = Modifier.padding(top = 18.dp)
@@ -545,12 +514,12 @@ private fun SectionHeader(title: String, action: String, onAction: (() -> Unit)?
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
         Spacer(Modifier.weight(1f))
         Text(
             action,
-            fontSize = GomeText.Body,
-            color = GomeTheme.Accent,
+            fontSize = 14.sp,
+            color = Color(0xFF2F6FED),
             modifier = Modifier.padding(8.dp)
                 .clickable(enabled = onAction != null) { onAction?.invoke() }
         )
@@ -619,7 +588,7 @@ fun ArrowScrollRow(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Text("‹", fontSize = GomeText.Glyph, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
+                Text("‹", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
             }
         }
         // 右箭头
@@ -638,7 +607,7 @@ fun ArrowScrollRow(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Text("›", fontSize = GomeText.Glyph, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
+                Text("›", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A))
             }
         }
     }
@@ -675,7 +644,7 @@ fun ResumeListScreen(
         ) {
             Text(
                 "←",
-                fontSize = GomeText.Glyph,
+                fontSize = 24.sp,
                 color = GomeTheme.TextPrimary,
                 modifier = Modifier.size(40.dp)
                     .clickable(onClick = onBack),
@@ -683,7 +652,7 @@ fun ResumeListScreen(
             )
             Text(
                 "继续观看",
-                fontSize = GomeText.Title,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = GomeTheme.TextPrimary,
                 modifier = Modifier.weight(1f),
@@ -695,7 +664,7 @@ fun ResumeListScreen(
             error != null -> ErrorBox(error!!, onRetry = { reloadKey++ }, Modifier.weight(1f))
             items == null -> LoadingBox(Modifier.weight(1f))
             items!!.isEmpty() -> Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Text("暂无观看记录", fontSize = GomeText.Body, color = GomeTheme.TextSecondary)
+                Text("暂无观看记录", fontSize = 14.sp, color = GomeTheme.TextSecondary)
             }
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(220.dp),
@@ -727,7 +696,6 @@ private fun BannerCarousel(
 ) {
     if (items.isEmpty()) return
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { items.size })
-    val carouselScope = androidx.compose.runtime.rememberCoroutineScope()
     // 用户拖动时暂停自动轮播（否则自动滚动与手动滑动打架）
     var autoPaused by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState) {
@@ -749,22 +717,7 @@ private fun BannerCarousel(
             }
         }
     }
-    androidx.compose.foundation.layout.BoxWithConstraints(
-        modifier = Modifier.fillMaxWidth()
-            .pointerInput(Unit) {
-                // 悬停暂停自动轮播（之前只有拖动暂停，鼠标停在上面不动也会被自动切走）
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        when (event.type) {
-                            androidx.compose.ui.input.pointer.PointerEventType.Enter -> autoPaused = true
-                            androidx.compose.ui.input.pointer.PointerEventType.Exit -> autoPaused = false
-                        }
-                    }
-                }
-            }
-    ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = Modifier.fillMaxWidth()) {
         androidx.compose.foundation.pager.HorizontalPager(
             state = pagerState,
             // 按条目 id 做 key，列表变化时页面不串位
@@ -800,7 +753,7 @@ private fun BannerCarousel(
                 // 大标题（白色，压在图片上、淡出区上方）
                 Text(
                     item.name,
-                    fontSize = GomeText.Hero,
+                    fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     maxLines = 1,
@@ -823,7 +776,7 @@ private fun BannerCarousel(
                     if (meta.isNotBlank()) {
                         Text(
                             meta,
-                            fontSize = GomeText.Secondary,
+                            fontSize = 13.sp,
                             color = GomeTheme.TextPrimary,
                             maxLines = 1,
                             modifier = Modifier.padding(top = 6.dp)
@@ -832,7 +785,7 @@ private fun BannerCarousel(
                     if (item.overview.isNotBlank()) {
                         Text(
                             item.overview,
-                            fontSize = GomeText.Secondary,
+                            fontSize = 13.sp,
                             color = GomeTheme.TextSecondary,
                             maxLines = 2,
                             modifier = Modifier.padding(top = 6.dp)
@@ -841,7 +794,7 @@ private fun BannerCarousel(
                 }
             }
         }
-        // 圆点指示器（白色淡出区上用灰色）：可点击跳转（之前不可点）
+        // 圆点指示器（白色淡出区上用灰色）
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -857,12 +810,8 @@ private fun BannerCarousel(
                             if (index == pagerState.currentPage) Color(0xFF666666)
                             else Color(0xFFCCCCCC)
                         )
-                        .clickable {
-                            carouselScope.launch { pagerState.scrollToPage(index) }
-                        }
                 )
             }
-        }
         }
     }
 }
@@ -913,7 +862,7 @@ fun LibraryCard(
             ) {
                 Text(
                     lib.name,
-                    fontSize = GomeText.Section,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     maxLines = 1,
@@ -921,7 +870,7 @@ fun LibraryCard(
                 )
                 Text(
                     "TV",
-                    fontSize = GomeText.Micro,
+                    fontSize = 10.sp,
                     color = Color(0xB3FFFFFF),
                     modifier = Modifier.padding(top = 2.dp)
                 )
@@ -997,22 +946,16 @@ fun LibraryScreen(
     var libItems by remember { mutableStateOf<List<UiMediaItem>?>(null) }
     var selectedSort by remember { mutableStateOf(4) }  // 默认：首映日期 ↓（对齐 Android；去重后索引 4）
     var showSortDialog by remember { mutableStateOf(false) }
-    // 加载失败与空库区分：之前失败也置 emptyList，空库与失败都显示空白网格
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var reloadKey by remember { mutableStateOf(0) }
 
-    LaunchedEffect(libId, selectedSort, reloadKey) {
+    LaunchedEffect(libId, selectedSort) {
         libItems = null
-        loadError = null
         try {
             val (_, triple) = librarySortOptions[selectedSort]
-            // 增量分页：第一页到就显示首屏，不再等全量（默认 2000 条）取完；libName 透传，不多发 libraries 请求
-            Repo.libraryItemsPaged(libId, triple.first, triple.second, libName = libName) { page ->
-                libItems = page
-            }
+            // 分页取全量，不再只取 60 条；libName 由调用方透传，不再为查名字多发 libraries 请求
+            libItems = Repo.libraryItems(libId, triple.first, triple.second, libName = libName)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) { loadError = e.message ?: "加载失败" }
+        } catch (_: Exception) { libItems = emptyList() }
     }
     // 统一透明标题栏的排序图标 → 打开排序弹窗
     LaunchedEffect(sortRequestKey) {
@@ -1021,15 +964,8 @@ fun LibraryScreen(
 
     // 顶栏已统一为透明悬浮标题栏（Main.GomeApp 叠加）：库名居中、排序/返回在标题栏
     Column(Modifier.fillMaxSize().background(Color.White)) {
-        if (loadError != null) {
-            ErrorBox(loadError!!, onRetry = { reloadKey++ }, Modifier.weight(1f))
-        } else if (libItems == null) {
+        if (libItems == null) {
             LoadingBox(Modifier.weight(1f))
-        } else if (libItems!!.isEmpty()) {
-            // 空库：明确提示，不再显示空白网格
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("该媒体库为空", fontSize = GomeText.Body, color = Color(0xFFAAAAAA))
-            }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
@@ -1050,7 +986,7 @@ fun LibraryScreen(
     if (showSortDialog) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showSortDialog = false },
-            title = { Text("排序", fontSize = GomeText.Title, fontWeight = FontWeight.Bold) },
+            title = { Text("排序", fontSize = 17.sp, fontWeight = FontWeight.Bold) },
             text = {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
@@ -1063,10 +999,10 @@ fun LibraryScreen(
                         Box(
                             modifier = Modifier.height(36.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (selected) GomeTheme.Accent else Color(0x80FFFFFF))
+                                .background(if (selected) Color(0xFF2F6FED) else Color(0x80FFFFFF))
                                 .border(
                                     1.dp,
-                                    if (selected) GomeTheme.Accent else MGlass.Stroke,
+                                    if (selected) Color(0xFF2F6FED) else MGlass.Stroke,
                                     RoundedCornerShape(12.dp)
                                 )
                                 .clickable {
@@ -1077,7 +1013,7 @@ fun LibraryScreen(
                         ) {
                             Text(
                                 "$name ${triple.third}",
-                                fontSize = GomeText.Secondary,
+                                fontSize = 13.sp,
                                 color = if (selected) Color.White else Color(0xFF1A1A1A)
                             )
                         }
@@ -1188,7 +1124,7 @@ private fun ServerCardsGrid(
                 ) {
                     Text(
                         "资源库",
-                        fontSize = GomeText.PageTitle,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = GomeTheme.TextPrimary,
                         modifier = Modifier.weight(1f)
@@ -1196,27 +1132,6 @@ private fun ServerCardsGrid(
                 }
             } else {
                 Spacer(Modifier.height(topPadding))
-            }
-            // 应用锁 / 管理服务器入口：之前右上角锁/更多图标被删，三个弹窗（设 PIN/验 PIN/删服务器）
-            // 永远打不开；这里补显式入口
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    "应用锁",
-                    fontSize = GomeText.Secondary,
-                    color = GomeTheme.Accent,
-                    modifier = Modifier.clickable {
-                        if (Prefs.appLockPin.isEmpty()) showSetPin = true else showVerifyPin = true
-                    }.padding(8.dp)
-                )
-                Text(
-                    "管理服务器",
-                    fontSize = GomeText.Secondary,
-                    color = GomeTheme.Accent,
-                    modifier = Modifier.clickable { showDeleteServer = true }.padding(8.dp)
-                )
             }
             // 搜索框：48dp 高，bg_search_box 圆角 28dp（对齐安卓）
             Row(
@@ -1234,9 +1149,9 @@ private fun ServerCardsGrid(
                 androidx.compose.material3.OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("搜索", fontSize = GomeText.Body, color = Color(0xFFA0A0A0)) },
+                    placeholder = { Text("搜索", fontSize = 15.sp, color = Color(0xFFA0A0A0)) },
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        fontSize = GomeText.Body,
+                        fontSize = 15.sp,
                         color = Color(0xFF1A1A1A)
                     ),
                     singleLine = true,
@@ -1263,7 +1178,7 @@ private fun ServerCardsGrid(
             if (switchError != null) {
                 Text(
                     switchError!!,
-                    fontSize = GomeText.Secondary,
+                    fontSize = 13.sp,
                     color = Color(0xFFE53935),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                 )
@@ -1276,7 +1191,7 @@ private fun ServerCardsGrid(
                 ) {
                     Text(
                         "点击右下角 ＋ 添加服务器",
-                        fontSize = GomeText.Body,
+                        fontSize = 14.sp,
                         color = Color(0xFFA0A0A0)
                     )
                 }
@@ -1291,9 +1206,7 @@ private fun ServerCardsGrid(
                     // 服务器卡片
                     items(filtered, key = { server: ServerEntry -> server.key() }) { server ->
                         val stat = Prefs.getServerStats()[server.key()] ?: Prefs.ServerStat()
-                        // “当前”按服务器 Key 判（地址+协议+端口+路径+用户名），不再按名字判重
-                        // （两个服务器同名时旧逻辑会把两个都标成当前）
-                        val isCurrent = server.key() == Prefs.currentServerKey()
+                        val isCurrent = Prefs.serverName == server.name
                         ServerCard(
                             server = server,
                             movies = stat.movies,
@@ -1340,11 +1253,11 @@ private fun ServerCardsGrid(
                 .padding(end = 20.dp, bottom = 112.dp)
                 .size(60.dp)
                 .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(GomeTheme.Accent)
+                .background(Color(0xFF2F6FED))
                 .clickable { showAddDialog = true },
             contentAlignment = Alignment.Center
         ) {
-            Text("+", fontSize = GomeText.Glyph, color = Color.White)
+            Text("+", fontSize = 32.sp, color = Color.White)
         }
     }
 
@@ -1485,7 +1398,7 @@ fun LibSortDialog(
         Column(Modifier.width(320.dp).heightIn(max = 480.dp)) {
             Text(
                 "媒体库排序",
-                fontSize = GomeText.Title,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
@@ -1504,7 +1417,7 @@ fun LibSortDialog(
                     ) {
                         Text(
                             lib.name,
-                            fontSize = GomeText.Title,
+                            fontSize = 16.sp,
                             color = Color.Black,
                             modifier = Modifier.weight(1f),
                             maxLines = 1
@@ -1513,8 +1426,8 @@ fun LibSortDialog(
                         if (index > 0) {
                             Text(
                                 "↑",
-                                fontSize = GomeText.Glyph,
-                                color = GomeTheme.Accent,
+                                fontSize = 20.sp,
+                                color = Color(0xFF2F6FED),
                                 modifier = Modifier.clickable {
                                     libs = libs.toMutableList().also {
                                         val tmp = it[index]
@@ -1528,8 +1441,8 @@ fun LibSortDialog(
                         if (index < libs.size - 1) {
                             Text(
                                 "↓",
-                                fontSize = GomeText.Glyph,
-                                color = GomeTheme.Accent,
+                                fontSize = 20.sp,
+                                color = Color(0xFF2F6FED),
                                 modifier = Modifier.clickable {
                                     libs = libs.toMutableList().also {
                                         val tmp = it[index]
@@ -1546,15 +1459,15 @@ fun LibSortDialog(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Text(
                     "取消",
-                    fontSize = GomeText.Title,
+                    fontSize = 16.sp,
                     color = Color(0xFF8E8E93),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp)
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "保存",
-                    fontSize = GomeText.Title,
-                    color = GomeTheme.Accent,
+                    fontSize = 16.sp,
+                    color = Color(0xFF2F6FED),
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable {
                         saveOrder()
@@ -1583,7 +1496,7 @@ fun ServerPopupDialog(
         Column(Modifier.width(340.dp).heightIn(max = 500.dp)) {
             Text(
                 "服务器",
-                fontSize = GomeText.Title,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
@@ -1595,8 +1508,8 @@ fun ServerPopupDialog(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("媒体库排序", fontSize = GomeText.Title, color = Color.Black, modifier = Modifier.weight(1f))
-                Text("›", fontSize = GomeText.Glyph, color = Color(0xFFC7C7CC))
+                Text("媒体库排序", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
+                Text("›", fontSize = 20.sp, color = Color(0xFFC7C7CC))
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
             Spacer(Modifier.height(8.dp))
@@ -1604,7 +1517,7 @@ fun ServerPopupDialog(
             if (switchError != null) {
                 Text(
                     switchError!!,
-                    fontSize = GomeText.Secondary,
+                    fontSize = 13.sp,
                     color = Color(0xFFE53935),
                     modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
                 )
@@ -1654,8 +1567,8 @@ fun ServerPopupDialog(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Text(
                     "取消",
-                    fontSize = GomeText.Title,
-                    color = GomeTheme.Accent,
+                    fontSize = 16.sp,
+                    color = Color(0xFF2F6FED),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp)
                 )
             }
@@ -1704,7 +1617,7 @@ private fun ServerCard(
         ) {
             Text(
                 server.name.ifEmpty { server.host },
-                fontSize = GomeText.Body,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 color = GomeTheme.TextPrimary,
                 maxLines = 1,
@@ -1737,10 +1650,13 @@ private fun ServerCard(
                     serverName = server.name.ifEmpty { server.host },
                     serverKey = server.key(),
                     modifier = Modifier.size(32.dp),
-                    // 无匹配时 resolveIcon 已回落到图标库默认 emby 图标；
-                    // 图标库不可达时留白，不显示服务器名首字
                     fallback = {
-                        Box(Modifier.size(32.dp))
+                        Text(
+                            server.name.take(1).uppercase().ifEmpty { "服" },
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2F6FED)
+                        )
                     }
                 )
             }
@@ -1754,14 +1670,14 @@ private fun ServerCard(
             FilmIcon(iconSize = 14.dp)
             Text(
                 if (movies >= 0) movies.toString() else "–",
-                fontSize = GomeText.Caption,
+                fontSize = 12.sp,
                 color = Color(0xFF8A7B6C),
                 modifier = Modifier.padding(start = 4.dp)
             )
             TvIcon(iconSize = 14.dp, modifier = Modifier.padding(start = 12.dp))
             Text(
                 if (series >= 0) series.toString() else "–",
-                fontSize = GomeText.Caption,
+                fontSize = 12.sp,
                 color = Color(0xFF8A7B6C),
                 modifier = Modifier.padding(start = 4.dp)
             )
@@ -1773,7 +1689,7 @@ private fun ServerCard(
         ) {
             Text(
                 server.host,
-                fontSize = GomeText.Tiny,
+                fontSize = 11.sp,
                 color = Color(0xFFA0A0A0),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1782,7 +1698,7 @@ private fun ServerCard(
             if (lastUsed > 0) {
                 Text(
                     (if (isCurrent) "当前 · " else "") + timeAgo(lastUsed),
-                    fontSize = GomeText.Tiny,
+                    fontSize = 11.sp,
                     color = Color(0xFFA0A0A0),
                     modifier = Modifier.padding(start = 8.dp)
                 )
@@ -1874,38 +1790,43 @@ private fun AddServerDialog(
                                     .clip(androidx.compose.foundation.shape.CircleShape)
                                     .clickable { showIconPicker = true },
                                 fallback = {
-                                    // 无匹配时 resolveIcon 已回落到图标库默认 emby 图标；
-                                    // 图标库不可达时留灰底空白，不显示服务器名首字
                                     Box(
                                         modifier = Modifier
                                             .size(48.dp)
                                             .clip(androidx.compose.foundation.shape.CircleShape)
                                             .background(Color(0xFFF2F2F2)),
                                         contentAlignment = Alignment.Center
-                                    ) {}
+                                    ) {
+                                        Text(
+                                            existing.name.take(1).uppercase().ifEmpty { "服" },
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2F6FED)
+                                        )
+                                    }
                                 }
                             )
                         }
                         Text(
                             "更换图标",
-                            fontSize = GomeText.Body,
-                            color = GomeTheme.Accent,
+                            fontSize = 14.sp,
+                            color = Color(0xFF2F6FED),
                             modifier = Modifier
                                 .clickable { showIconPicker = true }
                                 .padding(12.dp, 8.dp, 12.dp, 8.dp)
                         )
                         Text(
                             "备用线路",
-                            fontSize = GomeText.Body,
-                            color = GomeTheme.Accent,
+                            fontSize = 14.sp,
+                            color = Color(0xFF2F6FED),
                             modifier = Modifier
                                 .clickable { showBackupCard = true }
                                 .padding(12.dp, 8.dp, 12.dp, 8.dp)
                         )
                         Text(
                             "更换密码",
-                            fontSize = GomeText.Body,
-                            color = GomeTheme.Accent,
+                            fontSize = 14.sp,
+                            color = Color(0xFF2F6FED),
                             modifier = Modifier
                                 .clickable { showPasswordCard = true }
                                 .padding(12.dp, 8.dp, 12.dp, 8.dp)
@@ -1995,7 +1916,7 @@ private fun AddServerDialog(
                 if (formError != null) {
                     Text(
                         formError!!,
-                        fontSize = GomeText.Secondary,
+                        fontSize = 13.sp,
                         color = Color(0xFFE53935),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -2016,29 +1937,11 @@ private fun AddServerDialog(
                     }
                     if (formError == null) {
                         val bd = backupDraft
-                        // 地址清洗：host/path 一律 trim；host 里粘贴完整 URL（带 scheme）时拆出
-                        // 协议/端口/路径（之前直接存坏：host 里带 http://，baseUrl 拼出非法地址）
-                        var effProtocol = if (useHttps) "https" else "http"
-                        var effHost = host.trim().trimEnd('/')
-                        var effPort = port.trim()
-                        var effPath = path.trim().trim('/')
-                        if (effHost.contains("://")) {
-                            val withoutScheme = effHost.substringAfter("://")
-                            if (effHost.startsWith("https://", true)) effProtocol = "https"
-                            else if (effHost.startsWith("http://", true)) effProtocol = "http"
-                            val slash = withoutScheme.indexOf('/')
-                            val hostPort = if (slash >= 0) withoutScheme.substring(0, slash) else withoutScheme
-                            val pathPart = if (slash >= 0) withoutScheme.substring(slash + 1) else ""
-                            val colon = hostPort.lastIndexOf(':')
-                            effHost = if (colon >= 0) hostPort.substring(0, colon) else hostPort
-                            if (colon >= 0) effPort = hostPort.substring(colon + 1)
-                            if (pathPart.isNotBlank()) effPath = pathPart.trim().trim('/')
-                        }
                         val newEntry = ServerEntry(
-                            name = serverName.ifBlank { existing?.name?.ifEmpty { effHost } ?: effHost },
-                            protocol = effProtocol,
-                            host = effHost, port = effPort, path = effPath,
-                            username = username.trim(), password = password,
+                            name = serverName.ifBlank { existing?.name?.ifEmpty { host } ?: host },
+                            protocol = if (useHttps) "https" else "http",
+                            host = host, port = port, path = path,
+                            username = username, password = password,
                             backupProtocol = bd?.backupProtocol ?: "",
                             backupHost = bd?.backupHost ?: "",
                             backupPort = bd?.backupPort ?: "",
@@ -2231,7 +2134,7 @@ private fun ChangePasswordDialog(
                 ServerField("新密码", p1, isPassword = true) { p1 = it }
                 ServerField("确认新密码", p2, isPassword = true) { p2 = it }
                 if (error != null) {
-                    Text(error!!, color = Color(0xFFFF3B30), fontSize = GomeText.Secondary)
+                    Text(error!!, color = Color(0xFFFF3B30), fontSize = 13.sp)
                 }
             }
         },
@@ -2272,7 +2175,7 @@ private fun SetPinDialog(
                 PinField("设置 PIN（4-8 位数字）", pin1) { pin1 = it.filter { c -> c.isDigit() }.take(8) }
                 PinField("再次输入确认", pin2) { pin2 = it.filter { c -> c.isDigit() }.take(8) }
                 if (error != null) {
-                    Text(error!!, color = Color(0xFFFF3B30), fontSize = GomeText.Secondary)
+                    Text(error!!, color = Color(0xFFFF3B30), fontSize = 13.sp)
                 }
             }
         },
@@ -2312,7 +2215,7 @@ private fun VerifyPinDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 PinField("4-8 位数字", pin) { pin = it.filter { c -> c.isDigit() }.take(8) }
                 if (error != null) {
-                    Text(error!!, color = Color(0xFFFF3B30), fontSize = GomeText.Secondary)
+                    Text(error!!, color = Color(0xFFFF3B30), fontSize = 13.sp)
                 }
             }
         },
@@ -2362,11 +2265,11 @@ private fun ServerSelectorDialog(
         title = { Text("选择服务器") },
         text = {
             Column {
-                // 当前服务器选项（之前叫“聚合搜索”，实际只搜当前服务器，是假分支，已改名）
+                // 聚合搜索选项
                 ServerOptionRow(
-                    name = "当前服务器",
+                    name = "聚合搜索",
                     isSelected = currentKey.isEmpty(),
-                    onClick = { onSelected("当前服务器", "") }
+                    onClick = { onSelected("聚合搜索", "") }
                 )
                 androidx.compose.material3.Divider(color = Color(0xFFEFEFF4))
                 // 各服务器
@@ -2408,12 +2311,12 @@ private fun ServerOptionRow(
     ) {
         Text(
             name,
-            fontSize = GomeText.Title,
+            fontSize = 16.sp,
             color = Color(0xFF1A1A1A),
             modifier = Modifier.weight(1f)
         )
         if (isSelected) {
-            Text("✓", fontSize = GomeText.Title, color = GomeTheme.Accent)
+            Text("✓", fontSize = 18.sp, color = Color(0xFF2F6FED))
         }
     }
 }
@@ -2440,7 +2343,7 @@ private fun DeleteServerDialog(
                                 .clickable { onDelete(server) }
                                 .padding(vertical = 12.dp)
                         ) {
-                            Text(displayName, fontSize = GomeText.Title, color = Color(0xFF1A1A1A))
+                            Text(displayName, fontSize = 16.sp, color = Color(0xFF1A1A1A))
                         }
                         if (server != servers.last()) {
                             androidx.compose.material3.Divider(color = Color(0xFFEFEFF4))
@@ -2458,24 +2361,12 @@ private fun DeleteServerDialog(
 
 @Composable
 private fun ServerField(label: String, value: String, isPassword: Boolean = false, onChange: (String) -> Unit) {
-    // 密码框可见切换：之前密码只能密文，输错看不见
-    var passwordVisible by remember { mutableStateOf(false) }
     androidx.compose.material3.OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
-        visualTransformation = if (isPassword && !passwordVisible) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        trailingIcon = if (isPassword) {
-            {
-                Text(
-                    if (passwordVisible) "隐藏" else "显示",
-                    fontSize = GomeText.Secondary,
-                    color = GomeTheme.Accent,
-                    modifier = Modifier.clickable { passwordVisible = !passwordVisible }.padding(8.dp)
-                )
-            }
-        } else null,
+        visualTransformation = if (isPassword) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth()
     )
 }
@@ -2487,8 +2378,6 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
     var results by remember { mutableStateOf<List<UiMediaItem>?>(null) }
     var searching by remember { mutableStateOf(false) }
     var searchKey by remember { mutableStateOf(0) }
-    // 搜索失败与“0 个结果”区分：失败时显示错误 + 重试，不再谎报“找到 0 个结果”
-    var searchError by remember { mutableStateOf<String?>(null) }
     // 搜索历史（持久化）
     var history by remember { mutableStateOf(Prefs.getSearchHistory()) }
     // 服务器选择弹窗状态
@@ -2498,10 +2387,8 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
     LaunchedEffect(searchKey) {
         if (searchKey == 0) return@LaunchedEffect
         val q = query
-        searchError = null
         if (q.isBlank()) {
-            // 空查询回到历史，不再显示“找到 0 个结果”
-            results = null
+            results = emptyList()
             searching = false
             return@LaunchedEffect
         }
@@ -2513,15 +2400,14 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
             history = Prefs.getSearchHistory()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
-            results = null
-            searchError = e.message ?: "搜索失败"
+        } catch (_: Exception) {
+            results = emptyList()
         }
         searching = false
     }
 
     Column(Modifier.fillMaxSize().background(Color.White)) {
-        // 服务器选择（当前服务器）：药丸框（对齐 Android bg_pill：#F0F0F0，20dp 圆角）
+        // 服务器选择（聚合搜索）：药丸框（对齐 Android bg_pill：#F0F0F0，20dp 圆角）
         // 顶部留出统一透明标题栏高度
         Row(
             modifier = Modifier.fillMaxWidth()
@@ -2530,7 +2416,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
         ) {
             Text(
                 serverName,
-                fontSize = GomeText.Body,
+                fontSize = 15.sp,
                 color = GomeTheme.TextPrimary,
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
@@ -2576,47 +2462,33 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                     onSearch = { searchKey++ }
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    fontSize = GomeText.Title,
+                    fontSize = 16.sp,
                     color = Color(0xFF1A1A1A)
                 ),
                 modifier = Modifier.weight(1f).height(48.dp),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (query.isEmpty()) {
-                            Text("搜索电影、剧集、演员", fontSize = GomeText.Title, color = Color(0xFFAAAAAA))
+                            Text("搜索电影、剧集、演员", fontSize = 16.sp, color = Color(0xFFAAAAAA))
                         }
                         inner()
                     }
                 }
             )
-            // 清除按钮：40dp（对齐 Android btnClear），有文字时显示；
-            // 清除时连结果与错误一起清，回到历史（之前只清输入，旧结果残留）
+            // 清除按钮：40dp（对齐 Android btnClear），有文字时显示
             if (query.isNotEmpty()) {
                 Box(
                     modifier = Modifier.size(40.dp)
-                        .clickable { query = ""; results = null; searchError = null },
+                        .clickable { query = "" },
                     contentAlignment = Alignment.Center
                 ) {
                     CloseIcon(iconSize = 24.dp, tint = Color(0xFF8A8A8A))
                 }
             }
         }
-        // 可见的“搜索”按钮：之前只靠 IME/回车触发，无可见按钮
-        androidx.compose.material3.Button(
-            onClick = { searchKey++ },
-            enabled = query.isNotBlank() && !searching,
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                containerColor = GomeTheme.Accent
-            )
-        ) {
-            Text(if (searching) "搜索中…" else "搜索", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
-        }
         Spacer(Modifier.height(8.dp))
         when {
             searching -> LoadingBox(Modifier.weight(1f))
-            searchError != null -> ErrorBox(searchError!!, onRetry = { searchKey++ }, Modifier.weight(1f))
             results == null -> {
                 // 搜索历史
                 if (history.isNotEmpty()) {
@@ -2631,7 +2503,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                         ) {
                             Text(
                                 "搜索历史",
-                                fontSize = GomeText.Body,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = GomeTheme.TextPrimary,
                                 modifier = Modifier.weight(1f)
@@ -2656,40 +2528,26 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             history.forEach { h ->
-                                // 历史标签 + 单条删除 ×（之前只能清空全部）
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
+                                Text(
+                                    h,
+                                    fontSize = 13.sp,
+                                    color = GomeTheme.TextPrimary,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(16.dp))
                                         .background(Color(0xFFF2F4F8))
-                                        .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)
-                                ) {
-                                    Text(
-                                        h,
-                                        fontSize = GomeText.Secondary,
-                                        color = GomeTheme.TextPrimary,
-                                        modifier = Modifier.clickable {
+                                        .clickable {
                                             query = h
                                             searchKey++
                                         }
-                                    )
-                                    Text(
-                                        "×",
-                                        fontSize = GomeText.Body,
-                                        color = Color(0xFF8A8A8A),
-                                        modifier = Modifier.clickable {
-                                            Prefs.removeSearchHistoryItem(h)
-                                            history = Prefs.getSearchHistory()
-                                        }.padding(start = 6.dp, end = 4.dp)
-                                    )
-                                }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
                             }
                         }
                     }
                 } else {
                     // 空态（对齐 Android："输入关键词开始搜索" 15sp #AAAAAA 居中）
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        Text("输入关键词开始搜索", fontSize = GomeText.Body, color = Color(0xFFAAAAAA))
+                        Text("输入关键词开始搜索", fontSize = 15.sp, color = Color(0xFFAAAAAA))
                     }
                 }
             }
@@ -2697,7 +2555,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                 // 结果数：13sp #8A8A8A（对齐 Android：marginStart 20dp）
                 Text(
                     "找到 ${results!!.size} 个结果",
-                    fontSize = GomeText.Secondary,
+                    fontSize = 13.sp,
                     color = Color(0xFF8A8A8A),
                     modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp)
                 )
@@ -2722,17 +2580,15 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
 fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
     var items by remember { mutableStateOf<List<UiMediaItem>?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
-    var favError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(reloadKey) {
         items = null
-        favError = null
         try {
             items = Repo.favorites()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
-            favError = e.message ?: "加载失败"
+        } catch (_: Exception) {
+            items = emptyList()
         }
     }
 
@@ -2748,38 +2604,17 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
             Column(Modifier.fillMaxSize().padding(12.dp)) {
-                // 标题 + 计数 + 刷新：之前无标题/计数/刷新入口
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                ) {
-                    Text(
-                        "收藏" + if (items != null) "（${items!!.size}）" else "",
-                        fontSize = GomeText.Title,
-                        fontWeight = FontWeight.Bold,
-                        color = GomeTheme.TextPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "刷新",
-                        fontSize = GomeText.Secondary,
-                        color = GomeTheme.Accent,
-                        modifier = Modifier.clickable { reloadKey++ }.padding(8.dp)
-                    )
-                }
                 val list = items
                 when {
-                    favError != null -> ErrorBox(favError!!, onRetry = { reloadKey++ }, Modifier.weight(1f))
                     list == null -> LoadingBox(Modifier.weight(1f))
                     list.isEmpty() -> {
                         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("暂无收藏", fontSize = GomeText.Body, color = Color(0xFFAAAAAA))
+                            Text("暂无收藏", fontSize = 15.sp, color = Color(0xFFAAAAAA))
                         }
                     }
                     else -> {
                         LazyVerticalGrid(
-                            // 自适应列宽：之前 Fixed(5) 在窄卡片里溢出
-                            columns = GridCells.Adaptive(130.dp),
+                            columns = GridCells.Fixed(5),
                             contentPadding = PaddingValues(bottom = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -2811,14 +2646,12 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
     var results by remember { mutableStateOf<List<UiMediaItem>?>(null) }
     var searching by remember { mutableStateOf(false) }
     var searchKey by remember { mutableStateOf(0) }
-    var searchError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(searchKey) {
         if (searchKey == 0) return@LaunchedEffect
         val q = query
-        searchError = null
         if (q.isBlank()) {
-            results = null
+            results = emptyList()
             searching = false
             return@LaunchedEffect
         }
@@ -2827,9 +2660,8 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
             results = Repo.search(q)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
-            results = null
-            searchError = e.message ?: "搜索失败"
+        } catch (_: Exception) {
+            results = emptyList()
         }
         searching = false
     }
@@ -2856,14 +2688,14 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
                     onSearch = { searchKey++ }
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    fontSize = GomeText.Body,
+                    fontSize = 14.sp,
                     color = Color(0xFF1A1A1A)
                 ),
                 modifier = Modifier.weight(1f).height(40.dp),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (query.isEmpty()) {
-                            Text("搜索", fontSize = GomeText.Body, color = Color(0xFFAAAAAA))
+                            Text("搜索", fontSize = 14.sp, color = Color(0xFFAAAAAA))
                         }
                         inner()
                     }
@@ -2872,37 +2704,24 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
             if (query.isNotEmpty()) {
                 Box(
                     modifier = Modifier.size(32.dp)
-                        .clickable { query = ""; results = null; searchError = null },
+                        .clickable { query = "" },
                     contentAlignment = Alignment.Center
                 ) {
                     CloseIcon(iconSize = 20.dp, tint = Color(0xFF8A8A8A))
                 }
             }
         }
-        // 可见的“搜索”按钮（与搜索页一致，之前只靠 IME/回车）
-        androidx.compose.material3.Button(
-            onClick = { searchKey++ },
-            enabled = query.isNotBlank() && !searching,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            shape = RoundedCornerShape(20.dp),
-            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                containerColor = GomeTheme.Accent
-            )
-        ) {
-            Text(if (searching) "搜索中…" else "搜索", color = Color.White, fontSize = GomeText.Secondary)
-        }
         Spacer(Modifier.height(8.dp))
         when {
             searching -> LoadingBox(Modifier.weight(1f))
-            searchError != null -> ErrorBox(searchError!!, onRetry = { searchKey++ }, Modifier.weight(1f))
             results == null -> {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("输入关键词搜索", fontSize = GomeText.Body, color = Color(0xFFAAAAAA))
+                    Text("输入关键词搜索", fontSize = 14.sp, color = Color(0xFFAAAAAA))
                 }
             }
             results!!.isEmpty() -> {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("无结果", fontSize = GomeText.Body, color = Color(0xFFAAAAAA))
+                    Text("无结果", fontSize = 14.sp, color = Color(0xFFAAAAAA))
                 }
             }
             else -> {
@@ -2927,20 +2746,18 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
 fun SettingsScreen(
     onLogout: () -> Unit = {},
     onToggleDemo: (Boolean) -> Unit = {},
-    onServerSelected: () -> Unit = {},
-    demoMode: Boolean = false
+    onServerSelected: () -> Unit = {}
 ) {
     val prefs = com.muse.gomepc.emby.Prefs
     // 弹窗状态
     var showDecodeDialog by remember { mutableStateOf(false) }
     var showCacheDialog by remember { mutableStateOf(false) }
     var showDanmakuDialog by remember { mutableStateOf(false) }
+    var showDockDialog by remember { mutableStateOf(false) }
     var showAnimationDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     // 刷新触发
     var refreshTick by remember { mutableStateOf(0) }
-    // 清缓存 / 检查更新的操作反馈
-    var settingsMsg by remember { mutableStateOf<String?>(null) }
 
     fun decodeLabel(): String = when (prefs.decodeMode) {
         "mediacodec-copy" -> "HW+"
@@ -2957,6 +2774,7 @@ fun SettingsScreen(
             else -> "${srcs.count { it.enabled }} / ${srcs.size} 源"
         }
     }
+    fun dockLabel(): String = if (prefs.dockStyle == 0) "M玻璃" else "原玻璃"
     fun animLabel(): String = when (prefs.flybackMode) {
         0 -> "严格"
         2 -> "宽松"
@@ -2993,6 +2811,19 @@ fun SettingsScreen(
             onConfirm = { refreshTick++ ; showDanmakuDialog = false }
         )
     }
+    if (showDockDialog) {
+        SettingSingleChoiceDialog(
+            title = "dock",
+            options = listOf("M玻璃", "原玻璃"),
+            selected = prefs.dockStyle,
+            onSelect = {
+                prefs.dockStyle = it
+                refreshTick++
+                showDockDialog = false
+            },
+            onDismiss = { showDockDialog = false }
+        )
+    }
     if (showAnimationDialog) {
         SettingAnimationDialog(
             onDismiss = { showAnimationDialog = false },
@@ -3016,7 +2847,7 @@ fun SettingsScreen(
         ) {
             Text(
                 "设置",
-                fontSize = GomeText.PageTitle,
+                fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black,
                 modifier = Modifier.padding(bottom = 10.dp, start = 10.dp)
@@ -3039,7 +2870,7 @@ fun SettingsScreen(
                     ) {
                         Text(
                             s,
-                            fontSize = GomeText.Title,
+                            fontSize = 19.sp,
                             fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
                             color = if (sel) Color(0xFF172029) else Color(0xFF52606A)
                         )
@@ -3099,6 +2930,14 @@ fun SettingsScreen(
         item {
             SettingCard {
                 SettingRowVector(
+                    label = "dock",
+                    iconBg = Color(0xFF5AC8FA),
+                    paths = SETTING_ICON_DOCK,
+                    value = dockLabel(),
+                    showDivider = true,
+                    onClick = { showDockDialog = true }
+                )
+                SettingRowVector(
                     label = "动画",
                     iconBg = Color(0xFFAF52DE),
                     paths = SETTING_ICON_ANIM,
@@ -3113,33 +2952,9 @@ fun SettingsScreen(
                     item { SettingGroupTitle("字幕") }
                     item {
                         SettingCard {
-                            // 字幕 tab 不再是占位文案：播放器字幕说明 + 弹幕样式入口（真实可改的设置）
-                            SettingRowVector(
-                                label = "播放器字幕",
-                                iconBg = GomeTheme.Accent,
-                                paths = null,
-                                iconText = "CC",
-                                value = "简中优先",
-                                showDivider = true,
-                                onClick = null
-                            )
-                            SettingRowVector(
-                                label = "弹幕样式",
-                                iconBg = Color(0xFF34C759),
-                                paths = SETTING_ICON_DANMAKU,
-                                value = danmakuLabel(),
-                                showDivider = false,
-                                onClick = { showDanmakuDialog = true }
-                            )
-                        }
-                    }
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(12.dp)) {
-                            Text(
-                                "播放器字幕由 mpv 自动选择简体中文；详情页点“字幕”可手动切换或关闭。",
-                                fontSize = GomeText.Secondary,
-                                color = Color(0xFF8E8E93)
-                            )
+                            Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                                Text("暂无字幕相关设置", fontSize = 15.sp, color = Color(0xFF8E8E93))
+                            }
                         }
                     }
                 }
@@ -3147,33 +2962,9 @@ fun SettingsScreen(
                     item { SettingGroupTitle("网络") }
                     item {
                         SettingCard {
-                            // 网络 tab 不再是占位文案：缓存设置 + 当前服务器（真实可改/可看）
-                            SettingRowVector(
-                                label = "缓存",
-                                iconBg = Color(0xFFFF9F0A),
-                                paths = SETTING_ICON_CACHE,
-                                value = cacheLabel(),
-                                showDivider = true,
-                                onClick = { showCacheDialog = true }
-                            )
-                            SettingRowVector(
-                                label = "当前服务器",
-                                iconBg = GomeTheme.Accent,
-                                paths = null,
-                                iconText = "S",
-                                value = Prefs.host.ifEmpty { "未连接" },
-                                showDivider = true,
-                                onClick = null
-                            )
-                            SettingRowVector(
-                                label = "服务器地址",
-                                iconBg = Color(0xFF8E8E93),
-                                paths = null,
-                                iconText = "U",
-                                value = Prefs.baseUrl().ifEmpty { "未配置" },
-                                showDivider = false,
-                                onClick = null
-                            )
+                            Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                                Text("暂无网络相关设置", fontSize = 15.sp, color = Color(0xFF8E8E93))
+                            }
                         }
                     }
                 }
@@ -3188,64 +2979,8 @@ fun SettingsScreen(
                     paths = null,
                     iconText = "i",
                     value = AppVersion.DISPLAY,
-                    showDivider = true,
-                    onClick = { showAboutDialog = true }
-                )
-                // 检查更新：打开 GitHub Releases（之前无检查更新入口）
-                SettingRowVector(
-                    label = "检查更新",
-                    iconBg = GomeTheme.Accent,
-                    paths = null,
-                    iconText = "↻",
-                    value = "查看最新版本",
-                    showDivider = true,
-                    onClick = {
-                        try {
-                            java.awt.Desktop.getDesktop().browse(
-                                java.net.URI("https://github.com/ShanScs/Gome-win/releases")
-                            )
-                            settingsMsg = "已打开更新页面"
-                        } catch (e: Exception) {
-                            settingsMsg = "无法打开浏览器，当前版本 ${AppVersion.DISPLAY}"
-                        }
-                        refreshTick++
-                    }
-                )
-                // 清除缓存：清 Repo 内存缓存 + 磁盘首页缓存 + 图片缓存（之前无清缓存入口）
-                SettingRowVector(
-                    label = "清除缓存",
-                    iconBg = Color(0xFFFF9F0A),
-                    paths = null,
-                    iconText = "⌫",
-                    value = settingsMsg ?: "点击清除",
-                    showDivider = true,
-                    onClick = {
-                        Repo.clearAllCaches()
-                        HomeDiskCache.clear(Prefs.currentServerKey())
-                        EmbyImageLoader.clear()
-                        settingsMsg = "已清除"
-                        refreshTick++
-                    }
-                )
-                // 演示模式开关：之前 onToggleDemo 是死参，无入口
-                SettingRowVector(
-                    label = "演示模式",
-                    iconBg = Color(0xFF34C759),
-                    paths = null,
-                    iconText = "▶",
-                    value = if (demoMode) "开" else "关",
-                    showDivider = true,
-                    onClick = { onToggleDemo(!demoMode) }
-                )
-                // 退出登录：之前 onLogout 是死参，无入口
-                SettingRowVector(
-                    label = "退出登录",
-                    iconBg = Color(0xFFFF3B30),
-                    paths = null,
-                    iconText = "↩",
-                    value = null,
                     showDivider = false,
-                    onClick = { onLogout() }
+                    onClick = { showAboutDialog = true }
                 )
             }
         }
@@ -3266,6 +3001,9 @@ private val SETTING_ICON_CACHE = listOf(
 )
 private val SETTING_ICON_DANMAKU = listOf(
     "M4,4h16c1.1,0 2,0.9 2,2v10c0,1.1 -0.9,2 -2,2H8l-4,4V6c0,-1.1 0.9,-2 2,-2z"
+)
+private val SETTING_ICON_DOCK = listOf(
+    "M12,17.27L18.18,21l-1.64,-7.03L22,9.24l-7.19,-0.61L12,2 9.19,8.63 2,9.24l5.46,4.73L5.82,21z"
 )
 private val SETTING_ICON_ANIM = listOf(
     "M12,3c5.5,0 10,4.5 10,10c0,1.5 -1.2,2.7 -2.7,2.7h-2.1c-0.8,0 -1.5,0.7 -1.5,1.5c0,0.8 -0.7,1.5 -1.5,1.5H12c-5.5,0 -10,-4.5 -10,-10S6.5,3 12,3zM7.5,8.5c-0.8,0 -1.5,0.7 -1.5,1.5s0.7,1.5 1.5,1.5s1.5,-0.7 1.5,-1.5s-0.7,-1.5 -1.5,-1.5zM10,6c-0.8,0 -1.5,0.7 -1.5,1.5S9.2,9 10,9s1.5,-0.7 1.5,-1.5S10.8,6 10,6zM14,6c-0.8,0 -1.5,0.7 -1.5,1.5S13.2,9 14,9s1.5,-0.7 1.5,-1.5S14.8,6 14,6zM16.5,8.5c-0.8,0 -1.5,0.7 -1.5,1.5s0.7,1.5 1.5,1.5s1.5,-0.7 1.5,-1.5s-0.7,-1.5 -1.5,-1.5z"
@@ -3298,23 +3036,23 @@ private fun SettingRowVector(
                 if (paths != null) {
                     SettingVectorIcon(paths = paths, tint = Color.White, modifier = Modifier.size(24.dp))
                 } else {
-                    Text(iconText ?: "", fontSize = GomeText.Glyph, color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(iconText ?: "", fontSize = 20.sp, color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.width(16.dp))
             Text(
                 label,
-                fontSize = GomeText.Section,
+                fontSize = 20.sp,
                 color = Color.Black,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             if (value != null) {
-                Text(value, fontSize = GomeText.Title, color = Color(0xFF8E8E93))
+                Text(value, fontSize = 19.sp, color = Color(0xFF8E8E93))
                 Spacer(Modifier.width(6.dp))
             }
-            Text("›", fontSize = GomeText.Glyph, color = Color(0xFFC7C7CC))
+            Text("›", fontSize = 28.sp, color = Color(0xFFC7C7CC))
         }
         if (showDivider) {
             Box(
@@ -3372,7 +3110,7 @@ private fun SettingSingleChoiceDialog(
 ) {
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(280.dp)) {
-            Text(title, fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color.Black,
+            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
             options.forEachIndexed { i, opt ->
                 Row(
@@ -3386,7 +3124,7 @@ private fun SettingSingleChoiceDialog(
                         onClick = { onSelect(i) }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(opt, fontSize = GomeText.Title, color = Color.Black)
+                    Text(opt, fontSize = 16.sp, color = Color.Black)
                 }
                 if (i < options.size - 1) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
@@ -3394,7 +3132,7 @@ private fun SettingSingleChoiceDialog(
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("取消", fontSize = GomeText.Title, color = GomeTheme.Accent,
+                Text("取消", fontSize = 16.sp, color = Color(0xFF2F6FED),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
             }
         }
@@ -3412,17 +3150,17 @@ private fun SettingCacheDialog(
     var size by remember { mutableStateOf(prefs.cacheSizeGb) }
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(300.dp)) {
-            Text("缓存", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color.Black,
+            Text("缓存", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
             Row(
                 Modifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("启用缓存", fontSize = GomeText.Title, color = Color.Black, modifier = Modifier.weight(1f))
+                Text("启用缓存", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
                 androidx.compose.material3.Switch(checked = enabled, onCheckedChange = { enabled = it })
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
-            Text("缓存大小", fontSize = GomeText.Body, color = Color(0xFF8E8E93),
+            Text("缓存大小", fontSize = 14.sp, color = Color(0xFF8E8E93),
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf(1, 2, 3).forEach { s ->
@@ -3431,19 +3169,19 @@ private fun SettingCacheDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         androidx.compose.material3.RadioButton(selected = size == s, onClick = { size = s })
-                        Text("${s}G", fontSize = GomeText.Title, color = Color.Black)
+                        Text("${s}G", fontSize = 16.sp, color = Color.Black)
                     }
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("切换后重新加载生效", fontSize = GomeText.Caption, color = Color(0xFF8E8E93),
+            Text("切换后重新加载生效", fontSize = 12.sp, color = Color(0xFF8E8E93),
                 modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("取消", fontSize = GomeText.Title, color = Color(0xFF8E8E93),
+                Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("确定", fontSize = GomeText.Title, color = GomeTheme.Accent,
+                Text("确定", fontSize = 16.sp, color = Color(0xFF2F6FED),
                     modifier = Modifier.clickable {
                         prefs.cacheEnabled = enabled
                         prefs.cacheSizeGb = size
@@ -3478,10 +3216,10 @@ private fun SettingDanmakuDialog(
     if (showAddDialog) {
         MaoDiDialog(onDismiss = { showAddDialog = false; addError = null }) {
             Column(Modifier.width(300.dp)) {
-                Text("添加弹幕源", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color.Black,
+                Text("添加弹幕源", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
                 Text("dandanplay 兼容的 API 地址（如自建 danmu_api）",
-                    fontSize = GomeText.Secondary, color = Color(0xFF8E8E93),
+                    fontSize = 13.sp, color = Color(0xFF8E8E93),
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
                 androidx.compose.material3.OutlinedTextField(
                     value = addText,
@@ -3491,17 +3229,17 @@ private fun SettingDanmakuDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (addError != null) {
-                    Text(addError!!, fontSize = GomeText.Secondary, color = Color(0xFFFF3B30),
+                    Text(addError!!, fontSize = 13.sp, color = Color(0xFFFF3B30),
                         modifier = Modifier.padding(top = 4.dp))
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Text("取消", fontSize = GomeText.Title, color = Color(0xFF8E8E93),
+                    Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
                         modifier = Modifier.clickable {
                             showAddDialog = false; addError = null
                         }.padding(8.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("添加", fontSize = GomeText.Title, color = GomeTheme.Accent,
+                    Text("添加", fontSize = 16.sp, color = Color(0xFF2F6FED),
                         modifier = Modifier.clickable {
                             val ok = prefs.addDanmakuSource(addText)
                             if (ok) {
@@ -3519,14 +3257,14 @@ private fun SettingDanmakuDialog(
 
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(340.dp)) {
-            Text("弹幕源（dandanplay 兼容）", fontSize = GomeText.Title, fontWeight = FontWeight.Bold,
+            Text("弹幕源（dandanplay 兼容）", fontSize = 18.sp, fontWeight = FontWeight.Bold,
                 color = Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
             Row(
                 Modifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("启用弹幕", fontSize = GomeText.Title, color = Color.Black, modifier = Modifier.weight(1f))
+                Text("启用弹幕", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
                 androidx.compose.material3.Switch(
                     checked = enabled,
                     onCheckedChange = {
@@ -3557,12 +3295,12 @@ private fun SettingDanmakuDialog(
                         )
                         Text(
                             s.url,
-                            fontSize = GomeText.Body,
+                            fontSize = 14.sp,
                             color = Color.Black,
                             modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                             maxLines = 2
                         )
-                        Text("删除", fontSize = GomeText.Body, color = Color(0xFFFF3B30),
+                        Text("删除", fontSize = 14.sp, color = Color(0xFFFF3B30),
                             modifier = Modifier.clickable {
                                 persistSources(sources.filter { it.url != s.url })
                             }.padding(8.dp))
@@ -3574,17 +3312,17 @@ private fun SettingDanmakuDialog(
             }
             if (sources.isEmpty()) {
                 Text("暂无弹幕源，点击下方添加",
-                    fontSize = GomeText.Body, color = Color(0xFF8E8E93),
+                    fontSize = 14.sp, color = Color(0xFF8E8E93),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
-            Text("＋ 添加弹幕源", fontSize = GomeText.Title, color = GomeTheme.Accent,
+            Text("＋ 添加弹幕源", fontSize = 16.sp, color = Color(0xFF2F6FED),
                 modifier = Modifier.fillMaxWidth().clickable { showAddDialog = true }
                     .padding(vertical = 14.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("关闭", fontSize = GomeText.Title, color = GomeTheme.Accent,
+                Text("关闭", fontSize = 16.sp, color = Color(0xFF2F6FED),
                     modifier = Modifier.clickable { onConfirm() }.padding(8.dp))
             }
         }
@@ -3604,12 +3342,12 @@ private fun SettingAnimationDialog(
         Column(Modifier.width(320.dp)) {
             // 标题居中
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("动画", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text("动画", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
             }
             Spacer(Modifier.height(12.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
             Spacer(Modifier.height(12.dp))
-            Text("飞回动画", fontSize = GomeText.Body, color = Color(0xFF8E8E93))
+            Text("飞回动画", fontSize = 14.sp, color = Color(0xFF8E8E93))
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf(0 to "严格", 1 to "标准", 2 to "宽松").forEach { (v, label) ->
@@ -3620,13 +3358,13 @@ private fun SettingAnimationDialog(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         androidx.compose.material3.RadioButton(selected = flyback == v, onClick = { flyback = v })
-                        Text(label, fontSize = GomeText.Title, color = Color.Black)
+                        Text(label, fontSize = 16.sp, color = Color.Black)
                     }
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
             Spacer(Modifier.height(12.dp))
-            Text("缩放动画", fontSize = GomeText.Body, color = Color(0xFF8E8E93))
+            Text("缩放动画", fontSize = 14.sp, color = Color(0xFF8E8E93))
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf(1 to "1倍", 2 to "2倍", 3 to "3倍").forEach { (v, label) ->
@@ -3637,17 +3375,17 @@ private fun SettingAnimationDialog(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         androidx.compose.material3.RadioButton(selected = zoom == v, onClick = { zoom = v })
-                        Text(label, fontSize = GomeText.Title, color = Color.Black)
+                        Text(label, fontSize = 16.sp, color = Color.Black)
                     }
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("取消", fontSize = GomeText.Title, color = Color(0xFF8E8E93),
+                Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("确定", fontSize = GomeText.Title, color = GomeTheme.Accent,
+                Text("确定", fontSize = 16.sp, color = Color(0xFF2F6FED),
                     modifier = Modifier.clickable {
                         prefs.flybackMode = flyback
                         prefs.zoomSpeed = zoom
@@ -3663,14 +3401,14 @@ private fun SettingAnimationDialog(
 private fun SettingAboutDialog(onDismiss: () -> Unit) {
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(280.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("关于", fontSize = GomeText.Title, fontWeight = FontWeight.Bold, color = Color.Black,
+            Text("关于", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
                 modifier = Modifier.padding(bottom = 12.dp))
             Text(
                 "Gome ${AppVersion.DISPLAY}\nYamby 风格 Emby 客户端（MPV 内核）",
-                fontSize = GomeText.Body, color = Color(0xFF8E8E93),
+                fontSize = 14.sp, color = Color(0xFF8E8E93),
             )
             Spacer(Modifier.height(16.dp))
-            Text("确定", fontSize = GomeText.Title, color = GomeTheme.Accent,
+            Text("确定", fontSize = 16.sp, color = Color(0xFF2F6FED),
                 modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
         }
     }
@@ -3680,7 +3418,7 @@ private fun SettingAboutDialog(onDismiss: () -> Unit) {
 private fun SettingGroupTitle(text: String) {
     Text(
         text,
-        fontSize = GomeText.Title,
+        fontSize = 17.sp,
         color = Color(0xFF8E8E93),
         modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, top = 10.dp)
     )
@@ -3725,12 +3463,12 @@ private fun SettingRowIcon(
                     .background(iconBg),
                 contentAlignment = Alignment.Center
             ) {
-                Text(iconText, fontSize = GomeText.Title, color = Color.White, fontWeight = FontWeight.Bold)
+                Text(iconText, fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.width(16.dp))
             Text(
                 label,
-                fontSize = GomeText.Section,
+                fontSize = 20.sp,
                 color = Color.Black,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
@@ -3745,12 +3483,12 @@ private fun SettingRowIcon(
                     )
                 }
                 value != null -> {
-                    Text(value, fontSize = GomeText.Body, color = Color(0xFF8A8A8A))
+                    Text(value, fontSize = 15.sp, color = Color(0xFF8A8A8A))
                     Spacer(Modifier.width(4.dp))
                 }
             }
             if (onClick != null || (onChange == null && trailing == null && value == null)) {
-                Text("›", fontSize = GomeText.Glyph, color = Color(0xFFC7C7CC))
+                Text("›", fontSize = 22.sp, color = Color(0xFFC7C7CC))
             }
         }
         if (showDivider) {
@@ -3770,7 +3508,7 @@ private fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> U
         Modifier.fillMaxWidth().clickable { onChange(!checked) },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = GomeText.Body, color = GomeTheme.TextPrimary)
+        Text(label, fontSize = 14.sp, color = GomeTheme.TextPrimary)
         Spacer(Modifier.weight(1f))
         androidx.compose.material3.Switch(checked = checked, onCheckedChange = onChange)
     }
@@ -3873,8 +3611,8 @@ private fun PosterCircleBtn(
         else -> "•"
     }
     val iconSize = when (desc) {
-        "字幕" -> GomeText.Title
-        else -> GomeText.Glyph
+        "字幕" -> 18.sp
+        else -> 26.sp
     }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -3891,7 +3629,7 @@ private fun PosterCircleBtn(
             Text(iconText, fontSize = iconSize, color = Color.White)
         }
         Spacer(Modifier.height(4.dp))
-        Text(desc, fontSize = GomeText.Caption, color = Color.White)
+        Text(desc, fontSize = 12.sp, color = Color.White)
     }
 }
 
@@ -3911,23 +3649,23 @@ private fun DetailSingleChoiceDialog(
         contentAlignment = Alignment.Center
     ) {
         Box(
-            Modifier.width(360.dp)
+            Modifier.fillMaxWidth(0.7f)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xF2FFFFFF))
                 .clickable(enabled = false, onClick = {})
-                .padding(vertical = 4.dp)
+                .padding(vertical = 8.dp)
         ) {
             Column {
                 Text(
                     title,
                     fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
                 names.forEachIndexed { idx, name ->
                     Row(
                         Modifier.fillMaxWidth().clickable { selected = idx; onSelect(idx) }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -3939,7 +3677,7 @@ private fun DetailSingleChoiceDialog(
                         }
                     }
                     if (idx < names.size - 1) {
-                        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(Color(0xFFEFEFF4)))
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(1.dp).background(Color(0xFFEFEFF4)))
                     }
                 }
             }
@@ -3982,7 +3720,7 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFFE0E0E0))
                 .then(
-                    if (isSelected) Modifier.border(3.dp, GomeTheme.Accent, RoundedCornerShape(12.dp))
+                    if (isSelected) Modifier.border(3.dp, Color(0xFF2F6FED), RoundedCornerShape(12.dp))
                     else Modifier
                 )
         ) {
@@ -3997,7 +3735,7 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
                         .size(24.dp).clip(CircleShape).background(Color(0xFF34C759)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("√", color = Color.White, fontSize = GomeText.Body, fontWeight = FontWeight.Bold)
+                    Text("√", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
             val dur = formatEpDuration(ep.runTicks)
@@ -4008,14 +3746,14 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
                         .background(Color(0xCC000000))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    Text(dur, color = Color.White, fontSize = GomeText.Tiny)
+                    Text(dur, color = Color.White, fontSize = 11.sp)
                 }
             }
             if (isCurrent) {
                 Box(
                     modifier = Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth().height(4.dp)
-                        .background(GomeTheme.Accent)
+                        .background(Color(0xFF2F6FED))
                 )
             }
             // 播放进度条（有进度且未看完时显示）
@@ -4026,14 +3764,14 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
                 Box(
                     modifier = Modifier.align(Alignment.BottomStart)
                         .fillMaxWidth(prog).height(4.dp)
-                        .background(GomeTheme.Accent)
+                        .background(Color(0xFF2F6FED))
                 )
             }
         }
         Spacer(Modifier.height(6.dp))
         Text(
             ep.name.ifBlank { "第${ep.index}集" },
-            fontSize = GomeText.Secondary,
+            fontSize = 13.sp,
             color = GomeTheme.TextPrimary,
             textAlign = TextAlign.Center,
             maxLines = 1,
@@ -4060,8 +3798,6 @@ fun DetailScreen(
     var seasonIdx by remember { mutableStateOf(0) }
     var seasonEps by remember { mutableStateOf<List<UiEpisode>?>(null) }
     var seasonLoading by remember { mutableStateOf(false) }
-    // 季切换失败提示：失败时保留旧季数据，不静默置空
-    var seasonError by remember { mutableStateOf<String?>(null) }
     var showSeasonMenu by remember { mutableStateOf(false) }
     // 5 功能按钮状态（1:1 安卓 DetailActivity）
     var isWatched by remember(itemId) { mutableStateOf(false) }
@@ -4074,8 +3810,6 @@ fun DetailScreen(
     var audioDialog by remember { mutableStateOf<Pair<List<String>, List<Int>>?>(null) }
     var subtitleDialog by remember { mutableStateOf<Pair<List<String>, List<Int>>?>(null) }
     var toastMsg by remember { mutableStateOf<String?>(null) }
-    // 版本/音轨/字幕弹窗加载态：点按钮后拉取 PlaybackInfo 期间给“加载中…”反馈，之前点完无反馈
-    var trackLoading by remember { mutableStateOf<String?>(null) }
     val detailScope = rememberCoroutineScope()
     // 选中的剧集索引（点击选集只选中加框，不进播放器；点播放按钮才进）
     var selectedEpIndex by remember(itemId) { mutableStateOf(0) }
@@ -4129,16 +3863,14 @@ fun DetailScreen(
                 if (seasonEps == null && seasonIdx == 0) return@LaunchedEffect
                 val s = seasons.getOrNull(seasonIdx) ?: return@LaunchedEffect
                 seasonLoading = true
-                seasonError = null
                 try {
                     seasonEps = Repo.seasonEpisodes(itemId, s.id)
                     // 切季重置选集索引：新季从第 1 集开始选，不沿用旧季的选中位置
                     selectedEpIndex = 0
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
-                } catch (e: Exception) {
-                    // 失败保留旧季数据 + 给提示，不再静默置空（旧季列表被清空、用户以为该季无集）
-                    seasonError = "切换季失败：${e.message?.take(60) ?: "未知错误"}"
+                } catch (_: Exception) {
+                    seasonEps = emptyList()
                 }
                 seasonLoading = false
             }
@@ -4193,7 +3925,7 @@ fun DetailScreen(
                             ) {
                                 Text(
                                     it.name,
-                                    fontSize = GomeText.Hero,
+                                    fontSize = 30.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
                                     maxLines = 1,
@@ -4260,7 +3992,6 @@ fun DetailScreen(
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
-                                            trackLoading = "正在加载版本…"
                                             try {
                                                 val json = YambyClient.getPlaybackInfoJson(tid)
                                                 val sources = json.optJSONArray("MediaSources")
@@ -4290,9 +4021,7 @@ fun DetailScreen(
                                                     ids.add(s.optString("Id", ""))
                                                 }
                                                 versionDialog = names to ids
-                                                trackLoading = null
                                             } catch (e: Exception) {
-                                                trackLoading = null
                                                 toastMsg = "获取版本失败"
                                             }
                                         }
@@ -4302,15 +4031,10 @@ fun DetailScreen(
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
-                                            trackLoading = "正在加载音轨…"
                                             try {
                                                 val json = YambyClient.getPlaybackInfoJson(tid)
                                                 val sources = json.optJSONArray("MediaSources")
-                                                if (sources == null || sources.length() == 0) {
-                                                    trackLoading = null
-                                                    toastMsg = "无音轨信息"
-                                                    return@launch
-                                                }
+                                                if (sources == null || sources.length() == 0) return@launch
                                                 var srcIdx = 0
                                                 if (selectedMediaSourceId.isNotEmpty()) {
                                                     for (i in 0 until sources.length()) {
@@ -4320,7 +4044,7 @@ fun DetailScreen(
                                                     }
                                                 }
                                                 val streams = sources.getJSONObject(srcIdx).optJSONArray("MediaStreams")
-                                                    ?: run { trackLoading = null; toastMsg = "无音轨信息"; return@launch }
+                                                    ?: return@launch
                                                 val names = mutableListOf<String>()
                                                 val idxs = mutableListOf<Int>()
                                                 for (i in 0 until streams.length()) {
@@ -4337,15 +4061,9 @@ fun DetailScreen(
                                                         names.add(label); idxs.add(ai)
                                                     }
                                                 }
-                                                if (names.isEmpty()) {
-                                                    trackLoading = null
-                                                    toastMsg = "无音轨信息"
-                                                    return@launch
-                                                }
+                                                if (names.isEmpty()) { toastMsg = "无音轨信息"; return@launch }
                                                 audioDialog = names to idxs
-                                                trackLoading = null
                                             } catch (e: Exception) {
-                                                trackLoading = null
                                                 toastMsg = "获取音轨失败"
                                             }
                                         }
@@ -4355,15 +4073,10 @@ fun DetailScreen(
                                         detailScope.launch {
                                             val tid = if (it.type == "Movie") it.id
                                             else eps.firstOrNull { e -> !e.played }?.id ?: eps.firstOrNull()?.id ?: it.id
-                                            trackLoading = "正在加载字幕…"
                                             try {
                                                 val json = YambyClient.getPlaybackInfoJson(tid)
                                                 val sources = json.optJSONArray("MediaSources")
-                                                if (sources == null || sources.length() == 0) {
-                                                    trackLoading = null
-                                                    toastMsg = "无字幕信息"
-                                                    return@launch
-                                                }
+                                                if (sources == null || sources.length() == 0) return@launch
                                                 var srcIdx = 0
                                                 if (selectedMediaSourceId.isNotEmpty()) {
                                                     for (i in 0 until sources.length()) {
@@ -4373,7 +4086,7 @@ fun DetailScreen(
                                                     }
                                                 }
                                                 val streams = sources.getJSONObject(srcIdx).optJSONArray("MediaStreams")
-                                                    ?: run { trackLoading = null; toastMsg = "无字幕信息"; return@launch }
+                                                    ?: return@launch
                                                 val names = mutableListOf("关闭字幕")
                                                 val idxs = mutableListOf(-1)
                                                 for (i in 0 until streams.length()) {
@@ -4388,15 +4101,9 @@ fun DetailScreen(
                                                         names.add(label); idxs.add(si)
                                                     }
                                                 }
-                                                if (names.size <= 1) {
-                                                    trackLoading = null
-                                                    toastMsg = "无字幕信息"
-                                                    return@launch
-                                                }
+                                                if (names.size <= 1) { toastMsg = "无字幕信息"; return@launch }
                                                 subtitleDialog = names to idxs
-                                                trackLoading = null
                                             } catch (e: Exception) {
-                                                trackLoading = null
                                                 toastMsg = "获取字幕失败"
                                             }
                                         }
@@ -4443,7 +4150,7 @@ fun DetailScreen(
                                             }
                                             Text(
                                                 if (p != null && p > 0f) "继续播放" else "▶ 播放",
-                                                fontSize = GomeText.Title,
+                                                fontSize = 16.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = GomeTheme.TextPrimary
                                             )
@@ -4454,7 +4161,7 @@ fun DetailScreen(
                                             Spacer(Modifier.height(4.dp))
                                             Text(
                                                 "第${selEp.index}集",
-                                                fontSize = GomeText.Caption,
+                                                fontSize = 12.sp,
                                                 color = Color(0xE6FFFFFF)
                                             )
                                         }
@@ -4467,7 +4174,7 @@ fun DetailScreen(
                                                 it.year.takeIf { s -> s.isNotEmpty() },
                                                 it.rating?.let { r -> "★$r" }
                                             ).joinToString(" · "),
-                                            fontSize = GomeText.Secondary,
+                                            fontSize = 13.sp,
                                             color = Color(0xE6FFFFFF),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -4476,7 +4183,7 @@ fun DetailScreen(
                                             Spacer(Modifier.height(4.dp))
                                             Text(
                                                 it.overview,
-                                                fontSize = GomeText.Secondary,
+                                                fontSize = 13.sp,
                                                 color = Color(0xB3FFFFFF),
                                                 lineHeight = 18.sp,
                                                 maxLines = 3,
@@ -4500,7 +4207,7 @@ fun DetailScreen(
                                 ) {
                                     Text(
                                         seasons.getOrNull(seasonIdx)?.name ?: "",
-                                        fontSize = GomeText.Title,
+                                        fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = GomeTheme.TextPrimary,
                                         modifier = Modifier.clickable { showSeasonMenu = true }
@@ -4513,11 +4220,11 @@ fun DetailScreen(
                                             .clickable { showSeasonMenu = true }
                                     )
                                     Spacer(Modifier.weight(1f))
-                                    Text("←", fontSize = GomeText.Title, color = Color(0xFF8A8A8A),
+                                    Text("←", fontSize = 16.sp, color = Color(0xFF8A8A8A),
                                         modifier = Modifier.clickable { if (seasonIdx > 0) seasonIdx-- }.padding(8.dp))
-                                    Text("→", fontSize = GomeText.Title, color = Color(0xFF8A8A8A),
+                                    Text("→", fontSize = 16.sp, color = Color(0xFF8A8A8A),
                                         modifier = Modifier.clickable { if (seasonIdx < seasons.size - 1) seasonIdx++ }.padding(8.dp))
-                                    Text("更多", fontSize = GomeText.Body, color = Color(0xFF8A8A8A),
+                                    Text("更多", fontSize = 14.sp, color = Color(0xFF8A8A8A),
                                         modifier = Modifier.clickable { showSeasonMenu = true }.padding(8.dp))
                                 }
                                 androidx.compose.material3.DropdownMenu(
@@ -4536,14 +4243,6 @@ fun DetailScreen(
                     }
                     // 集数横滑缩略图
                     item {
-                        if (seasonError != null) {
-                            Text(
-                                seasonError!!,
-                                fontSize = GomeText.Secondary,
-                                color = Color(0xFFE53935),
-                                modifier = Modifier.padding(start = 20.dp, top = 8.dp)
-                            )
-                        }
                         if (seasonLoading) {
                             Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = GomeTheme.Accent)
@@ -4569,14 +4268,6 @@ fun DetailScreen(
                                     }
                                 )
                             }
-                        } else {
-                            // 选集为空：之前无任何提示、无 else 分支
-                            Box(
-                                Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("暂无剧集", fontSize = GomeText.Body, color = Color(0xFF8A8A8A))
-                            }
                         }
                     }
                     // 演职人员
@@ -4584,7 +4275,7 @@ fun DetailScreen(
                         if (it.people.isNotEmpty()) {
                             Text(
                                 "演职人员",
-                                fontSize = GomeText.Title,
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = GomeTheme.TextPrimary,
                                 modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp)
@@ -4612,25 +4303,13 @@ fun DetailScreen(
                                         Spacer(Modifier.height(4.dp))
                                         Text(
                                             person.name,
-                                            fontSize = GomeText.Tiny,
+                                            fontSize = 11.sp,
                                             color = GomeTheme.TextPrimary,
                                             textAlign = TextAlign.Center,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.fillMaxWidth()
                                         )
-                                        // 演职人员显示 role（之前只显示名字，角色信息丢了）
-                                        if (person.role.isNotBlank()) {
-                                            Text(
-                                                person.role,
-                                                fontSize = GomeText.Micro,
-                                                color = GomeTheme.TextSecondary,
-                                                textAlign = TextAlign.Center,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
                                     }
                                 }
                             }
@@ -4646,18 +4325,12 @@ fun DetailScreen(
                                 .background(Color.White)
                                 .padding(20.dp)
                         ) {
-                            // 全文弹窗可滚动：之前长简介超出屏幕看不到，也滚不动
-                            Box(
-                                Modifier.heightIn(max = 480.dp)
-                                    .verticalScroll(rememberScrollState())
-                            ) {
-                                Text(
-                                    it.overview,
-                                    fontSize = GomeText.Body,
-                                    color = GomeTheme.TextPrimary,
-                                    lineHeight = 20.sp
-                                )
-                            }
+                            Text(
+                                it.overview,
+                                fontSize = 14.sp,
+                                color = GomeTheme.TextPrimary,
+                                lineHeight = 20.sp
+                            )
                         }
                     }
                 }
@@ -4710,17 +4383,6 @@ fun DetailScreen(
                         onDismiss = { subtitleDialog = null }
                     )
                 }
-                // 轨道加载提示（版本/音轨/字幕拉取中）
-                if (trackLoading != null) {
-                    Box(
-                        Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xCC000000))
-                            .padding(horizontal = 20.dp, vertical = 10.dp)
-                    ) {
-                        Text(trackLoading!!, fontSize = GomeText.Body, color = Color.White)
-                    }
-                }
                 // 轻提示（替代安卓 Toast）
                 toastMsg?.let { msg ->
                     LaunchedEffect(msg) {
@@ -4733,10 +4395,11 @@ fun DetailScreen(
                             .background(Color(0xCC000000))
                             .padding(horizontal = 20.dp, vertical = 10.dp)
                     ) {
-                        Text(msg, fontSize = GomeText.Body, color = Color.White)
+                        Text(msg, fontSize = 14.sp, color = Color.White)
                     }
                 }
             }
         }
     }
 }
+// force push

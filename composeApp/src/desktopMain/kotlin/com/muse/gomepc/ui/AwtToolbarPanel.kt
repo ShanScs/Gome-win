@@ -231,7 +231,7 @@ class AwtToolbarPanel(
                 action = { showDanmakuSettings() }
             )
         )
-        openPopup("danmaku", FrostedPopup(owner, anchor), rows, 260)
+        FrostedPopup(owner, anchor).show(rows, width = 260)
     }
 
     /** API 选择子菜单（1:1 Android：多源，每条可开关） */
@@ -273,7 +273,7 @@ class AwtToolbarPanel(
                 )
             )
         }
-        openPopup("danmakuApi", FrostedPopup(owner, anchor), rows, 300)
+        FrostedPopup(owner, anchor).show(rows, width = 300)
     }
 
     /** 添加弹幕源（1:1 Android） */
@@ -407,7 +407,7 @@ class AwtToolbarPanel(
     }
 
 
-    data class TrackInfo(val id: Int, val title: String, val lang: String, val forced: Boolean = false)
+    data class TrackInfo(val id: Int, val title: String, val lang: String)
 
     private fun getTracks(type: String): List<TrackInfo> {
         val result = mutableListOf<TrackInfo>()
@@ -419,80 +419,12 @@ class AwtToolbarPanel(
                 val id = player.getPropertyDouble("track-list/$i/id")?.toInt() ?: continue
                 val title = player.getPropertyString("track-list/$i/title") ?: ""
                 val lang = player.getPropertyString("track-list/$i/lang") ?: ""
-                val forced = player.getPropertyString("track-list/$i/forced") == "yes"
-                result.add(TrackInfo(id, title.ifEmpty { "$type $id" }, lang, forced))
+                result.add(TrackInfo(id, title.ifEmpty { "$type $id" }, lang))
             }
             result
         } catch (_: Exception) {
             result
         }
-    }
-
-    /**
-     * mpv 语言码 → 中文名。字幕/音轨菜单不用 mkv 里的原始 title 当标签：
-     * 有些 title 是韩文/日文等原文（如“한국어”），弹窗字体无对应字形会显示成“□□□”。
-     * 语言码能映射时一律用中文名；映射不到时才回落到原始 title。
-     */
-    private fun langDisplayName(lang: String): String? {
-        return when (lang.lowercase()) {
-            "zh-hans", "zh-cn", "zh-sg", "chi", "zho", "cmn" -> "中文（简体）"
-            "zh-hant", "zh-tw", "zh-hk", "zh-mo", "cht" -> "中文（繁體）"
-            "zh", "zh-unknown" -> "中文"
-            "yue" -> "粤语"
-            "en", "eng" -> "英语"
-            "ko", "kor" -> "韩语"
-            "ja", "jpn" -> "日语"
-            "fr", "fra", "fre" -> "法语"
-            "de", "deu", "ger" -> "德语"
-            "es", "spa" -> "西班牙语"
-            "it", "ita" -> "意大利语"
-            "ru", "rus" -> "俄语"
-            "pt", "por" -> "葡萄牙语"
-            "th", "tha" -> "泰语"
-            "vi", "vie" -> "越南语"
-            "ar", "ara" -> "阿拉伯语"
-            "hi", "hin" -> "印地语"
-            "id", "ind" -> "印度尼西亚语"
-            "ms", "msa" -> "马来语"
-            "nl", "nld", "dut" -> "荷兰语"
-            "pl", "pol" -> "波兰语"
-            "tr", "tur" -> "土耳其语"
-            "uk", "ukr" -> "乌克兰语"
-            "sv", "swe" -> "瑞典语"
-            "da", "dan" -> "丹麦语"
-            "fi", "fin" -> "芬兰语"
-            "nb", "nob", "nn", "nno", "nor" -> "挪威语"
-            "cs", "ces", "cze" -> "捷克语"
-            "hu", "hun" -> "匈牙利语"
-            "el", "ell", "gre" -> "希腊语"
-            "he", "heb" -> "希伯来语"
-            "la", "lat" -> "拉丁语"
-            else -> null
-        }
-    }
-
-    /**
-     * 轨道菜单标签：语言码映射的中文名优先（避开韩文/日文原文显示成方框）；
-     * 映射不到时用原始 title。Forced 軌追加“ [Forced]”以区分同名轨道
-     * （之前只用 title，普通版和 Forced 版都显示成“中文（繁體）”，看起来重复）。
-     * title 里的 [...] 附加信息（如 [SDH]）保留（[Forced] 除外，走 forced 字段统一追加）。
-     */
-    private fun trackLabel(t: TrackInfo): String {
-        val mapped = langDisplayName(t.lang)
-        val base = mapped ?: t.title.ifEmpty { "轨道 ${t.id}" }
-        val sb = StringBuilder(base)
-        if (mapped == null) {
-            // 未映射：title 是唯一信息源，补上语言码（如果 title 里还没有）
-            if (t.lang.isNotEmpty() && !base.contains("(${t.lang})")) sb.append(" (${t.lang})")
-        } else {
-            // 已映射：title 里的 [...] 附加信息保留（如 [SDH]），[Forced] 由 forced 字段统一处理
-            Regex("\\[[^\\]]*\\]").findAll(t.title).forEach { m ->
-                val seg = m.value
-                if (!seg.equals("[Forced]", ignoreCase = true) && !sb.contains(seg)) sb.append(" ").append(seg)
-            }
-        }
-        if (t.forced) sb.append(" [Forced]")
-        return sb.toString()
     }
 
     init {
@@ -542,7 +474,7 @@ class AwtToolbarPanel(
         }
 
         // 中：标题 20sp 白加粗居中，maxWidth 280dp，阴影
-        titleLabel = ShadowLabel(itemNameState, GomeAwtText.Section, bold = true).apply {
+        titleLabel = ShadowLabel(itemNameState, 20, bold = true).apply {
             horizontalAlignment = SwingConstants.CENTER
             preferredSize = Dimension(280, 36)
             maximumSize = Dimension(280, 36)
@@ -553,7 +485,7 @@ class AwtToolbarPanel(
         }
 
         // 右：网速 15sp 白加粗（电池图标已删）
-        speedLabel = ShadowLabel("", GomeAwtText.Body, bold = true)
+        speedLabel = ShadowLabel("", 15, bold = true)
         val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
             isOpaque = false
             add(speedLabel)
@@ -572,8 +504,8 @@ class AwtToolbarPanel(
         }
 
         // 进度行：18dp info图标 + 12sp当前时间 + SeekBar(6dp三色轨道) + 12sp时长
-        posLabel = ShadowLabel("00:00", GomeAwtText.Caption, bold = false)
-        durLabel = ShadowLabel("-00:00", GomeAwtText.Caption, bold = false)
+        posLabel = ShadowLabel("00:00", 12, bold = false)
+        durLabel = ShadowLabel("-00:00", 12, bold = false)
         val progressRow = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -710,24 +642,18 @@ class AwtToolbarPanel(
         // 找到音频按钮作为锚点
         val anchor = findButtonByTooltip("音频") ?: this
         val currentAid = player.getPropertyString("aid")
-        // 同名轨道去重（语言码映射后的中文名相同即视为同一条目，只留第一条）
-        val seen = mutableSetOf<String>()
-        val rows = mutableListOf<FrostedPopup.Row>()
-        for (t in tracks) {
-            val label = "> " + trackLabel(t)
-            if (!seen.add(label)) continue
-            rows.add(
-                FrostedPopup.Row(
-                    label = label,
-                    checked = currentAid == t.id.toString(),
-                    action = {
-                        player.setProperty("aid", t.id.toString())
-                        DebugLog.d("UI", "音频轨切换: ${t.id}")
-                    }
-                )
+        val rows = tracks.map { t ->
+            val label = "> ${t.title}${if (t.lang.isNotEmpty()) " (${t.lang})" else ""}"
+            FrostedPopup.Row(
+                label = label,
+                checked = currentAid == t.id.toString(),
+                action = {
+                    player.setProperty("aid", t.id.toString())
+                    DebugLog.d("UI", "音频轨切换: ${t.id}")
+                }
             )
         }
-        openPopup("audio", FrostedPopup(owner, anchor), rows, 260)
+        FrostedPopup(owner, anchor).show(rows, width = 260)
     }
 
     /** 字幕弹窗（1:1 安卓：关闭字幕 + 字幕大小） */
@@ -738,8 +664,6 @@ class AwtToolbarPanel(
         val currentSid = player.getPropertyString("sid")
         val rows = mutableListOf<FrostedPopup.Row>()
 
-        // 分组标题：字幕轨道（之前轨道和字号混在一个列表、无分隔，小/中/大看起来像语言选项）
-        rows.add(FrostedPopup.Row(label = "字幕轨道", isHeader = true))
         // 关闭字幕
         rows.add(
             FrostedPopup.Row(
@@ -751,11 +675,9 @@ class AwtToolbarPanel(
                 }
             )
         )
-        // 字幕轨：语言码映射中文名（避开韩文原文显示成方框）+ Forced 区分同名轨 + 同名去重
-        val seen = mutableSetOf<String>()
-        for (t in tracks) {
-            val label = trackLabel(t)
-            if (!seen.add(label)) continue
+        // 字幕轨
+        tracks.forEach { t ->
+            val label = "${t.title}${if (t.lang.isNotEmpty()) " (${t.lang})" else ""}"
             rows.add(
                 FrostedPopup.Row(
                     label = label,
@@ -767,8 +689,7 @@ class AwtToolbarPanel(
                 )
             )
         }
-        // 分组标题：字幕大小（与轨道分开，不再混在语言列表里）
-        rows.add(FrostedPopup.Row(label = "字幕大小", isHeader = true))
+        // 字幕大小（安卓原版：直接跟在轨道后面，无标题行）
         val sizes = listOf("小" to 36, "中" to 48, "大" to 60, "特大" to 72)
         val currentSize = player.getPropertyDouble("sub-font-size")?.toInt() ?: 48
         sizes.forEach { (label, size) ->
@@ -783,7 +704,7 @@ class AwtToolbarPanel(
                 )
             )
         }
-        openPopup("subtitle", FrostedPopup(owner, anchor), rows, 260)
+        FrostedPopup(owner, anchor).show(rows, width = 260)
     }
 
     private fun findButtonByTooltip(tooltip: String): PlButton? {
@@ -802,44 +723,6 @@ class AwtToolbarPanel(
 
     private var tipPopup: FrostedPopup? = null
 
-    /**
-     * 互斥菜单：工具栏同时只允许一个 FrostedPopup（音频/字幕/更多/轻提示）。
-     * 之前每个菜单都 new 一个 FrostedPopup 且互不感知，点一个按钮开新菜单时旧菜单不关，
-     * 两个菜单重叠在一起、字糊成一片。FrostedPopup.onDismiss 回调保证点外消失/点行后记录同步清除，
-     * 否则“点外关掉再点同一按钮”会被 stale 的 kind 误判为已打开而不重开。
-     */
-    private var currentPopup: FrostedPopup? = null
-    private var currentPopupKind: String? = null
-
-    private fun dismissCurrentPopup() {
-        try { currentPopup?.dismiss() } catch (_: Exception) { }
-        currentPopup = null
-        currentPopupKind = null
-    }
-
-    /**
-     * 打开互斥弹窗：先关当前弹窗，再显示新的；返回 false 表示已在显示同类弹窗（本次为关闭动作）。
-     * toggle=false 时不做“再点关闭”（轻提示用：新提示替换旧提示，而不是关闭）。
-     */
-    private fun openPopup(kind: String, popup: FrostedPopup, rows: List<FrostedPopup.Row>, width: Int, toggle: Boolean = true): Boolean {
-        if (toggle && currentPopupKind == kind) {
-            // 再点同一按钮 = 关闭（避免重复 new 一个叠在上面）
-            dismissCurrentPopup()
-            return false
-        }
-        dismissCurrentPopup()
-        currentPopup = popup
-        currentPopupKind = kind
-        popup.onDismiss = {
-            if (currentPopup === popup) {
-                currentPopup = null
-                currentPopupKind = null
-            }
-        }
-        popup.show(rows, width)
-        return true
-    }
-
     /** 轻提示（安卓 Toast 行为）：160dp 宽，1.5 秒自动消失，点外也消失 */
     private fun showTip(msg: String, anchorTooltip: String? = null) {
         try {
@@ -850,8 +733,7 @@ class AwtToolbarPanel(
             tipTimer = null
             val anchor = anchorTooltip?.let { findButtonByTooltip(it) } ?: this
             val popup = FrostedPopup(owner, anchor)
-            // 轻提示也参与互斥：有菜单开着时先关菜单；toggle=false，新提示替换旧提示
-            openPopup("tip", popup, listOf(FrostedPopup.Row(label = msg, enabled = false)), 160, toggle = false)
+            popup.show(listOf(FrostedPopup.Row(label = msg, enabled = false)), width = 160)
             tipPopup = popup
             tipTimer = Timer(1500) {
                 try {
@@ -893,18 +775,6 @@ class AwtToolbarPanel(
                 action = { cycleRotate() }
             ),
             FrostedPopup.Row(
-                label = "快退10秒",
-                action = { seekBy(-10.0) }
-            ),
-            FrostedPopup.Row(
-                label = "快进10秒",
-                action = { seekBy(10.0) }
-            ),
-            FrostedPopup.Row(
-                label = if (isMutedNow()) "取消静音" else "静音",
-                action = { toggleMute() }
-            ),
-            FrostedPopup.Row(
                 label = "投屏",
                 action = { showCastDialog() }
             ),
@@ -925,7 +795,7 @@ class AwtToolbarPanel(
                 }
             )
         )
-        openPopup("more", FrostedPopup(owner, anchor), rows, 210)
+        FrostedPopup(owner, anchor).show(rows)
     }
 
     /** 视频信息弹窗 */
@@ -1257,36 +1127,17 @@ class AwtToolbarPanel(
         showTip("旋转：${rotateModes[rotateIndex]}°", "旋转")
     }
 
-    /** 静音前保存的音量（恢复用） */
-    private var volumeBeforeMute = 100.0
-
-    private fun isMutedNow(): Boolean =
-        (try { player.getPropertyDouble("volume") } catch (_: Exception) { null })?.let { it <= 0.0 } ?: false
-
-    private fun toggleMute() {
-        val cur = try { player.getPropertyDouble("volume") } catch (_: Exception) { null } ?: return
-        if (cur > 0.0) {
-            volumeBeforeMute = cur
-            player.setProperty("volume", "0")
-            showTip("已静音", "静音")
-        } else {
-            player.setProperty("volume", volumeBeforeMute.toString())
-            showTip("音量 ${volumeBeforeMute.toInt()}%", "静音")
-        }
-    }
-
-    private fun seekBy(deltaSec: Double) {
-        val target = (player.timePos + deltaSec).coerceAtLeast(0.0)
-        if (player.seek(target)) showTip(if (deltaSec < 0) "快退10秒" else "快进10秒", "快进快退")
-    }
-
     private fun showCastDialog() {
         val owner = SwingUtilities.getWindowAncestor(this) ?: return
         val anchor = findButtonByTooltip("投屏") ?: this
-        // 诚实提示：之前是假的“正在搜索设备…”+“重新搜索”，点完只弹“正在搜索”提示，没有任何投屏功能
         val rows = listOf(
-            FrostedPopup.Row(label = "暂不支持投屏（DLNA 未实现）", enabled = false)
+            FrostedPopup.Row(label = "正在搜索设备…", enabled = false),
+            FrostedPopup.Row(
+                label = "重新搜索",
+                iconName = "ic_pl_search",
+                action = { showTip("正在搜索投屏设备…", "投屏") }
+            )
         )
-        openPopup("cast", FrostedPopup(owner, anchor), rows, 250)
+        FrostedPopup(owner, anchor).show(rows, width = 250)
     }
 }

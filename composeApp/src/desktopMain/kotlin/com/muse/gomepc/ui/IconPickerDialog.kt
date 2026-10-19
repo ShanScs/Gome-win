@@ -1,7 +1,6 @@
 package com.muse.gomepc.ui
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,8 +53,6 @@ fun IconPickerDialog(
     var loadError by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
     var query by remember { mutableStateOf("") }
-    // 当前已选图标（之前无选中态，用户看不出当前是哪个）
-    val currentUrl = remember(serverKey) { Prefs.getCustomIconUrl(serverKey) }
 
     LaunchedEffect(reloadKey) {
         loading = true
@@ -85,7 +82,7 @@ fun IconPickerDialog(
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     "选择服务器图标",
-                    fontSize = GomeText.Title,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = GomeTheme.TextPrimary
                 )
@@ -93,7 +90,7 @@ fun IconPickerDialog(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("搜索图标名称…", fontSize = GomeText.Body) },
+                    placeholder = { Text("搜索图标名称…", fontSize = 14.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp)
@@ -106,13 +103,13 @@ fun IconPickerDialog(
                     ) {
                         Text(
                             "图标库加载失败，请检查网络",
-                            fontSize = GomeText.Caption,
+                            fontSize = 12.sp,
                             color = androidx.compose.ui.graphics.Color(0xFFE53935),
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             "重试",
-                            fontSize = GomeText.Caption,
+                            fontSize = 12.sp,
                             color = GomeTheme.Accent,
                             modifier = Modifier
                                 .padding(8.dp)
@@ -122,7 +119,7 @@ fun IconPickerDialog(
                 } else {
                     Text(
                         if (loading) "加载中…" else "共 ${filtered.size} 个图标",
-                        fontSize = GomeText.Caption,
+                        fontSize = 12.sp,
                         color = GomeTheme.TextSecondary
                     )
                 }
@@ -137,7 +134,6 @@ fun IconPickerDialog(
                         IconCell(
                             name = name,
                             url = url,
-                            selected = url == currentUrl,
                             onClick = {
                                 try {
                                     Prefs.setCustomIconUrl(serverKey, url)
@@ -150,7 +146,7 @@ fun IconPickerDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "清除自定义",
-                    fontSize = GomeText.Body,
+                    fontSize = 14.sp,
                     color = androidx.compose.ui.graphics.Color(0xFFFF3B30),
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
@@ -172,7 +168,6 @@ fun IconPickerDialog(
 private fun IconCell(
     name: String,
     url: String,
-    selected: Boolean,
     onClick: () -> Unit
 ) {
     var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
@@ -185,18 +180,10 @@ private fun IconCell(
         modifier = Modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 选中态：Accent 边框 + “✓ 当前”标签（之前无任何选中标识）
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .then(
-                    if (selected) Modifier.border(
-                        2.dp,
-                        GomeTheme.Accent,
-                        RoundedCornerShape(8.dp)
-                    ) else Modifier
-                ),
+                .clip(RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
             val bmp = bitmap
@@ -210,9 +197,9 @@ private fun IconCell(
             }
         }
         Text(
-            if (selected) "✓ 当前" else name,
-            fontSize = GomeText.Micro,
-            color = if (selected) GomeTheme.Accent else GomeTheme.TextSecondary,
+            name,
+            fontSize = 10.sp,
+            color = GomeTheme.TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,

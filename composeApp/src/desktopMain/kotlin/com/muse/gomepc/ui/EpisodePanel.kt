@@ -13,7 +13,6 @@ import java.util.concurrent.Future
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import com.muse.gomepc.emby.YambyClient
-import com.muse.gomepc.player.DebugLog
 
 /**
  * 剧集面板：1:1 还原安卓 item_episode_row.xml。
@@ -39,20 +38,13 @@ class EpisodePanel(
         val height: Int = 0,
         val durationTicks: Long = 0L,
         val sizeBytes: Long = 0L,
-        val playTicks: Long = 0L,
-        val played: Boolean = false
+        val playTicks: Long = 0L
     )
 
     private var dialog: JDialog? = null
     private var outsideClickListener: AWTEventListener? = null
-    /** 滚轮余数：触控板小增量不再被 .toInt() 截断丢掉，攒够 1px 再滚 */
-    private var wheelRemainder = 0.0
     // 缩略图加载：固定线程池 + 任务列表（关闭面板时取消未完成的）+ URL→图标缓存
     private val thumbFutures = mutableListOf<Future<*>>()
-    // 缩略图统计（本面板本次打开）：汇总日志证明加载是否真正发起，
-    // 区分“客户端没发起加载”（bug）与“服务端 404 无图”（服务端缺图）
-    private var thumbStatHit = 0
-    private var thumbStatMiss = 0
 
     companion object {
         private val thumbExecutor = Executors.newFixedThreadPool(4)
@@ -67,7 +59,7 @@ class EpisodePanel(
     private val ROW_RADIUS = 36
     private val ROW_PAD_H = 3
     private val ROW_PAD_V = 4
-    private val TITLE_SIZE = GomeAwtText.Body
+    private val TITLE_SIZE = 14
     private val TITLE_MARGIN_TOP = 2
     private val PANEL_W = 265
     private val CARD_SPACING = 6
@@ -78,9 +70,10 @@ class EpisodePanel(
         val dlg = JDialog(owner as? Frame, "剧集", false).apply {
             isUndecorated = true
             background = Color(0, 0, 0, 0)
-            // 不用 isAlwaysOnTop：owned 对话框天然在宿主窗口之上；alwaysOnTop 会导致
-            // 切到别的 App 时本面板仍压在最上面。滚轮由本面板的显式处理器消费，不冒泡。
-            isAlwaysOnTop = false
+            // 置顶：弹幕透明 JWindow 与本对话框在屏幕上重叠，且每 500ms setBounds
+            // 重定位，可能抢占层级截获滚轮事件并重发到主窗口，导致滚动路径中途
+            // 换目标、方向看起来翻了。置顶保证滚轮始终落到本面板的显式处理器。
+            isAlwaysOnTop = true
         }
 
         val content = object : JPanel() {
@@ -101,7 +94,7 @@ class EpisodePanel(
 
         // 标题
         val titleLabel = JLabel("剧集").apply {
-            font = Font(Font.SANS_SERIF, Font.BOLD, GomeAwtText.Title)
+            font = Font(Font.SANS_SERIF, Font.BOLD, 17)
             foreground = Color(0x1A, 0x1A, 0x1A)
             border = EmptyBorder(4, 20, 4, 20)
             alignmentX = Component.LEFT_ALIGNMENT
@@ -113,8 +106,6 @@ class EpisodePanel(
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
         }
-        thumbStatHit = 0
-        thumbStatMiss = 0
         episodes.forEachIndexed { i, ep ->
             val row = createEpisodeRow(ep, i, i == currentIndex)
             // 包装一层防止拉伸
@@ -127,9 +118,6 @@ class EpisodePanel(
             listPanel.add(wrapper)
             listPanel.add(Box.createVerticalStrut(CARD_SPACING))
         }
-        // 汇总日志：证明本次打开面板时缩略图加载是否真正发起。
-        // 若这里“发起加载”>0 但随后全是 404，即服务端该剧无集缩略图，非客户端 bug。
-        DebugLog.d("Thumb", "缩略图：共 ${episodes.size} 集，缓存命中 $thumbStatHit，本次发起加载 $thumbStatMiss")
         val scroll = JScrollPane(listPanel).apply {
             isOpaque = false
             viewport.isOpaque = false
@@ -154,11 +142,7 @@ class EpisodePanel(
                     e.wheelRotation * bar.visibleAmount
                 } else {
                     val units = if (e.preciseWheelRotation != 0.0) e.preciseWheelRotation else e.unitsToScroll.toDouble()
-                    // 触控板小增量（如 0.3）直接 .toInt() 会截成 0、永远滚不动：攒余数
-                    val raw = units * bar.unitIncrement + wheelRemainder
-                    val d = raw.toInt()
-                    wheelRemainder = raw - d
-                    d
+                    (units * bar.unitIncrement).toInt()
                 }
                 if (delta != 0) {
                     val lo = bar.minimum
@@ -298,7 +282,7 @@ class EpisodePanel(
         // 当前集：缩略图左上角"播放中"徽标
         if (isCurrent) {
             val badge = JLabel("播放中").apply {
-                font = Font(Font.SANS_SERIF, Font.BOLD, GomeAwtText.Badge)
+                font = Font(Font.SANS_SERIF, Font.BOLD, 9)
                 foreground = Color(0x2F, 0x7C, 0xF6)
                 background = Color(255, 255, 255)
                 isOpaque = true
@@ -308,54 +292,22 @@ class EpisodePanel(
             thumbPanel.add(badge)
         }
         // 异步加载并圆角裁剪：固定线程池 + 连接/读取超时 + 面板关闭时取消 + 内存缓存
-        // 加载开关查缓存是否命中，不用 `thumbLabel.icon == null`：1.0.355 曾因预置占位图
-        // 导致 icon 恒非 null、加载永远不跑；查缓存同时提供命中/未命中统计。
         val thumbUrl = YambyClient.imageUrl(ep.id, "Primary", 400)
-        val cachedThumb = thumbCache[thumbUrl]
-        if (cachedThumb != null) {
-            thumbStatHit++
-            thumbLabel.icon = cachedThumb
-        } else {
-            thumbStatMiss++
+        thumbCache[thumbUrl]?.let { thumbLabel.icon = it }
+        if (thumbLabel.icon == null) {
             val future = thumbExecutor.submit {
                 try {
                     val conn = java.net.URL(thumbUrl).openConnection() as java.net.HttpURLConnection
                     conn.connectTimeout = 8000
                     conn.readTimeout = 15000
-                    // 认证走 Header：imageUrl 不再带 Token
-                    conn.setRequestProperty("X-Emby-Authorization", YambyClient.authHeader())
                     try {
-                        val code = conn.responseCode
-                        if (code !in 200..299) {
-                            // 失败必须记日志且说清定性：404 = 服务端该集无缩略图（属服务端缺图，
-                            // 非客户端 bug，Emby 未生成集缩略图时即返回 404）；401 = 认证失败；
-                            // 其余按 HTTP 码排查。URL 不含 Token，可直接记。
-                            if (code == 404) {
-                                DebugLog.d("Thumb", "缩略图：服务端该集无缩略图（HTTP 404，属服务端缺图，非客户端 bug）：集=${ep.name} id=${ep.id} url=$thumbUrl")
-                            } else if (code == 401) {
-                                DebugLog.d("Thumb", "缩略图加载失败：认证失败（HTTP 401），请重新登录：集=${ep.name} id=${ep.id} url=$thumbUrl")
-                            } else {
-                                DebugLog.d("Thumb", "缩略图加载失败：集=${ep.name} id=${ep.id} url=$thumbUrl HTTP=$code")
-                            }
-                            return@submit
-                        }
-                        val bytes = readUpTo(conn.inputStream, THUMB_MAX_BYTES)
-                        if (bytes == null) {
-                            DebugLog.d("Thumb", "缩略图加载失败：集=${ep.name} id=${ep.id} url=$thumbUrl 原因=响应超限或读取失败")
-                            return@submit
-                        }
+                        if (conn.responseCode !in 200..299) return@submit
+                        val bytes = readUpTo(conn.inputStream, THUMB_MAX_BYTES) ?: return@submit
                         val img = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes))
-                        if (img == null) {
-                            DebugLog.d("Thumb", "缩略图解码失败：集=${ep.name} id=${ep.id} url=$thumbUrl 原因=ImageIO 返回 null")
-                            return@submit
-                        }
+                            ?: return@submit
                         // 内图与边框用同一圆角（同一 rect + 同一 arc = THUMB_RADIUS），同心无批锋
                         val rounded = makeRounded(img, THUMB_W, THUMB_H, THUMB_RADIUS)
                         val icon = ImageIcon(rounded)
-                        // 缩略图缓存上限 200 条：之前无界增长
-                        if (thumbCache.size >= 200) {
-                            thumbCache.keys.firstOrNull()?.let { thumbCache.remove(it) }
-                        }
                         thumbCache[thumbUrl] = icon
                         SwingUtilities.invokeLater {
                             // 面板已关闭则丢弃，避免往已 dispose 的组件写图标
@@ -364,9 +316,8 @@ class EpisodePanel(
                     } finally {
                         conn.disconnect()
                     }
-                } catch (e: Exception) {
-                    // 加载失败：保持空白（1.0.354 备份样式，无占位图），并记日志（URL、原因），不再静默吞掉
-                    DebugLog.d("Thumb", "缩略图加载异常：集=${ep.name} id=${ep.id} url=$thumbUrl 原因=${e.message}")
+                } catch (_: Exception) {
+                    // 加载失败：保持空白，不显示占位符
                 }
             }
             thumbFutures.add(future)
