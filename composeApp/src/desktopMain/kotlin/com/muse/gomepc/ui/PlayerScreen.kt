@@ -1071,9 +1071,15 @@ fun PlayerScreen(
                     // 跟随视频 Canvas 位置（尊重面板的可见性意愿，无弹幕时不强制显示）
                     val updatePos = {
                         try {
-                            if (canvas.isShowing) {
-                                val p = canvas.locationOnScreen
-                                danmakuWindow.setBounds(p.x, p.y, canvas.width, canvas.height)
+                            if (canvas.width > 0 && canvas.height > 0) {
+                                if (canvas.isShowing) {
+                                    val p = canvas.locationOnScreen
+                                    danmakuWindow.setBounds(p.x, p.y, canvas.width, canvas.height)
+                                } else {
+                                    // 还没 showing 时先给尺寸（位置暂 0,0），面板能拿到非 0 尺寸、
+                                    // step 才能跑；showing 后下一轮 posTimer 会修正位置。
+                                    danmakuWindow.setSize(canvas.width, canvas.height)
+                                }
                                 if (danmakuPanel.wantVisible && !danmakuWindow.isVisible) danmakuWindow.isVisible = true
                             }
                         } catch (_: Throwable) { }
