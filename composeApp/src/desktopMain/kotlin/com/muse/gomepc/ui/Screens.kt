@@ -753,24 +753,19 @@ private fun BannerCarousel(
                             )
                         )
                 )
-                // 大标题（白色，压在图片上、淡出区上方）
-                Text(
-                    item.name,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 20.dp, end = 20.dp, bottom = 300.dp)
-                )
-                // 评分/年份/类型/简介（落在白色淡出区，深色字，对齐安卓）
+                // 剧名/评分/年份/类型/简介（左下角一列，左对齐）
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = 20.dp, end = 20.dp, bottom = 30.dp)
                 ) {
+                    Text(
+                        item.name,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1
+                    )
                     val meta = listOfNotNull(
                         item.rating?.let { "★ $it" },
                         item.year.takeIf { it.isNotBlank() },
