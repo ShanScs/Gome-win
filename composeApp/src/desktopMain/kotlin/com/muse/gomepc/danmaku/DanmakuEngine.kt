@@ -86,6 +86,8 @@ Collections.synchronizedSet(mutableSetOf())
 
 /** 池快照缓存：pool 只在填池时变化，step() 每 tick 复用快照，不再每 tick 全量 copy（17983 条）。 */
 private var poolSnapshotCache: List<DanmakuItem> = emptyList()
+/** 池是否有带时间的条目：随快照重建时算一次，不再每 tick 全池扫描（无时间池 2-3 万条每 tick any{} 是纯浪费）。 */
+private var poolHasTimed = false
 @Volatile private var poolSnapshotDirty = true
 /** 时间窗口游标：pool 按时间排序、进度单调递增，窗口扫描从游标开始，不再每 tick 从 0 线性扫过已过去的几千条；seek/填池时重置。 */
 @Volatile private var windowCursor = 0
@@ -305,10 +307,12 @@ items.removeIf { it.textWidth >= 0 && it.x + it.textWidth < 0}
 val visibleCount = items.count { now >= it.visibleAt}
 val maxItems = 60
 if (!enabled || pool.isEmpty() || visibleCount >= maxItems) return
+// 行发射顺序：每 tick 洗牌一次，本帧内多次 emit 共用，避免每条弹幕都分配+洗牌一次。
+val rowOrder = (0 until max(1, rows)).shuffled()
 // 池快照缓存：pool 只在填池时变化，复用快照，不再每 tick 全量 copy 17983 条。
-if (poolSnapshotDirty) { poolSnapshotCache = pool.toList(); poolSnapshotDirty = false }
+if (poolSnapshotDirty) { poolSnapshotCache = pool.toList(); poolHasTimed = poolSnapshotCache.any { it.timeSec >= 0f }; poolSnapshotDirty = false }
 val poolSnapshot = poolSnapshotCache
-val hasTimed = poolSnapshot.any { it.timeSec >= 0f}
+val hasTimed = poolHasTimed
 if (hasTimed) {
 // P0-D1：只发射时间窗口内的弹幕（当前进度 -1s ~ +0.5s，容忍帧抖动）。
 // 密集场景每帧最多发 3 条（旧版每帧只发 1 条，窗口滑过后未发出的直接丢失）。
@@ -337,7 +341,7 @@ scanIdx++
 val idx = candidateIdx ?: break
 val item = poolSnapshot[idx]
 emittedIndices.add(idx)
-if (!emit(item.text, w, measureText, now)) break
+if (!emit(item.text, w, measureText, now, rowOrder)) break
 emittedThisFrame++
 }
 if (emittedThisFrame > 0) lastTimedEmitAtMs = now
@@ -353,13 +357,13 @@ if (!fallbackLogged) {
 fallbackLogged = true
 com.muse.gomepc.player.DebugLog.d("Danmaku", "定时发射 10 秒无产出，回落随机发射：池 ${pool.size} 条，当前进度 $currentTimeSec 秒，池填充时进度 $poolFilledAtSec 秒")
 }
-emit(poolSnapshot.random().text, w, measureText, now)
+emit(poolSnapshot.random().text, w, measureText, now, rowOrder)
 }
 } else {
 // 无时间信息池子：保留旧随机发射行为。
 val emitProb = 0.4f
 if (Random.nextFloat() < emitProb) {
-emit(poolSnapshot.random().text, w, measureText, now)
+emit(poolSnapshot.random().text, w, measureText, now, rowOrder)
 }
 }
 }
@@ -367,8 +371,7 @@ emit(poolSnapshot.random().text, w, measureText, now)
 /** 发射一条弹幕：做行重叠检查，delaySec 用 visibleAt 时间戳（出生点不再右移）。
 * 返回是否成功发射。旧版随机抽一行、该行拥挤就直接丢弃（已标记已发射，永久丢失），
 * 密集时大量弹幕因此丢失；现按随机顺序试全部行，只在所有行都拥挤时才丢弃。 */
-private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long): Boolean {
-val rowOrder = (0 until max(1, rows)).shuffled()
+private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long, rowOrder: List<Int>): Boolean {
 // 单次遍历算各行最右位置与最慢速度，避免每行 filter 一次（O(rows×items) 分配）。
 val rowCount = max(1, rows)
 val rowRightmost = FloatArray(rowCount) { -1f }

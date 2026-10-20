@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,6 +55,13 @@ fun formatTime(sec: Double): String {
     val h = s / 3600
     return if (h > 0) "%d:%02d:%02d".format(h, (s % 3600) / 60, s % 60)
     else "%02d:%02d".format(s / 60, s % 60)
+}
+
+/** 自动跳集解析结果：找到下一集 / 已是最后一集 / 无法确定（网络或数据异常） */
+private sealed class NextEpResult {
+    data class Found(val episode: UiEpisode) : NextEpResult()
+    object LastEpisode : NextEpResult()
+    object Unresolved : NextEpResult()
 }
 
 /** 播放/暂停小按钮（Canvas 绘制，避免字体缺字形） */
@@ -273,6 +281,17 @@ fun PlayerScreen(
     var showSkipIntro by remember(episodeId) { mutableStateOf(false) }
     var showNextEp by remember(episodeId) { mutableStateOf(false) }
     var nextEpCountdown by remember(episodeId) { mutableStateOf(5) }
+    // —— 自动跳集状态（1.0.356 修复方案，在 1.0.354 备份代码上重新落地）——
+    // outroDismissed 按集键控：倒计时被取消/解析失败后，本集内不再被进度重算弹回
+    val outroDismissed = remember { mutableStateMapOf<String, Boolean>() }
+    // 任一入口（倒计时/EOF/点击）已发起切集后置 true，防重复触发
+    var switchInitiated by remember(episodeId) { mutableStateOf(false) }
+    // 自动跳集提示（已是最后一集/无法获取下一集），4 秒后自动消失
+    var autoNextHint by remember(episodeId) { mutableStateOf<String?>(null) }
+    // 当前集 id 的引用副本：异步解析返回时核对，解析期间用户已切走则放弃，避免误切
+    val currentEpRef = remember { java.util.concurrent.atomic.AtomicReference(episodeId) }
+    LaunchedEffect(episodeId) { currentEpRef.set(episodeId) }
+    val navScope = androidx.compose.runtime.rememberCoroutineScope()
     var introSkipped by remember(episodeId) { mutableStateOf(false) }
     // 监听播放进度，更新跳过按钮显示
     androidx.compose.runtime.LaunchedEffect(timePos, duration) {
@@ -283,20 +302,95 @@ fun PlayerScreen(
         showSkipIntro = !introSkipped && manualIntro > 0 && timePos < manualIntro && timePos >= 0
         // 片尾：剩余时间小于设定值且有下一集
         val remain = duration - timePos
-        showNextEp = manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
+        showNextEp = outroDismissed[episodeId] != true && manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
     }
     // 取剧集列表（带缓存）：放倒计时前面，自动跳集要从这里查下一集的真实 id
     var episodeList by remember { mutableStateOf<List<UiEpisode>>(emptyList()) }
+    // 季列表与缓存季 id：自动跳集逐季扫描当前集所在季时用（Repo.episodes 只带回默认季的集）
+    var episodeSeasons by remember { mutableStateOf<List<UiSeason>>(emptyList()) }
+    var cachedSeasonId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(itemId) {
         try {
             val data = Repo.episodes(itemId)
             episodeList = data.episodes
+            episodeSeasons = data.seasons
+            cachedSeasonId = data.currentSeasonId
         } catch (_: Exception) { }
     }
-    /** 按当前位置找下一集；找不到则返回 null（调用方不切集，绝不传空 episodeId） */
-    fun nextEpisode(): UiEpisode? {
-        val curIdx = episodeList.indexOfFirst { it.id == episodeId }
-        return if (curIdx >= 0) episodeList.getOrNull(curIdx + 1) else null
+    /** 从第 fromIdx 季之后找第一个非空季的第一集（跨季续播用）；没有返回 null */
+    suspend fun firstEpOfLaterSeason(fromIdx: Int): UiEpisode? {
+        for (s in episodeSeasons.drop(fromIdx + 1)) {
+            val eps = try { Repo.seasonEpisodes(itemId, s.id) } catch (_: Exception) { emptyList() }
+            if (eps.isNotEmpty()) return eps.first()
+        }
+        return null
+    }
+    /**
+     * 解析下一集（三级回退，任何路径都不静默失败）：
+     * 1) 快路径：缓存的默认季列表里找当前集；
+     * 2) 重拉 Repo.episodes（启动取列表失败被空 catch 吞时靠这里补救），刷新缓存后重查；
+     * 3) 逐季 Repo.seasonEpisodes 扫描（当前集在非默认季时靠这里找到）。
+     * 季末且后面还有季 → 跨季取下一季第一集；确为全剧最后一集 → LastEpisode；
+     * 任何一级都定位不到当前集 → Unresolved（调用方给用户提示，不再静默）。
+     */
+    suspend fun resolveNextEpisode(): NextEpResult {
+        // 在 list（属于第 seasonIdx 季）里定位当前集：有下一集→Found，季末→跨季或LastEpisode，没找到→null
+        suspend fun resolveIn(list: List<UiEpisode>, seasonIdx: Int): NextEpResult? {
+            val i = list.indexOfFirst { it.id == episodeId }
+            if (i < 0) return null
+            list.getOrNull(i + 1)?.let { return NextEpResult.Found(it) }
+            firstEpOfLaterSeason(seasonIdx)?.let { return NextEpResult.Found(it) }
+            return NextEpResult.LastEpisode
+        }
+        // 1) 快路径
+        resolveIn(episodeList, episodeSeasons.indexOfFirst { it.id == cachedSeasonId })?.let { return it }
+        // 2) 重拉默认季数据并刷新缓存
+        val data = try { Repo.episodes(itemId) } catch (_: Exception) { null }
+        if (data != null) {
+            episodeList = data.episodes
+            episodeSeasons = data.seasons
+            cachedSeasonId = data.currentSeasonId
+            resolveIn(data.episodes, data.seasons.indexOfFirst { it.id == data.currentSeasonId })?.let { return it }
+        }
+        // 3) 逐季扫描（缓存季已在 1/2 查过，跳过）
+        for ((si, s) in episodeSeasons.withIndex()) {
+            if (s.id == cachedSeasonId) continue
+            val eps = try { Repo.seasonEpisodes(itemId, s.id) } catch (_: Exception) { emptyList() }
+            resolveIn(eps, si)?.let { return it }
+        }
+        return NextEpResult.Unresolved
+    }
+    /**
+     * 发起自动跳集（倒计时结束 / EOF 自然播完 / 点击“跳到下一集”三入口共用）：
+     * 解析到下一集才切；最后一集/解析失败给用户提示并标记本集已取消（outroDismissed），不再弹回。
+     */
+    fun requestAutoAdvance(source: String) {
+        if (switchInitiated || onSwitchEpisode == null) return
+        val epAtStart = episodeId
+        navScope.launch {
+            when (val r = resolveNextEpisode()) {
+                is NextEpResult.Found -> {
+                    // 解析期间用户已手动切走、或已有入口发起切换：放弃，避免误切
+                    if (currentEpRef.get() != epAtStart || switchInitiated) return@launch
+                    switchInitiated = true
+                    com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：$epAtStart -> ${r.episode.id}（$source）")
+                    onSwitchEpisode?.invoke(r.episode.id, r.episode.index, 0.0)
+                }
+                NextEpResult.LastEpisode -> {
+                    com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：已是最后一集（$epAtStart，$source）")
+                    outroDismissed[epAtStart] = true
+                    showNextEp = false
+                    // 单集内容（电影正片）播完属正常结束，不弹“最后一集”提示
+                    if (episodeSeasons.isNotEmpty() || episodeList.size > 1) autoNextHint = "已是最后一集"
+                }
+                NextEpResult.Unresolved -> {
+                    com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：无法获取下一集（$epAtStart，$source）")
+                    outroDismissed[epAtStart] = true
+                    showNextEp = false
+                    autoNextHint = "无法获取下一集"
+                }
+            }
+        }
     }
     // 下一集倒计时
     androidx.compose.runtime.LaunchedEffect(showNextEp) {
@@ -307,12 +401,16 @@ fun PlayerScreen(
                 nextEpCountdown--
             }
             if (showNextEp && nextEpCountdown <= 0) {
-                // 自动跳下一集：从 episodeList 查真实 id，查不到就不切
-                val next = nextEpisode()
-                if (next != null) {
-                    onSwitchEpisode?.invoke(next.id, next.index, 0.0)
-                }
+                // 倒计时结束：走统一解析（三级回退 + 失败提示），不再静默不切
+                requestAutoAdvance("片尾倒计时")
             }
+        }
+    }
+    // 自动跳集提示 4 秒后自动消失
+    LaunchedEffect(autoNextHint) {
+        if (autoNextHint != null) {
+            kotlinx.coroutines.delay(4000)
+            autoNextHint = null
         }
     }
     var volume by remember { mutableStateOf(80f) }
@@ -557,6 +655,14 @@ fun PlayerScreen(
                 SwingUtilities.invokeLater { fileLoaded = true }
             }
             override fun onEndFile() {}
+            override fun onEndFileReason(reason: Int) {
+                // 只认自然播完（EOF=0）：手动切集(STOP)/退出(QUIT)/出错(ERROR)不触发自动跳集
+                if (reason != com.muse.gomepc.player.MpvEndFileReason.EOF) return
+                SwingUtilities.invokeLater {
+                    com.muse.gomepc.player.DebugLog.d("UI", "END_FILE reason=0（自然播完）")
+                    requestAutoAdvance("END_FILE")
+                }
+            }
             override fun onEndFileError(msg: String) {
                 SwingUtilities.invokeLater {
                     // 主地址播放失败：自动尝试下一个备用地址；全部失败才显示真实错误
@@ -1193,11 +1299,10 @@ fun PlayerScreen(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xCC000000))
                     .clickable {
+                        // 立即跳：先按集标记已取消并隐藏按钮（解析失败也不弹回），再走统一解析切换
+                        outroDismissed[episodeId] = true
                         showNextEp = false
-                        val next = nextEpisode()
-                        if (next != null) {
-                            onSwitchEpisode?.invoke(next.id, next.index, 0.0)
-                        }
+                        requestAutoAdvance("点击")
                     }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
@@ -1208,6 +1313,20 @@ fun PlayerScreen(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+        }
+
+        // 自动跳集提示（已是最后一集/无法获取下一集），居中靠下，4 秒自动消失
+        if (autoNextHint != null) {
+            Box(
+                Modifier.align(Alignment.BottomCenter)
+                    .padding(bottom = 150.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xCC000000))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(autoNextHint!!, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
 

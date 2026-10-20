@@ -57,6 +57,9 @@ private var paintFontSize = -1
 private var paintFont: Font? = null
 private var paintFontMetrics: FontMetrics? = null
 private var paintAscent = 0
+// 脏区重绘：上一 tick 的弹幕矩形 + 算它们时用的字号（字号变了高度变化超出余量，强制全量重绘一次）。
+private var prevDirtyRects: List<java.awt.Rectangle> = emptyList()
+private var dirtyFontSize = -1
 // 供外部查询：面板是否希望窗口可见（有弹幕且启用）
 var wantVisible = false
 private set
@@ -254,6 +257,42 @@ Font("Noto Sans CJK SC", Font.BOLD, 30)
 Font("SansSerif", Font.BOLD, 30)
 }
 
+/**
+* 脏区重绘（替代整窗 repaint()）：透明 JWindow 每帧整窗重绘 + 全屏 fillRect + DWM 全窗合成
+* 是帧间隔超出 33ms 目标的主要开销。弹幕只占顶部区域，逐个 repaint 上一 tick 与本 tick
+* 的弹幕矩形（RepaintManager 会合并为并集），实际绘制面积缩到约 1/3。
+* 矩形尺寸用与 paint() 相同的度量：宽 = textWidth + 8（位图含 4px 内衬），
+* 高 = fm.height + 8，y = 基线 − ascent − 4；四周再留 8px PAD 覆盖描边与取整误差。
+* 字号变了（高度变化可能超出 PAD）就全量重绘一次并清空脏区记录，避免残影。
+*/
+private fun repaintDirty(now: Long, fontSize: Int, fm: FontMetrics) {
+if (fontSize != dirtyFontSize || fontSize <= 0) {
+dirtyFontSize = fontSize
+prevDirtyRects = emptyList()
+repaint()
+return
+}
+val pad = 8
+val cur = ArrayList<java.awt.Rectangle>(engine.items.size)
+for (d in engine.items) {
+if (now < d.visibleAt) continue
+if (d.row < 0) continue
+val tw = if (d.textWidth >= 0) d.textWidth else fm.stringWidth(d.text).toFloat()
+val top = engine.rowBaseline(d.row, fontSize.toFloat()) - fm.ascent - 4f
+cur.add(
+java.awt.Rectangle(
+(d.x - pad).toInt(),
+(top - pad).toInt(),
+(tw + 8 + pad * 2).toInt(),
+fm.height + 8 + pad * 2
+)
+)
+}
+for (r in prevDirtyRects) repaint(r)
+for (r in cur) repaint(r)
+prevDirtyRects = cur
+}
+
 /** 启动驱动 Timer（timer == null 时才建，避免重复）。removeNotify 停掉后若面板被重新挂上，addNotify 会调它重建，避免 Timer 停了就再也不动、弹幕永远不显示。 */
 private fun startTimer() {
 if (timer != null) return
@@ -269,9 +308,13 @@ frameStatSevere50 = 0L
 val t = Timer(33) {
 // 帧时间统计：每 tick 记一次帧间隔（当前时间 - 上一帧时间，nanoTime 计时）。
 // 放在 tick 最开头，统计的是帧与帧之间的真实间隔（含上一 tick 的执行耗时 + EDT 等待）。
+// 本 tick 的真实间隔（秒）：tick 抖动时步进按真实间隔走，否则位移按固定 0.033 前进、
+// tick 实际 40ms 一次时运动忽快忽慢 = 视觉抖动。首次 tick 用 0.033 默认值。
+var tickDt = 0.033f
 val frameNowNs = System.nanoTime()
 if (lastFrameNs != 0L) {
 val intervalMs = (frameNowNs - lastFrameNs) / 1_000_000.0
+tickDt = (intervalMs / 1000.0).toFloat().coerceIn(0f, 0.1f)
 frameStatCount++
 frameStatTotalMs += intervalMs
 if (intervalMs > frameStatMaxMs) frameStatMaxMs = intervalMs
@@ -332,7 +375,7 @@ tickFontSize = fontSize
 }
 val fm = tickFontMetrics!!
 try {
-engine.step(0.033f) { text -> fm.stringWidth(text).toFloat()}
+engine.step(tickDt) { text -> fm.stringWidth(text).toFloat()}
 } catch (err: Throwable) {
 // step 抛异常时本 tick 剩余工作全跳过（诊断在外层已记），节流记一笔，
 // 否则异常静默、发射永远不跑，日志里看不到任何原因。
@@ -350,7 +393,7 @@ if (hasItems) {
 wantVisible = true
 emptyFrames = 0
 if (win!= null &&!win.isVisible) win.isVisible = true
-repaint()
+repaintDirty(now, fontSize, fm)
 hadItems = true
 } else if (hadItems) {
 // 弹幕刚清空：宽限期内保持可见（弹幕间隙短暂为空是常态，立即隐藏会时隐时现），
@@ -437,9 +480,11 @@ else kotlin.math.ceil(engine.strokePx.toDouble()).toInt().coerceIn(1, 4)
 // 本帧光栅化预算：新文本扎堆时一帧内多次位图分配 + 描边绘制是尖峰主因；
 // 预算用完的跳过本帧，下一帧再画（只延迟一帧，不丢弹幕）。
 var rasterBudget = 6
+// 行距每帧只算一次，不在循环里重复 rowBaseline→rowPitchPx（纯算术，但逐项重算无意义）。
+val rowPitch = engine.rowPitchPx(fontSize.toFloat())
 for (d in snapshot) {
 if (now < d.visibleAt) continue
-val baselineY = engine.rowBaseline(d.row, fontSize.toFloat())
+val baselineY = (d.row + 0.8f) * rowPitch
 val x = (d.x + dx).toInt()
 val y = (baselineY + dy).toInt()
 try {
@@ -487,7 +532,12 @@ ig.dispose()
 if (d.textWidth < 0) d.textWidth = tw.toFloat()
 bi
 }
+// devScale=1 时目标尺寸就是原尺寸，走无缩放 blit 快路径，避免每项每帧进缩放绘制管线。
+if (devScale == 1f) {
+g2.drawImage(img, x, y - ascent - 4, null)
+} else {
 g2.drawImage(img, x, y - ascent - 4, (img.width / devScale).toInt(), (img.height / devScale).toInt(), null)
+}
 } catch (_: Throwable) {}
 }
 }
