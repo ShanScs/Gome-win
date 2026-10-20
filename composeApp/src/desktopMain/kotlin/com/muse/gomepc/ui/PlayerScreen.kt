@@ -305,14 +305,7 @@ fun PlayerScreen(
         // 片尾：剩余时间小于设定值且有下一集
         val remain = duration - timePos
         showNextEp = outroDismissed[episodeId] != true && manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
-        // 时间兜底：流在最后 1 秒卡住、mpv 不发 END_FILE 时也能自动跳集（同一集只触发一次）；
-        // 与 END_FILE 入口都走 requestAutoAdvance，switchInitiated 防重复切集
-        if (!timeFallbackFired && !switchInitiated && outroDismissed[episodeId] != true
-            && duration > 0 && timePos >= 0 && timePos >= duration - 1.0 && onSwitchEpisode != null) {
-            timeFallbackFired = true
-            com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：时间兜底触发 timePos=$timePos duration=$duration")
-            requestAutoAdvance("时间兜底")
-        }
+        // 时间兜底在 requestAutoAdvance 定义之后单独一个 LaunchedEffect 里（本地函数声明点之前不可见）
     }
     // 取剧集列表（带缓存）：放倒计时前面，自动跳集要从这里查下一集的真实 id
     var episodeList by remember { mutableStateOf<List<UiEpisode>>(emptyList()) }
@@ -414,6 +407,16 @@ fun PlayerScreen(
                 // 倒计时结束：走统一解析（三级回退 + 失败提示），不再静默不切
                 requestAutoAdvance("片尾倒计时")
             }
+        }
+    }
+    // 时间兜底：流在最后 1 秒卡住、mpv 不发 END_FILE 时也能自动跳集（同一集只触发一次）；
+    // 与 END_FILE 入口都走 requestAutoAdvance，switchInitiated 防重复切集
+    androidx.compose.runtime.LaunchedEffect(timePos, duration) {
+        if (!timeFallbackFired && !switchInitiated && outroDismissed[episodeId] != true
+            && duration > 0 && timePos >= 0 && timePos >= duration - 1.0 && onSwitchEpisode != null) {
+            timeFallbackFired = true
+            com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：时间兜底触发 timePos=$timePos duration=$duration")
+            requestAutoAdvance("时间兜底")
         }
     }
     // 自动跳集提示 4 秒后自动消失
