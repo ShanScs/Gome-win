@@ -286,6 +286,8 @@ fun PlayerScreen(
     val outroDismissed = remember { mutableStateMapOf<String, Boolean>() }
     // 任一入口（倒计时/EOF/点击）已发起切集后置 true，防重复触发
     var switchInitiated by remember(episodeId) { mutableStateOf(false) }
+    // 时间兜底已触发标记：流在结尾卡住、mpv 不发 END_FILE 时靠它进最后 1 秒触发自动跳集；同一集只触发一次
+    var timeFallbackFired by remember(episodeId) { mutableStateOf(false) }
     // 自动跳集提示（已是最后一集/无法获取下一集），4 秒后自动消失
     var autoNextHint by remember(episodeId) { mutableStateOf<String?>(null) }
     // 当前集 id 的引用副本：异步解析返回时核对，解析期间用户已切走则放弃，避免误切
@@ -303,6 +305,14 @@ fun PlayerScreen(
         // 片尾：剩余时间小于设定值且有下一集
         val remain = duration - timePos
         showNextEp = outroDismissed[episodeId] != true && manualOutro > 0 && duration > 0 && remain < manualOutro && remain > 0 && onSwitchEpisode != null
+        // 时间兜底：流在最后 1 秒卡住、mpv 不发 END_FILE 时也能自动跳集（同一集只触发一次）；
+        // 与 END_FILE 入口都走 requestAutoAdvance，switchInitiated 防重复切集
+        if (!timeFallbackFired && !switchInitiated && outroDismissed[episodeId] != true
+            && duration > 0 && timePos >= 0 && timePos >= duration - 1.0 && onSwitchEpisode != null) {
+            timeFallbackFired = true
+            com.muse.gomepc.player.DebugLog.d("UI", "自动跳集：时间兜底触发 timePos=$timePos duration=$duration")
+            requestAutoAdvance("时间兜底")
+        }
     }
     // 取剧集列表（带缓存）：放倒计时前面，自动跳集要从这里查下一集的真实 id
     var episodeList by remember { mutableStateOf<List<UiEpisode>>(emptyList()) }
