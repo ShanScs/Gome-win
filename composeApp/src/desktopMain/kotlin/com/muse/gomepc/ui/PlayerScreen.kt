@@ -1346,7 +1346,8 @@ fun PlayerScreen(
 
         // 底控制条（M玻璃，可自动隐藏）— 浮在视频上
         if (controlsVisible) {
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+            .then(if (GomeTheme.modern) Modifier.padding(horizontal = 24.dp, vertical = 20.dp) else Modifier.padding(12.dp))
         .pointerInput(lastInteraction) {
             awaitPointerEventScope {
                 while (true) {
@@ -1358,7 +1359,7 @@ fun PlayerScreen(
             }
         }) {
             MGlassBox(
-                Modifier.fillMaxWidth(), corner = 18.dp,
+                Modifier.fillMaxWidth(), corner = if (GomeTheme.modern) 28.dp else 18.dp,
                 tint = if (GomeTheme.modern) Color(0xCC14161A) else MGlass.Tint
             ) {
                 Row(

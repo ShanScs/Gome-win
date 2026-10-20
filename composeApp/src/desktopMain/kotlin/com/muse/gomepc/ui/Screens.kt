@@ -348,10 +348,34 @@ fun ItemCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 现代主题：海报卡圆角加大 + hover 聚焦放大 1.05（原版分支不加这些修饰，与现状一致）
+    val modern = GomeTheme.modern
+    var hovered by remember { mutableStateOf(false) }
+    val cardScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (modern && hovered) 1.05f else 1f,
+        label = "itemCardScale"
+    )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (modern) Modifier
+                    .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
+                    .pointerInput(item.id) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                when (ev.type) {
+                                    androidx.compose.ui.input.pointer.PointerEventType.Enter -> hovered = true
+                                    androidx.compose.ui.input.pointer.PointerEventType.Exit -> hovered = false
+                                    else -> {}
+                                }
+                            }
+                        }
+                    }
+                else Modifier
+            )
+            .clip(RoundedCornerShape(if (modern) 16.dp else 12.dp))
             .clickable(onClick = onClick)
             .padding(4.dp)
     ) {
@@ -359,11 +383,11 @@ fun ItemCard(
             Modifier
                 .width(120.dp)
                 .height(170.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(if (modern) 18.dp else 14.dp))
         ) {
             PosterImage(
                 item,
-                corner = 14.dp,
+                corner = if (modern) 18.dp else 14.dp,
                 modifier = Modifier.fillMaxSize()
             )
             // 集数徽章：右上角 28dp 圆形，13sp 粗体 #2F6FED
@@ -782,7 +806,7 @@ private fun BannerCarousel(
                 ) {
                     Text(
                         item.name,
-                        fontSize = 32.sp,
+                        fontSize = if (GomeTheme.modern) 40.sp else 32.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         maxLines = 1
@@ -823,7 +847,15 @@ private fun BannerCarousel(
             items.forEachIndexed { index, _ ->
                 Box(
                     modifier = Modifier
-                        .size(if (index == pagerState.currentPage) 8.dp else 6.dp)
+                        .then(
+                            if (GomeTheme.modern) {
+                                // 现代：选中圆点拉长成胶囊（CircleShape 裁非方形即胶囊）
+                                if (index == pagerState.currentPage) Modifier.width(20.dp).height(8.dp)
+                                else Modifier.size(8.dp)
+                            } else {
+                                Modifier.size(if (index == pagerState.currentPage) 8.dp else 6.dp)
+                            }
+                        )
                         .clip(CircleShape)
                         .background(
                             if (GomeTheme.modern) {
@@ -1424,7 +1456,7 @@ fun LibSortDialog(
                 "媒体库排序",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black,
+                color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
             )
             androidx.compose.foundation.lazy.LazyColumn(
@@ -1435,14 +1467,14 @@ fun LibSortDialog(
                     val lib = libs[index]
                     Row(
                         Modifier.fillMaxWidth().height(48.dp)
-                            .background(Color(0xFFF2F1F6), RoundedCornerShape(8.dp))
+                            .background(if (GomeTheme.modern) Color(0xFF262B33) else Color(0xFFF2F1F6), RoundedCornerShape(8.dp))
                             .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             lib.name,
                             fontSize = 16.sp,
-                            color = Color.Black,
+                            color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                             modifier = Modifier.weight(1f),
                             maxLines = 1
                         )
@@ -1451,7 +1483,7 @@ fun LibSortDialog(
                             Text(
                                 "↑",
                                 fontSize = 20.sp,
-                                color = Color(0xFF2F6FED),
+                                color = GomeTheme.Accent,
                                 modifier = Modifier.clickable {
                                     libs = libs.toMutableList().also {
                                         val tmp = it[index]
@@ -1466,7 +1498,7 @@ fun LibSortDialog(
                             Text(
                                 "↓",
                                 fontSize = 20.sp,
-                                color = Color(0xFF2F6FED),
+                                color = GomeTheme.Accent,
                                 modifier = Modifier.clickable {
                                     libs = libs.toMutableList().also {
                                         val tmp = it[index]
@@ -1484,14 +1516,14 @@ fun LibSortDialog(
                 Text(
                     "取消",
                     fontSize = 16.sp,
-                    color = Color(0xFF8E8E93),
+                    color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp)
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "保存",
                     fontSize = 16.sp,
-                    color = Color(0xFF2F6FED),
+                    color = GomeTheme.Accent,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable {
                         saveOrder()
@@ -1522,7 +1554,7 @@ fun ServerPopupDialog(
                 "服务器",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black,
+                color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
             )
             // 媒体库排序行
@@ -1532,10 +1564,10 @@ fun ServerPopupDialog(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("媒体库排序", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
-                Text("›", fontSize = 20.sp, color = Color(0xFFC7C7CC))
+                Text("媒体库排序", fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black, modifier = Modifier.weight(1f))
+                Text("›", fontSize = 20.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFFC7C7CC))
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
             Spacer(Modifier.height(8.dp))
             // 切换服务器失败提示（失败不跳首页，旧配置已回滚）
             if (switchError != null) {
@@ -1592,7 +1624,7 @@ fun ServerPopupDialog(
                 Text(
                     "取消",
                     fontSize = 16.sp,
-                    color = Color(0xFF2F6FED),
+                    color = GomeTheme.Accent,
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp)
                 )
             }
@@ -1825,7 +1857,7 @@ private fun AddServerDialog(
                                             existing.name.take(1).uppercase().ifEmpty { "服" },
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF2F6FED)
+                                            color = GomeTheme.Accent
                                         )
                                     }
                                 }
@@ -1834,7 +1866,7 @@ private fun AddServerDialog(
                         Text(
                             "更换图标",
                             fontSize = 14.sp,
-                            color = Color(0xFF2F6FED),
+                            color = GomeTheme.Accent,
                             modifier = Modifier
                                 .clickable { showIconPicker = true }
                                 .padding(12.dp, 8.dp, 12.dp, 8.dp)
@@ -1842,7 +1874,7 @@ private fun AddServerDialog(
                         Text(
                             "备用线路",
                             fontSize = 14.sp,
-                            color = Color(0xFF2F6FED),
+                            color = GomeTheme.Accent,
                             modifier = Modifier
                                 .clickable { showBackupCard = true }
                                 .padding(12.dp, 8.dp, 12.dp, 8.dp)
@@ -1850,7 +1882,7 @@ private fun AddServerDialog(
                         Text(
                             "更换密码",
                             fontSize = 14.sp,
-                            color = Color(0xFF2F6FED),
+                            color = GomeTheme.Accent,
                             modifier = Modifier
                                 .clickable { showPasswordCard = true }
                                 .padding(12.dp, 8.dp, 12.dp, 8.dp)
@@ -2340,7 +2372,7 @@ private fun ServerOptionRow(
             modifier = Modifier.weight(1f)
         )
         if (isSelected) {
-            Text("✓", fontSize = 18.sp, color = Color(0xFF2F6FED))
+            Text("✓", fontSize = 18.sp, color = GomeTheme.Accent)
         }
     }
 }
@@ -3002,7 +3034,7 @@ fun SettingsScreen(
                     item {
                         SettingCard {
                             Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                                Text("暂无字幕相关设置", fontSize = 15.sp, color = Color(0xFF8E8E93))
+                                Text("暂无字幕相关设置", fontSize = 15.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93))
                             }
                         }
                     }
@@ -3012,7 +3044,7 @@ fun SettingsScreen(
                     item {
                         SettingCard {
                             Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                                Text("暂无网络相关设置", fontSize = 15.sp, color = Color(0xFF8E8E93))
+                                Text("暂无网络相关设置", fontSize = 15.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93))
                             }
                         }
                     }
@@ -3098,10 +3130,10 @@ private fun SettingRowVector(
                 overflow = TextOverflow.Ellipsis
             )
             if (value != null) {
-                Text(value, fontSize = 19.sp, color = Color(0xFF8E8E93))
+                Text(value, fontSize = 19.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93))
                 Spacer(Modifier.width(6.dp))
             }
-            Text("›", fontSize = 28.sp, color = Color(0xFFC7C7CC))
+            Text("›", fontSize = 28.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFFC7C7CC))
         }
         if (showDivider) {
             Box(
@@ -3138,7 +3170,7 @@ private fun MaoDiDialog(
         Box(
             Modifier
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xF2FFFFFF))
+                .background(if (GomeTheme.modern) Color(0xFF1C2027) else Color(0xF2FFFFFF))
                 .border(1.dp, MGlass.Stroke, RoundedCornerShape(16.dp))
                 .padding(20.dp),
             contentAlignment = Alignment.Center
@@ -3159,7 +3191,7 @@ private fun SettingSingleChoiceDialog(
 ) {
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(280.dp)) {
-            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
+            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
             options.forEachIndexed { i, opt ->
                 Row(
@@ -3173,15 +3205,15 @@ private fun SettingSingleChoiceDialog(
                         onClick = { onSelect(i) }
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(opt, fontSize = 16.sp, color = Color.Black)
+                    Text(opt, fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black)
                 }
                 if (i < options.size - 1) {
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
                 }
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("取消", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                Text("取消", fontSize = 16.sp, color = GomeTheme.Accent,
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
             }
         }
@@ -3199,17 +3231,17 @@ private fun SettingCacheDialog(
     var size by remember { mutableStateOf(prefs.cacheSizeGb) }
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(300.dp)) {
-            Text("缓存", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
+            Text("缓存", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
             Row(
                 Modifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("启用缓存", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
+                Text("启用缓存", fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black, modifier = Modifier.weight(1f))
                 androidx.compose.material3.Switch(checked = enabled, onCheckedChange = { enabled = it })
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
-            Text("缓存大小", fontSize = 14.sp, color = Color(0xFF8E8E93),
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
+            Text("缓存大小", fontSize = 14.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf(1, 2, 3).forEach { s ->
@@ -3218,19 +3250,19 @@ private fun SettingCacheDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         androidx.compose.material3.RadioButton(selected = size == s, onClick = { size = s })
-                        Text("${s}G", fontSize = 16.sp, color = Color.Black)
+                        Text("${s}G", fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black)
                     }
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("切换后重新加载生效", fontSize = 12.sp, color = Color(0xFF8E8E93),
+            Text("切换后重新加载生效", fontSize = 12.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                 modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
+                Text("取消", fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("确定", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                Text("确定", fontSize = 16.sp, color = GomeTheme.Accent,
                     modifier = Modifier.clickable {
                         prefs.cacheEnabled = enabled
                         prefs.cacheSizeGb = size
@@ -3265,17 +3297,26 @@ private fun SettingDanmakuDialog(
     if (showAddDialog) {
         MaoDiDialog(onDismiss = { showAddDialog = false; addError = null }) {
             Column(Modifier.width(300.dp)) {
-                Text("添加弹幕源", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
+                Text("添加弹幕源", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
                 Text("dandanplay 兼容的 API 地址（如自建 danmu_api）",
-                    fontSize = 13.sp, color = Color(0xFF8E8E93),
+                    fontSize = 13.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
                 androidx.compose.material3.OutlinedTextField(
                     value = addText,
                     onValueChange = { addText = it; addError = null },
                     label = { Text("https://你的弹幕API地址") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = if (GomeTheme.modern) androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = GomeTheme.TextPrimary,
+                        unfocusedTextColor = GomeTheme.TextPrimary,
+                        focusedBorderColor = GomeTheme.Accent,
+                        unfocusedBorderColor = Color(0xFF3A3F47),
+                        focusedLabelColor = GomeTheme.Accent,
+                        unfocusedLabelColor = GomeTheme.TextSecondary,
+                        cursorColor = GomeTheme.Accent
+                    ) else androidx.compose.material3.OutlinedTextFieldDefaults.colors()
                 )
                 if (addError != null) {
                     Text(addError!!, fontSize = 13.sp, color = Color(0xFFFF3B30),
@@ -3283,12 +3324,12 @@ private fun SettingDanmakuDialog(
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
+                    Text("取消", fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                         modifier = Modifier.clickable {
                             showAddDialog = false; addError = null
                         }.padding(8.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("添加", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                    Text("添加", fontSize = 16.sp, color = GomeTheme.Accent,
                         modifier = Modifier.clickable {
                             val ok = prefs.addDanmakuSource(addText)
                             if (ok) {
@@ -3307,13 +3348,13 @@ private fun SettingDanmakuDialog(
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(340.dp)) {
             Text("弹幕源（dandanplay 兼容）", fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                color = Color.Black,
+                color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
             Row(
                 Modifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("启用弹幕", fontSize = 16.sp, color = Color.Black, modifier = Modifier.weight(1f))
+                Text("启用弹幕", fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black, modifier = Modifier.weight(1f))
                 androidx.compose.material3.Switch(
                     checked = enabled,
                     onCheckedChange = {
@@ -3323,7 +3364,7 @@ private fun SettingDanmakuDialog(
                     }
                 )
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
             // 源列表
             androidx.compose.foundation.lazy.LazyColumn(
                 Modifier.fillMaxWidth().heightIn(max = 280.dp)
@@ -3345,7 +3386,7 @@ private fun SettingDanmakuDialog(
                         Text(
                             s.url,
                             fontSize = 14.sp,
-                            color = Color.Black,
+                            color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                             modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                             maxLines = 2
                         )
@@ -3355,23 +3396,23 @@ private fun SettingDanmakuDialog(
                             }.padding(8.dp))
                     }
                     if (i < sources.size - 1) {
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
                     }
                 }
             }
             if (sources.isEmpty()) {
                 Text("暂无弹幕源，点击下方添加",
-                    fontSize = 14.sp, color = Color(0xFF8E8E93),
+                    fontSize = 14.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
-            Text("＋ 添加弹幕源", fontSize = 16.sp, color = Color(0xFF2F6FED),
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
+            Text("＋ 添加弹幕源", fontSize = 16.sp, color = GomeTheme.Accent,
                 modifier = Modifier.fillMaxWidth().clickable { showAddDialog = true }
                     .padding(vertical = 14.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("关闭", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                Text("关闭", fontSize = 16.sp, color = GomeTheme.Accent,
                     modifier = Modifier.clickable { onConfirm() }.padding(8.dp))
             }
         }
@@ -3391,12 +3432,12 @@ private fun SettingAnimationDialog(
         Column(Modifier.width(320.dp)) {
             // 标题居中
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("动画", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text("动画", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black)
             }
             Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
             Spacer(Modifier.height(12.dp))
-            Text("飞回动画", fontSize = 14.sp, color = Color(0xFF8E8E93))
+            Text("飞回动画", fontSize = 14.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93))
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf(0 to "严格", 1 to "标准", 2 to "宽松").forEach { (v, label) ->
@@ -3407,13 +3448,13 @@ private fun SettingAnimationDialog(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         androidx.compose.material3.RadioButton(selected = flyback == v, onClick = { flyback = v })
-                        Text(label, fontSize = 16.sp, color = Color.Black)
+                        Text(label, fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black)
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
             Spacer(Modifier.height(12.dp))
-            Text("缩放动画", fontSize = 14.sp, color = Color(0xFF8E8E93))
+            Text("缩放动画", fontSize = 14.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93))
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf(1 to "1倍", 2 to "2倍", 3 to "3倍").forEach { (v, label) ->
@@ -3424,17 +3465,17 @@ private fun SettingAnimationDialog(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         androidx.compose.material3.RadioButton(selected = zoom == v, onClick = { zoom = v })
-                        Text(label, fontSize = 16.sp, color = Color.Black)
+                        Text(label, fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black)
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text("取消", fontSize = 16.sp, color = Color(0xFF8E8E93),
+                Text("取消", fontSize = 16.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
                     modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("确定", fontSize = 16.sp, color = Color(0xFF2F6FED),
+                Text("确定", fontSize = 16.sp, color = GomeTheme.Accent,
                     modifier = Modifier.clickable {
                         prefs.flybackMode = flyback
                         prefs.zoomSpeed = zoom
@@ -3450,14 +3491,14 @@ private fun SettingAnimationDialog(
 private fun SettingAboutDialog(onDismiss: () -> Unit) {
     MaoDiDialog(onDismiss = onDismiss) {
         Column(Modifier.width(280.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("关于", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black,
+            Text("关于", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.padding(bottom = 12.dp))
             Text(
                 "Gome ${AppVersion.DISPLAY}\nYamby 风格 Emby 客户端（MPV 内核）",
-                fontSize = 14.sp, color = Color(0xFF8E8E93),
+                fontSize = 14.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
             )
             Spacer(Modifier.height(16.dp))
-            Text("确定", fontSize = 16.sp, color = Color(0xFF2F6FED),
+            Text("确定", fontSize = 16.sp, color = GomeTheme.Accent,
                 modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
         }
     }
@@ -3468,7 +3509,7 @@ private fun SettingGroupTitle(text: String) {
     Text(
         text,
         fontSize = 17.sp,
-        color = Color(0xFF8E8E93),
+        color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8E8E93),
         modifier = Modifier.padding(start = 16.dp, bottom = 8.dp, top = 10.dp)
     )
 }
@@ -3537,7 +3578,7 @@ private fun SettingRowIcon(
                 }
             }
             if (onClick != null || (onChange == null && trailing == null && value == null)) {
-                Text("›", fontSize = 22.sp, color = Color(0xFFC7C7CC))
+                Text("›", fontSize = 22.sp, color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFFC7C7CC))
             }
         }
         if (showDivider) {
@@ -3700,17 +3741,17 @@ private fun DetailSingleChoiceDialog(
         Box(
             Modifier.fillMaxWidth(0.7f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xF2FFFFFF))
+                .background(if (GomeTheme.modern) Color(0xFF1C2027) else Color(0xF2FFFFFF))
                 .clickable(enabled = false, onClick = {})
                 .padding(vertical = 8.dp)
         ) {
             Column {
                 Text(
                     title,
-                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A1A1A),
+                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                 )
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFF4)))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
                 names.forEachIndexed { idx, name ->
                     Row(
                         Modifier.fillMaxWidth().clickable { selected = idx; onSelect(idx) }
@@ -3718,7 +3759,7 @@ private fun DetailSingleChoiceDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            name, fontSize = 15.sp, color = Color(0xFF1A1A1A),
+                            name, fontSize = 15.sp, color = GomeTheme.TextPrimary,
                             modifier = Modifier.weight(1f)
                         )
                         if (idx == selected) {
@@ -3726,7 +3767,7 @@ private fun DetailSingleChoiceDialog(
                         }
                     }
                     if (idx < names.size - 1) {
-                        Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(1.dp).background(Color(0xFFEFEFF4)))
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(1.dp).background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)))
                     }
                 }
             }

@@ -3,6 +3,8 @@ package com.muse.gomepc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -35,6 +37,7 @@ import com.muse.gomepc.ui.GomeTheme
 import com.muse.gomepc.ui.HomeScreen
 import com.muse.gomepc.ui.LibraryScreen
 import com.muse.gomepc.ui.LoginScreen
+import com.muse.gomepc.ui.ModernSidebar
 import com.muse.gomepc.ui.PlayerScreen
 import com.muse.gomepc.ui.Repo
 import com.muse.gomepc.ui.HomeDataCache
@@ -452,13 +455,32 @@ fun GomeApp(
         )
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
-        Box(Modifier.fillMaxSize()) {
-            backgroundContent()
+        if (GomeTheme.modern) {
+            // 现代主题：左侧边导航 + 右侧内容区（页面内容本身不变）
+            Row(Modifier.fillMaxSize()) {
+                ModernSidebar(
+                    current = screen,
+                    onHome = { screen = Screen.Home },
+                    onSearch = { screen = Screen.Search },
+                    onFavorites = { screen = Screen.Favorites },
+                    onSettings = { screen = Screen.Settings },
+                    onServer = { showServerPopup = true }
+                )
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    backgroundContent()
+                }
+            }
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                backgroundContent()
+            }
         }
         // 统一透明标题栏：悬浮在内容上（内容延伸到窗口边框）
+        // 现代主题：左侧图标与侧边栏重叠，只保留居中标题与右侧窗口按钮；
+        // 拖动靠标题栏整条空白层（titleBarDrag 只响应未被消费的按下），与左侧图标无关，双主题均可拖
         CustomTitleBar(
             window = owner,
-            config = titleConfig,
+            config = if (GomeTheme.modern) titleConfig.copy(left = emptyList()) else titleConfig,
             isMaximized = isMaximized,
             onMinimize = onMinimize,
             onToggleMaximize = onToggleMaximize,
