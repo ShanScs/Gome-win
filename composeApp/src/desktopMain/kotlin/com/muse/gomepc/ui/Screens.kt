@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -443,8 +444,10 @@ fun HomeScreen(
         ) {
             // 顶部轮播（最新入库）：latest 为空时用第一个媒体库的数据兜底
             // 轮播图置顶全宽，顶栏悬浮在轮播图上方
-            val bannerItems = if (!latest.isNullOrEmpty()) latest!!
-                else libs?.firstOrNull()?.let { libItems[it.id]?.take(8) } ?: emptyList()
+            // 按 id 去重：轮播 Pager 以条目 id 做 key，源数据出现重复 id 会直接崩
+            val bannerItems = (if (!latest.isNullOrEmpty()) latest!!
+                else libs?.firstOrNull()?.let { libItems[it.id]?.take(8) } ?: emptyList())
+                .distinctBy { it.id }
             // 轮播图置顶全宽、直通顶边；顶栏已统一为透明悬浮标题栏（Main.GomeApp 叠加）
             if (bannerItems.isNotEmpty()) {
                 item {
@@ -975,7 +978,7 @@ fun LibraryScreen(
                 modifier = Modifier.fillMaxSize(),
                 state = gridState ?: androidx.compose.foundation.lazy.grid.rememberLazyGridState()
             ) {
-                items(libItems!!, key = { it.id }) { item ->
+                items(libItems!!.distinctBy { it.id }, key = { it.id }) { item ->
                     ItemCard(item, onClick = { onItemClick(item) })
                 }
             }
@@ -1204,7 +1207,7 @@ private fun ServerCardsGrid(
                     )
                 ) {
                     // 服务器卡片
-                    items(filtered, key = { server: ServerEntry -> server.key() }) { server ->
+                    itemsIndexed(filtered, key = { index, server -> "${server.key()}#$index" }) { _, server ->
                         val stat = Prefs.getServerStats()[server.key()] ?: Prefs.ServerStat()
                         val isCurrent = Prefs.serverName == server.name
                         ServerCard(
@@ -1527,7 +1530,7 @@ fun ServerPopupDialog(
                 modifier = Modifier.weight(1f, fill = false),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(servers, key = { it.key() }) { server ->
+                itemsIndexed(servers, key = { index, server -> "${server.key()}#$index" }) { _, server ->
                     val isCurrent = Prefs.serverName == server.name
                     ServerCard(
                         server = server,
@@ -2566,7 +2569,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(results!!, key = { it.id }) { item ->
+                    items(results!!.distinctBy { it.id }, key = { it.id }) { item ->
                         ItemCard(item, onClick = { onItemClick(item) })
                     }
                 }
@@ -2620,7 +2623,7 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(list, key = { it.id }) { item ->
+                            items(list.distinctBy { it.id }, key = { it.id }) { item ->
                                 ItemCard(item, onClick = { onItemClick(item) })
                             }
                         }
@@ -2732,7 +2735,7 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(results!!, key = { it.id }) { item ->
+                    items(results!!.distinctBy { it.id }, key = { it.id }) { item ->
                         ItemCard(item, onClick = { onItemClick(item) })
                     }
                 }
@@ -4284,7 +4287,7 @@ fun DetailScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                items(it.people, key = { person -> person.id }) { person ->
+                                items(it.people.distinctBy { person -> person.id }, key = { person -> person.id }) { person ->
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier.width(64.dp)

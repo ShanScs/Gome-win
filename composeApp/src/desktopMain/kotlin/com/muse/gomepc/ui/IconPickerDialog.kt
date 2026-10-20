@@ -130,7 +130,7 @@ fun IconPickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(filtered, key = { it.second }) { (name, url) ->
+                    items(filtered, key = { it.first }) { (name, url) ->
                         IconCell(
                             name = name,
                             url = url,
