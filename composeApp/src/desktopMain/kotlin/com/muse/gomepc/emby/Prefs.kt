@@ -14,10 +14,8 @@ import java.util.prefs.Preferences
  * 播放设置/UI 设置等 Android 特定项后续按需添加。
  */
 
-/** 保存的服务器条目（用于服务器切换）。
- * 注意（P0-E7）：password 字段仅保留签名兼容（调用方仍传内存中的密码），永不落盘：
- * getServers() 读取时忽略磁盘上的 password，saveServers() 写入时固定写 ""；
- * 首次读取到存量明文密码时会立即重写文件清掉旧值。 */
+/** 保存的服务器条目（用于服务器切换）。password 随条目一起落盘，
+ * 切换服务器时用它重新登录（P0-E7 的“永不落盘”已回滚：空密码导致切换必失败）。 */
 data class ServerEntry(
     val name: String,
     val protocol: String,
@@ -196,17 +194,14 @@ object Prefs {
     // ---- 多服务器 ----
     private const val KEY_SERVERS = "servers_json"
 
-    /** 读取保存的服务器列表。密码永不落盘：磁盘上的 password 一律忽略为 ""，
-     * 读到存量明文密码时立即重写文件清掉旧值（P0-E7 存量迁移）。 */
+    /** 读取保存的服务器列表（含 password，切换服务器时用它重新登录）。 */
     fun getServers(): List<ServerEntry> {
         val raw = get(KEY_SERVERS, "")
         if (raw.isBlank()) return emptyList()
         return try {
             val arr = JSONArray(raw)
-            var hadPlainPassword = false
-            val list = (0 until arr.length()).mapNotNull { i ->
+            (0 until arr.length()).mapNotNull { i ->
                 val o = arr.getJSONObject(i)
-                if (o.optString("password").isNotEmpty()) hadPlainPassword = true
                 val e = ServerEntry(
                     name = o.optString("name"),
                     protocol = o.optString("protocol", "http"),
@@ -214,7 +209,7 @@ object Prefs {
                     port = o.optString("port", "80"),
                     path = o.optString("path", ""),
                     username = o.optString("username"),
-                    password = "",
+                    password = o.optString("password"),
                     backupProtocol = o.optString("backupProtocol", ""),
                     backupHost = o.optString("backupHost", ""),
                     backupPort = o.optString("backupPort", ""),
@@ -223,8 +218,6 @@ object Prefs {
                 )
                 if (e.host.isNotEmpty()) e else null
             }
-            if (hadPlainPassword) saveServers(list)
-            list
         } catch (_: Exception) {
             emptyList()
         }
@@ -241,7 +234,7 @@ object Prefs {
                     .put("port", s.port)
                     .put("path", s.path)
                     .put("username", s.username)
-                    .put("password", "") // 密码永不落盘（P0-E7），只存 Token（Prefs.token）
+                    .put("password", s.password)
                     .put("backupProtocol", s.backupProtocol)
                     .put("backupHost", s.backupHost)
                     .put("backupPort", s.backupPort)
@@ -281,9 +274,9 @@ object Prefs {
 
     /**
      * 把当前 Prefs 里的服务器记入列表（登录成功后调用）。
-     * password 参数仅保留签名兼容：密码只留在内存，永不写入磁盘（P0-E7）；登录态改存 Token（Prefs.token）。
+     * password 一并存入条目，切换回该服务器时用它重新登录。
      */
-    fun rememberCurrentServer(@Suppress("UNUSED_PARAMETER") password: String) {
+    fun rememberCurrentServer(password: String) {
         if (host.isBlank()) return
         val name = serverName.ifEmpty { username.ifEmpty { host } }
         upsertServer(
@@ -294,7 +287,7 @@ object Prefs {
                 port = port,
                 path = path,
                 username = username,
-                password = ""
+                password = password
             )
         )
     }
