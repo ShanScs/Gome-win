@@ -435,6 +435,11 @@ object Prefs {
         get() = get("decode_mode", "mediacodec-copy")
         set(v) = put("decode_mode", v)
 
+    /** 界面主题: original(原版) / modern(现代)，默认原版 */
+    var theme: String
+        get() = get("theme", "original")
+        set(v) = put("theme", v)
+
     /** 缓存开关，默认开 */
     var cacheEnabled: Boolean
         get() = prefs.getBoolean("cache_enabled", true)

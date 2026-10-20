@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,6 +56,19 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 主题：原版用 Material 默认色（原值不变），现代用深色输入框/强调色按钮
+    val fieldColors = if (GomeTheme.modern) OutlinedTextFieldDefaults.colors(
+        focusedTextColor = GomeTheme.TextPrimary,
+        unfocusedTextColor = GomeTheme.TextPrimary,
+        focusedBorderColor = GomeTheme.Accent,
+        unfocusedBorderColor = Color(0xFF3A3F47),
+        focusedLabelColor = GomeTheme.Accent,
+        unfocusedLabelColor = GomeTheme.TextSecondary,
+        cursorColor = GomeTheme.Accent
+    ) else OutlinedTextFieldDefaults.colors()
+    val loginButtonColors = if (GomeTheme.modern)
+        ButtonDefaults.buttonColors(containerColor = GomeTheme.Accent)
+    else ButtonDefaults.buttonColors()
 
     fun parseServerUrl(input: String): Boolean {
         val s = input.trim()
@@ -126,7 +141,10 @@ fun LoginScreen(
         Modifier.fillMaxSize().background(GomeTheme.Bg),
         contentAlignment = Alignment.Center
     ) {
-        MGlassBox(Modifier.width(420.dp), corner = 20.dp) {
+        MGlassBox(
+            Modifier.width(420.dp), corner = 20.dp,
+            tint = if (GomeTheme.modern) Color(0xFF16191F) else MGlass.Tint
+        ) {
             Column(
                 Modifier.padding(32.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -147,7 +165,8 @@ fun LoginScreen(
                     placeholder = { Text("http://192.168.1.10:8096/emby") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !busy
+                    enabled = !busy,
+                    colors = fieldColors
                 )
                 OutlinedTextField(
                     value = username,
@@ -155,7 +174,8 @@ fun LoginScreen(
                     label = { Text("用户名") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !busy
+                    enabled = !busy,
+                    colors = fieldColors
                 )
                 OutlinedTextField(
                     value = password,
@@ -164,7 +184,8 @@ fun LoginScreen(
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !busy
+                    enabled = !busy,
+                    colors = fieldColors
                 )
 
                 if (error != null) {
@@ -180,7 +201,8 @@ fun LoginScreen(
                     onClick = { doLogin() },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = loginButtonColors
                 ) {
                     if (busy) {
                         CircularProgressIndicator(

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -77,7 +79,8 @@ fun IconPickerDialog(
     Dialog(onDismissRequest = onDismiss) {
         MGlassBox(
             modifier = Modifier.size(width = 480.dp, height = 560.dp),
-            corner = 16.dp
+            corner = 16.dp,
+            tint = if (GomeTheme.modern) Color(0xFF16191F) else MGlass.Tint
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
@@ -93,7 +96,14 @@ fun IconPickerDialog(
                     placeholder = { Text("搜索图标名称…", fontSize = 14.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(8.dp),
+                    colors = if (GomeTheme.modern) OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = GomeTheme.TextPrimary,
+                        unfocusedTextColor = GomeTheme.TextPrimary,
+                        focusedBorderColor = GomeTheme.Accent,
+                        unfocusedBorderColor = Color(0xFF3A3F47),
+                        cursorColor = GomeTheme.Accent
+                    ) else OutlinedTextFieldDefaults.colors()
                 )
                 Spacer(Modifier.height(4.dp))
                 if (loadError && !loading) {

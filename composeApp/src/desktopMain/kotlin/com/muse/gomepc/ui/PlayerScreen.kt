@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -1356,7 +1357,10 @@ fun PlayerScreen(
                 }
             }
         }) {
-            MGlassBox(Modifier.fillMaxWidth(), corner = 18.dp) {
+            MGlassBox(
+                Modifier.fillMaxWidth(), corner = 18.dp,
+                tint = if (GomeTheme.modern) Color(0xCC14161A) else MGlass.Tint
+            ) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -1364,7 +1368,7 @@ fun PlayerScreen(
                     PlayPauseButton(paused = paused, onClick = { player.togglePause() })
                     Spacer(Modifier.width(12.dp))
                     Text(formatTime(if (dragging) dragPos.toDouble() else timePos),
-                        color = Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        color = if (GomeTheme.modern) Color.White else Color(0xFF1A1A1A), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     key(episodeId) {
                     Slider(
                         value = (if (dragging) dragPos else timePos.toFloat()).let { v -> if (v.isNaN()) 0f else v }.coerceIn(0f, duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f)),
@@ -1381,36 +1385,46 @@ fun PlayerScreen(
                             }
                         },
                         valueRange = 0f..duration.toFloat().let { d -> if (d.isNaN()) 1f else d }.coerceAtLeast(1f),
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        colors = if (GomeTheme.modern) SliderDefaults.colors(
+                            thumbColor = GomeTheme.Accent,
+                            activeTrackColor = GomeTheme.Accent,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                        ) else SliderDefaults.colors()
                     )
                     } // key(episodeId) - Slider
-                    Text(formatTime(duration), color = Color(0xFF555555), fontSize = 13.sp)
+                    Text(formatTime(duration), color = if (GomeTheme.modern) Color.White.copy(alpha = 0.6f) else Color(0xFF555555), fontSize = 13.sp)
                     Spacer(Modifier.width(12.dp))
-                    Text("音量", color = Color(0xFF555555), fontSize = 12.sp)
+                    Text("音量", color = if (GomeTheme.modern) Color.White.copy(alpha = 0.6f) else Color(0xFF555555), fontSize = 12.sp)
                     Slider(
                         value = volume,
                         onValueChange = { volume = it; player.setVolume(it.toDouble()) },
                         valueRange = 0f..100f,
-                        modifier = Modifier.width(100.dp)
+                        modifier = Modifier.width(100.dp),
+                        colors = if (GomeTheme.modern) SliderDefaults.colors(
+                            thumbColor = GomeTheme.Accent,
+                            activeTrackColor = GomeTheme.Accent,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                        ) else SliderDefaults.colors()
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         if (danmakuUiOn) "弹幕开" else "弹幕关",
-                        color = Color(0xFF1A1A1A),
+                        color = if (GomeTheme.modern) Color.White else Color(0xFF1A1A1A),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { toggleDanmaku() }.padding(8.dp)
                     )
                     Text(
                         "全屏",
-                        color = Color(0xFF1A1A1A),
+                        color = if (GomeTheme.modern) Color.White else Color(0xFF1A1A1A),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable(onClick = onFullscreen).padding(8.dp)
                     )
                     Text(
                         "日志",
-                        color = Color(0xFF1A1A1A),
+                        color = if (GomeTheme.modern) Color.White else Color(0xFF1A1A1A),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { showLogs = !showLogs }.padding(8.dp)
@@ -1471,7 +1485,7 @@ fun PlayerScreen(
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF2F6FED))
+                                .background(GomeTheme.Accent)
                                 .clickable { retryPlayback() }
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center

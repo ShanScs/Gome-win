@@ -954,10 +954,10 @@ class AwtToolbarPanel(
                     g2.color = Color(255, 214, 0)
                     g2.fillRoundRect(x0, y, bw, trackH, trackH, trackH)
                 }
-                // 已播 #FFFFFF
+                // 已播 #FFFFFF（现代主题：朱砂红强调）
                 val pw = (w * frac).toInt()
                 if (pw > 2) {
-                    g2.color = Color.WHITE
+                    g2.color = if (GomeTheme.modern) Color(229, 72, 77) else Color.WHITE
                     g2.fillRoundRect(x0, y, pw, trackH, trackH, trackH)
                 }
                 // thumb 14dp 白圆
@@ -1027,7 +1027,7 @@ class AwtToolbarPanel(
                 g2.fillRoundRect(x0, y, w, trackH, trackH, trackH)
                 val pw = (w * frac).toInt()
                 if (pw > 2) {
-                    g2.color = Color.WHITE
+                    g2.color = if (GomeTheme.modern) Color(229, 72, 77) else Color.WHITE
                     g2.fillRoundRect(x0, y, pw, trackH, trackH, trackH)
                 }
                 val tx = x0 + w * frac

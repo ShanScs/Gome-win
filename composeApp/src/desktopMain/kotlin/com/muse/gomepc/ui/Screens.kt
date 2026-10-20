@@ -119,14 +119,35 @@ sealed interface Screen {
     data class Library(val libId: String, val libName: String) : Screen
 }
 
-/** App 主题色 */
+/**
+ * App 主题色。
+ * 原版（默认）：每个颜色的返回值与改版前逐一相同，原版渲染不受影响。
+ * 现代主题：设置里切换后 modern 状态变化，读这些颜色的 Composable 自动重组换肤。
+ */
 object GomeTheme {
-    val Bg = Color(0xFFF5F6F8)
-    val CardBg = Color.White
-    val TextPrimary = Color(0xFF1A1A1A)
-    val TextSecondary = Color(0xFF8A8A8A)
-    val Accent = Color(0xFF2F6FED)
-    val SidebarBg = Color(0xFFECEDEF)
+    /** 当前是否为现代主题（Compose 状态，切换后立即生效） */
+    var modern by mutableStateOf(Prefs.theme == "modern")
+        private set
+
+    /** 应用主题并持久化："modern"=现代，其余=原版 */
+    fun applyTheme(value: String) {
+        val v = if (value == "modern") "modern" else "original"
+        Prefs.theme = v
+        modern = v == "modern"
+    }
+
+    val Bg: Color
+        get() = if (modern) Color(0xFF0A0C10) else Color(0xFFF5F6F8)
+    val CardBg: Color
+        get() = if (modern) Color(0xFF1C2027) else Color.White
+    val TextPrimary: Color
+        get() = if (modern) Color(0xFFF5F7FA) else Color(0xFF1A1A1A)
+    val TextSecondary: Color
+        get() = if (modern) Color(0x99FFFFFF) else Color(0xFF8A8A8A)
+    val Accent: Color
+        get() = if (modern) Color(0xFFE5484D) else Color(0xFF2F6FED)
+    val SidebarBg: Color
+        get() = if (modern) Color(0xFF101318) else Color(0xFFECEDEF)
 }
 
 /** 红心 vector 图标（对齐 Android ic_heart_red，#F44336） */
@@ -271,12 +292,12 @@ fun ResumeCard(
                 Text(
                     item.badge,
                     fontSize = 11.sp,
-                    color = Color(0xFF2F6FED),
+                    color = GomeTheme.Accent,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFFDCE9FB))
+                        .background(if (GomeTheme.modern) Color(0x33E5484D) else Color(0xFFDCE9FB))
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
@@ -353,14 +374,14 @@ fun ItemCard(
                         .padding(8.dp)
                         .size(28.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(Color(0xFFDCE9FB)),
+                        .background(if (GomeTheme.modern) Color(0x33E5484D) else Color(0xFFDCE9FB)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         item.episodeCount.toString(),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF2F6FED)
+                        color = GomeTheme.Accent
                     )
                 }
             }
@@ -437,7 +458,7 @@ fun HomeScreen(
                 }
             }
             LazyColumn(
-            modifier = Modifier.fillMaxSize().background(Color.White),
+            modifier = Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White),
             contentPadding = PaddingValues(bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState()
@@ -522,7 +543,7 @@ private fun SectionHeader(title: String, action: String, onAction: (() -> Unit)?
         Text(
             action,
             fontSize = 14.sp,
-            color = Color(0xFF2F6FED),
+            color = GomeTheme.Accent,
             modifier = Modifier.padding(8.dp)
                 .clickable(enabled = onAction != null) { onAction?.invoke() }
         )
@@ -639,7 +660,7 @@ fun ResumeListScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(Color.White)) {
+    Column(Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)) {
         // 顶栏（顶部留出统一透明标题栏高度）
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 76.dp, bottom = 12.dp),
@@ -749,7 +770,7 @@ private fun BannerCarousel(
                         .background(
                             androidx.compose.ui.graphics.Brush.verticalGradient(
                                 0.55f to Color.Transparent,
-                                1f to Color.White
+                                1f to if (GomeTheme.modern) Color(0xFF0A0C10) else Color.White
                             )
                         )
                 )
@@ -805,8 +826,13 @@ private fun BannerCarousel(
                         .size(if (index == pagerState.currentPage) 8.dp else 6.dp)
                         .clip(CircleShape)
                         .background(
-                            if (index == pagerState.currentPage) Color(0xFF666666)
-                            else Color(0xFFCCCCCC)
+                            if (GomeTheme.modern) {
+                                if (index == pagerState.currentPage) Color.White
+                                else Color(0x66FFFFFF)
+                            } else {
+                                if (index == pagerState.currentPage) Color(0xFF666666)
+                                else Color(0xFFCCCCCC)
+                            }
                         )
                 )
             }
@@ -961,7 +987,7 @@ fun LibraryScreen(
     }
 
     // 顶栏已统一为透明悬浮标题栏（Main.GomeApp 叠加）：库名居中、排序/返回在标题栏
-    Column(Modifier.fillMaxSize().background(Color.White)) {
+    Column(Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)) {
         if (libItems == null) {
             LoadingBox(Modifier.weight(1f))
         } else {
@@ -997,10 +1023,10 @@ fun LibraryScreen(
                         Box(
                             modifier = Modifier.height(36.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (selected) Color(0xFF2F6FED) else Color(0x80FFFFFF))
+                                .background(if (selected) GomeTheme.Accent else Color(0x80FFFFFF))
                                 .border(
                                     1.dp,
-                                    if (selected) Color(0xFF2F6FED) else MGlass.Stroke,
+                                    if (selected) GomeTheme.Accent else MGlass.Stroke,
                                     RoundedCornerShape(12.dp)
                                 )
                                 .clickable {
@@ -1138,19 +1164,19 @@ private fun ServerCardsGrid(
                     .padding(bottom = 8.dp)
                     .height(48.dp)
                     .clip(RoundedCornerShape(28.dp))
-                    .background(Color(0xFFF2F4F8))
+                    .background(if (GomeTheme.modern) GomeTheme.CardBg else Color(0xFFF2F4F8))
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 放大镜 20dp，ic_search（对齐安卓）
-                SearchIcon(tint = Color(0xFF5F6368), iconSize = 20.dp)
+                SearchIcon(tint = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF5F6368), iconSize = 20.dp)
                 androidx.compose.material3.OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = { Text("搜索", fontSize = 15.sp, color = Color(0xFFA0A0A0)) },
                     textStyle = androidx.compose.ui.text.TextStyle(
                         fontSize = 15.sp,
-                        color = Color(0xFF1A1A1A)
+                        color = GomeTheme.TextPrimary
                     ),
                     singleLine = true,
                     modifier = Modifier.weight(1f).padding(start = 8.dp),
@@ -1168,7 +1194,7 @@ private fun ServerCardsGrid(
                             .clickable { searchQuery = "" },
                         contentAlignment = Alignment.Center
                     ) {
-                        CloseIcon(tint = Color(0xFF8A8A8A), iconSize = 20.dp)
+                        CloseIcon(tint = GomeTheme.TextSecondary, iconSize = 20.dp)
                     }
                 }
             }
@@ -1251,7 +1277,7 @@ private fun ServerCardsGrid(
                 .padding(end = 20.dp, bottom = 112.dp)
                 .size(60.dp)
                 .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(Color(0xFF2F6FED))
+                .background(GomeTheme.Accent)
                 .clickable { showAddDialog = true },
             contentAlignment = Alignment.Center
         ) {
@@ -1600,7 +1626,7 @@ private fun ServerCard(
             .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.radialGradient(
-                    colors = listOf(tint, Color.White),
+                    colors = listOf(tint, if (GomeTheme.modern) GomeTheme.CardBg else Color.White),
                     center = androidx.compose.ui.geometry.Offset(0.85f, 0.15f),
                     radius = 1200f
                 )
@@ -1653,7 +1679,7 @@ private fun ServerCard(
                             server.name.take(1).uppercase().ifEmpty { "服" },
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF2F6FED)
+                            color = GomeTheme.Accent
                         )
                     }
                 )
@@ -1669,14 +1695,14 @@ private fun ServerCard(
             Text(
                 if (movies >= 0) movies.toString() else "–",
                 fontSize = 12.sp,
-                color = Color(0xFF8A7B6C),
+                color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8A7B6C),
                 modifier = Modifier.padding(start = 4.dp)
             )
             TvIcon(iconSize = 14.dp, modifier = Modifier.padding(start = 12.dp))
             Text(
                 if (series >= 0) series.toString() else "–",
                 fontSize = 12.sp,
-                color = Color(0xFF8A7B6C),
+                color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF8A7B6C),
                 modifier = Modifier.padding(start = 4.dp)
             )
         }
@@ -1688,7 +1714,7 @@ private fun ServerCard(
             Text(
                 server.host,
                 fontSize = 11.sp,
-                color = Color(0xFFA0A0A0),
+                color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFFA0A0A0),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -1697,7 +1723,7 @@ private fun ServerCard(
                 Text(
                     (if (isCurrent) "当前 · " else "") + timeAgo(lastUsed),
                     fontSize = 11.sp,
-                    color = Color(0xFFA0A0A0),
+                    color = if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFFA0A0A0),
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
@@ -2404,7 +2430,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
         searching = false
     }
 
-    Column(Modifier.fillMaxSize().background(Color.White)) {
+    Column(Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)) {
         // 服务器选择（聚合搜索）：药丸框（对齐 Android bg_pill：#F0F0F0，20dp 圆角）
         // 顶部留出统一透明标题栏高度
         Row(
@@ -2418,7 +2444,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                 color = GomeTheme.TextPrimary,
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFFF0F0F0))
+                    .background(if (GomeTheme.modern) GomeTheme.CardBg else Color(0xFFF0F0F0))
                     .clickable { showServerSelector = true }
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
@@ -2443,11 +2469,11 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
             Modifier.fillMaxWidth()
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFFF2F4F8))
+                .background(if (GomeTheme.modern) GomeTheme.CardBg else Color(0xFFF2F4F8))
                 .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            NavIcon(NavKind.SEARCH, tint = Color(0xFF1A1A1A).copy(alpha = 0.5f), iconSize = 24.dp)
+            NavIcon(NavKind.SEARCH, tint = GomeTheme.TextPrimary.copy(alpha = 0.5f), iconSize = 24.dp)
             Spacer(Modifier.width(8.dp))
             androidx.compose.foundation.text.BasicTextField(
                 value = query,
@@ -2461,7 +2487,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(
                     fontSize = 16.sp,
-                    color = Color(0xFF1A1A1A)
+                    color = GomeTheme.TextPrimary
                 ),
                 modifier = Modifier.weight(1f).height(48.dp),
                 decorationBox = { inner ->
@@ -2480,7 +2506,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                         .clickable { query = "" },
                     contentAlignment = Alignment.Center
                 ) {
-                    CloseIcon(iconSize = 24.dp, tint = Color(0xFF8A8A8A))
+                    CloseIcon(iconSize = 24.dp, tint = GomeTheme.TextSecondary)
                 }
             }
         }
@@ -2515,7 +2541,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                TrashIcon(iconSize = 24.dp, tint = Color(0xFF8A8A8A))
+                                TrashIcon(iconSize = 24.dp, tint = GomeTheme.TextSecondary)
                             }
                         }
                         // 历史标签流式布局
@@ -2532,7 +2558,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                                     color = GomeTheme.TextPrimary,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFFF2F4F8))
+                                        .background(if (GomeTheme.modern) GomeTheme.CardBg else Color(0xFFF2F4F8))
                                         .clickable {
                                             query = h
                                             searchKey++
@@ -2554,7 +2580,7 @@ fun SearchScreen(onItemClick: (UiMediaItem) -> Unit) {
                 Text(
                     "找到 ${results!!.size} 个结果",
                     fontSize = 13.sp,
-                    color = Color(0xFF8A8A8A),
+                    color = GomeTheme.TextSecondary,
                     modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp)
                 )
                 LazyVerticalGrid(
@@ -2591,7 +2617,7 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
     }
 
     Row(
-        Modifier.fillMaxSize().background(Color.White)
+        Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)
             .padding(start = 16.dp, end = 16.dp, top = 76.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -2599,7 +2625,8 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
         Card(
             modifier = Modifier.weight(1.6f).fillMaxHeight(),
             shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            colors = if (GomeTheme.modern) CardDefaults.cardColors(containerColor = GomeTheme.CardBg) else CardDefaults.cardColors()
         ) {
             Column(Modifier.fillMaxSize().padding(12.dp)) {
                 val list = items
@@ -2630,7 +2657,8 @@ fun FavoritesScreen(onItemClick: (UiMediaItem) -> Unit) {
         Card(
             modifier = Modifier.weight(1f).fillMaxHeight(),
             shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            colors = if (GomeTheme.modern) CardDefaults.cardColors(containerColor = GomeTheme.CardBg) else CardDefaults.cardColors()
         ) {
             CompactSearchPanel(onItemClick = onItemClick)
         }
@@ -2669,11 +2697,11 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
         Row(
             Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFFF2F4F8))
+                .background(if (GomeTheme.modern) GomeTheme.CardBg else Color(0xFFF2F4F8))
                 .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            NavIcon(NavKind.SEARCH, tint = Color(0xFF1A1A1A).copy(alpha = 0.5f), iconSize = 20.dp)
+            NavIcon(NavKind.SEARCH, tint = GomeTheme.TextPrimary.copy(alpha = 0.5f), iconSize = 20.dp)
             Spacer(Modifier.width(8.dp))
             androidx.compose.foundation.text.BasicTextField(
                 value = query,
@@ -2687,7 +2715,7 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(
                     fontSize = 14.sp,
-                    color = Color(0xFF1A1A1A)
+                    color = GomeTheme.TextPrimary
                 ),
                 modifier = Modifier.weight(1f).height(40.dp),
                 decorationBox = { inner ->
@@ -2705,7 +2733,7 @@ fun CompactSearchPanel(onItemClick: (UiMediaItem) -> Unit) {
                         .clickable { query = "" },
                     contentAlignment = Alignment.Center
                 ) {
-                    CloseIcon(iconSize = 20.dp, tint = Color(0xFF8A8A8A))
+                    CloseIcon(iconSize = 20.dp, tint = GomeTheme.TextSecondary)
                 }
             }
         }
@@ -2752,6 +2780,7 @@ fun SettingsScreen(
     var showCacheDialog by remember { mutableStateOf(false) }
     var showDanmakuDialog by remember { mutableStateOf(false) }
     var showDockDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var showAnimationDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     // 刷新触发
@@ -2773,6 +2802,7 @@ fun SettingsScreen(
         }
     }
     fun dockLabel(): String = if (prefs.dockStyle == 0) "M玻璃" else "原玻璃"
+    fun themeLabel(): String = if (prefs.theme == "modern") "现代" else "原版"
     fun animLabel(): String = when (prefs.flybackMode) {
         0 -> "严格"
         2 -> "宽松"
@@ -2822,6 +2852,19 @@ fun SettingsScreen(
             onDismiss = { showDockDialog = false }
         )
     }
+    if (showThemeDialog) {
+        SettingSingleChoiceDialog(
+            title = "主题",
+            options = listOf("原版", "现代"),
+            selected = if (prefs.theme == "modern") 1 else 0,
+            onSelect = {
+                GomeTheme.applyTheme(if (it == 1) "modern" else "original")
+                refreshTick++
+                showThemeDialog = false
+            },
+            onDismiss = { showThemeDialog = false }
+        )
+    }
     if (showAnimationDialog) {
         SettingAnimationDialog(
             onDismiss = { showAnimationDialog = false },
@@ -2836,7 +2879,7 @@ fun SettingsScreen(
     refreshTick.let { }
     var selectedTab by remember { mutableStateOf(0) }
     Row(
-        Modifier.fillMaxSize().background(Color(0xFFF2F1F6))
+        Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color(0xFFF2F1F6))
             .padding(top = 76.dp, bottom = 24.dp, start = 16.dp, end = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(30.dp)
     ) {
@@ -2847,12 +2890,12 @@ fun SettingsScreen(
                 "设置",
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black,
+                color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.padding(bottom = 10.dp, start = 10.dp)
             )
             Column(
                 Modifier.fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(16.dp))
+                    .background(if (GomeTheme.modern) GomeTheme.CardBg else Color.White, RoundedCornerShape(16.dp))
                     .padding(12.dp)
             ) {
                 listOf("服务器", "播放", "界面", "字幕", "网络", "关于").forEachIndexed { i, s ->
@@ -2860,7 +2903,7 @@ fun SettingsScreen(
                     Box(
                         Modifier.fillMaxWidth().padding(vertical = 3.dp)
                             .background(
-                                if (sel) Color(0xFFF2F1F6) else Color.Transparent,
+                                if (sel) (if (GomeTheme.modern) Color(0xFF2A2F38) else Color(0xFFF2F1F6)) else Color.Transparent,
                                 RoundedCornerShape(14.dp)
                             )
                             .clickable { selectedTab = i }
@@ -2870,7 +2913,7 @@ fun SettingsScreen(
                             s,
                             fontSize = 19.sp,
                             fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
-                            color = if (sel) Color(0xFF172029) else Color(0xFF52606A)
+                            color = if (sel) (if (GomeTheme.modern) GomeTheme.TextPrimary else Color(0xFF172029)) else (if (GomeTheme.modern) GomeTheme.TextSecondary else Color(0xFF52606A))
                         )
                     }
                 }
@@ -2927,6 +2970,14 @@ fun SettingsScreen(
         item { SettingGroupTitle("界面") }
         item {
             SettingCard {
+                SettingRowVector(
+                    label = "主题",
+                    iconBg = Color(0xFF0A84FF),
+                    paths = SETTING_ICON_ANIM,
+                    value = themeLabel(),
+                    showDivider = true,
+                    onClick = { showThemeDialog = true }
+                )
                 SettingRowVector(
                     label = "dock",
                     iconBg = Color(0xFF5AC8FA),
@@ -3041,7 +3092,7 @@ private fun SettingRowVector(
             Text(
                 label,
                 fontSize = 20.sp,
-                color = Color.Black,
+                color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -3057,7 +3108,7 @@ private fun SettingRowVector(
                 Modifier.fillMaxWidth()
                     .padding(start = 70.dp)
                     .height(1.dp)
-                    .background(Color(0xFFEFEFF4))
+                    .background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4))
             )
         }
     }
@@ -3427,7 +3478,7 @@ private fun SettingCard(content: @Composable () -> Unit) {
     Column(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White),
+            .background(if (GomeTheme.modern) GomeTheme.CardBg else Color.White),
         content = { content() }
     )
 }
@@ -3467,7 +3518,7 @@ private fun SettingRowIcon(
             Text(
                 label,
                 fontSize = 20.sp,
-                color = Color.Black,
+                color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color.Black,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -3494,7 +3545,7 @@ private fun SettingRowIcon(
                 Modifier.fillMaxWidth()
                     .padding(start = 53.dp)
                     .height(1.dp)
-                    .background(Color(0xFFEFEFF4))
+                    .background(if (GomeTheme.modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4))
             )
         }
     }
@@ -3671,7 +3722,7 @@ private fun DetailSingleChoiceDialog(
                             modifier = Modifier.weight(1f)
                         )
                         if (idx == selected) {
-                            Text("✓", fontSize = 18.sp, color = Color(0xFF2F6FED), fontWeight = FontWeight.Bold)
+                            Text("✓", fontSize = 18.sp, color = GomeTheme.Accent, fontWeight = FontWeight.Bold)
                         }
                     }
                     if (idx < names.size - 1) {
@@ -3718,7 +3769,7 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFFE0E0E0))
                 .then(
-                    if (isSelected) Modifier.border(3.dp, Color(0xFF2F6FED), RoundedCornerShape(12.dp))
+                    if (isSelected) Modifier.border(3.dp, GomeTheme.Accent, RoundedCornerShape(12.dp))
                     else Modifier
                 )
         ) {
@@ -3751,7 +3802,7 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
                 Box(
                     modifier = Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth().height(4.dp)
-                        .background(Color(0xFF2F6FED))
+                        .background(GomeTheme.Accent)
                 )
             }
             // 播放进度条（有进度且未看完时显示）
@@ -3762,7 +3813,7 @@ private fun EpisodeThumbCard(ep: UiEpisode, isCurrent: Boolean, isSelected: Bool
                 Box(
                     modifier = Modifier.align(Alignment.BottomStart)
                         .fillMaxWidth(prog).height(4.dp)
-                        .background(Color(0xFF2F6FED))
+                        .background(GomeTheme.Accent)
                 )
             }
         }
@@ -3873,7 +3924,7 @@ fun DetailScreen(
                 seasonLoading = false
             }
 
-            Box(Modifier.fillMaxSize().background(Color.White)) {
+            Box(Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)) {
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 110.dp)
@@ -3912,7 +3963,7 @@ fun DetailScreen(
                                 Modifier.fillMaxSize().background(
                                     Brush.verticalGradient(
                                         0.85f to Color.Transparent,
-                                        1f to Color(0xFFF5F6F8)
+                                        1f to GomeTheme.Bg
                                     )
                                 )
                             )
@@ -4115,7 +4166,7 @@ fun DetailScreen(
                                             modifier = Modifier.width(200.dp).height(52.dp)
                                                 .shadow(4.dp, RoundedCornerShape(26.dp))
                                                 .clip(RoundedCornerShape(26.dp))
-                                                .background(Color.White)
+                                                .background(if (GomeTheme.modern) GomeTheme.Accent else Color.White)
                                                 .clickable {
                                                     // 播选中的那集，带上版本/音轨/字幕选择
                                                     val target = eps.getOrNull(selectedEpIndex)
@@ -4218,11 +4269,11 @@ fun DetailScreen(
                                             .clickable { showSeasonMenu = true }
                                     )
                                     Spacer(Modifier.weight(1f))
-                                    Text("←", fontSize = 16.sp, color = Color(0xFF8A8A8A),
+                                    Text("←", fontSize = 16.sp, color = GomeTheme.TextSecondary,
                                         modifier = Modifier.clickable { if (seasonIdx > 0) seasonIdx-- }.padding(8.dp))
-                                    Text("→", fontSize = 16.sp, color = Color(0xFF8A8A8A),
+                                    Text("→", fontSize = 16.sp, color = GomeTheme.TextSecondary,
                                         modifier = Modifier.clickable { if (seasonIdx < seasons.size - 1) seasonIdx++ }.padding(8.dp))
-                                    Text("更多", fontSize = 14.sp, color = Color(0xFF8A8A8A),
+                                    Text("更多", fontSize = 14.sp, color = GomeTheme.TextSecondary,
                                         modifier = Modifier.clickable { showSeasonMenu = true }.padding(8.dp))
                                 }
                                 androidx.compose.material3.DropdownMenu(
@@ -4320,7 +4371,7 @@ fun DetailScreen(
                     androidx.compose.ui.window.Dialog(onDismissRequest = { showFullOverview = false }) {
                         Box(
                             modifier = Modifier.clip(RoundedCornerShape(16.dp))
-                                .background(Color.White)
+                                .background(if (GomeTheme.modern) GomeTheme.CardBg else Color.White)
                                 .padding(20.dp)
                         ) {
                             Text(

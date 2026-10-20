@@ -113,6 +113,9 @@ fun CustomTitleBar(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 主题色：原版为灰背板+深字（原值不变），现代为深灰背板+白字
+    val pillTint = if (GomeTheme.modern) Color(0xFF23262C) else Color(0xFFBFBFBF)
+    val glyphColor = if (GomeTheme.modern) Color.White else Color(0xFF1A1A1A)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -131,7 +134,7 @@ fun CustomTitleBar(
         MGlassBox(
             modifier = Modifier.align(Alignment.CenterStart),
             corner = 20.dp,
-            tint = Color(0xFFBFBFBF)
+            tint = pillTint
         ) {
             Row(
                 modifier = Modifier.height(40.dp).padding(horizontal = 4.dp),
@@ -148,7 +151,7 @@ fun CustomTitleBar(
                 title,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1A1A1A),
+                color = GomeTheme.TextPrimary,
                 modifier = Modifier.align(Alignment.Center),
                 maxLines = 1
             )
@@ -157,13 +160,13 @@ fun CustomTitleBar(
         MGlassBox(
             modifier = Modifier.align(Alignment.CenterEnd),
             corner = 20.dp,
-            tint = Color(0xFFBFBFBF)
+            tint = pillTint
         ) {
             Row(
                 modifier = Modifier.height(40.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val ic = Color(0xFF1A1A1A)
+                val ic = glyphColor
                 WindowButton(onClick = onMinimize, desc = "最小化") { s ->
                     drawLine(ic, Offset(s.width * 0.3f, s.height / 2f), Offset(s.width * 0.7f, s.height / 2f), strokeWidth = 2.5f)
                 }
@@ -171,7 +174,7 @@ fun CustomTitleBar(
                     if (isMaximized) {
                         // 还原：两个叠方块
                         drawRect(ic, Offset(s.width * 0.36f, s.height * 0.28f), androidx.compose.ui.geometry.Size(s.width * 0.36f, s.height * 0.36f), style = Stroke(2.2f))
-                        drawRect(Color(0xFFBFBFBF), Offset(s.width * 0.36f, s.height * 0.28f), androidx.compose.ui.geometry.Size(s.width * 0.36f, s.height * 0.36f), style = Stroke(4f))
+                        drawRect(pillTint, Offset(s.width * 0.36f, s.height * 0.28f), androidx.compose.ui.geometry.Size(s.width * 0.36f, s.height * 0.36f), style = Stroke(4f))
                         drawRect(ic, Offset(s.width * 0.28f, s.height * 0.36f), androidx.compose.ui.geometry.Size(s.width * 0.36f, s.height * 0.36f), style = Stroke(2.2f))
                     } else {
                         drawRect(ic, Offset(s.width * 0.3f, s.height * 0.3f), androidx.compose.ui.geometry.Size(s.width * 0.4f, s.height * 0.4f), style = Stroke(2.2f))
@@ -292,7 +295,7 @@ private fun ServerGlyph() {
                     serverName.take(1).uppercase().ifEmpty { "影" },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2F6FED)
+                    color = GomeTheme.Accent
                 )
             }
         )
@@ -319,7 +322,7 @@ private fun BackGlyph() {
 @Composable
 private fun SortGlyph() {
     Canvas(Modifier.size(24.dp)) {
-        val c = Color(0xFF1A1A1A)
+        val c = if (GomeTheme.modern) Color.White else Color(0xFF1A1A1A)
         val w = size.width
         // 三条横线（上长下短）
         drawLine(c, Offset(w * 0.2f, size.height * 0.3f), Offset(w * 0.62f, size.height * 0.3f), strokeWidth = 2.4f)
