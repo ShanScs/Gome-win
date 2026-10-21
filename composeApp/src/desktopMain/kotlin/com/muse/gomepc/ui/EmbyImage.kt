@@ -35,6 +35,22 @@ object EmbyImageLoader {
     }
     private val lock = Any()
 
+    // 加载失败日志节流：最多 5 秒记一行（带被压掉的计数），否则首页一片图失败就刷屏。
+    // 之前所有失败都静默返回 null，日志里查不到图片为什么出不来。
+    @Volatile private var lastFailLogMs = 0L
+    private val suppressedFails = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun logLoadFail(url: String, reason: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastFailLogMs >= 5000) {
+            lastFailLogMs = now
+            val sup = suppressedFails.getAndSet(0)
+            com.muse.gomepc.player.DebugLog.d("Image", "加载失败($reason): $url" + if (sup > 0) "（另有 $sup 条失败未记）" else "")
+        } else {
+            suppressedFails.incrementAndGet()
+        }
+    }
+
     fun getCached(url: String): ImageBitmap? = synchronized(lock) { cache[url] }
 
     private fun putCached(key: String, bmp: ImageBitmap) = synchronized(lock) { cache[key] = bmp }
@@ -57,12 +73,19 @@ object EmbyImageLoader {
                 }
                 try {
                     if (c.responseCode !in 200..299) {
+                        logLoadFail(url, "HTTP ${c.responseCode}")
                         // 消费错误流，否则连接无法复用
                         try { c.errorStream?.use { it.readAllBytes() } } catch (_: Exception) { }
                         return@withContext null
                     }
-                    val bytes = c.inputStream.use { readUpTo(it, MAX_BYTES) } ?: return@withContext null
-                    if (bytes.isEmpty()) return@withContext null
+                    val bytes = c.inputStream.use { readUpTo(it, MAX_BYTES) } ?: run {
+                        logLoadFail(url, "读取失败或超限")
+                        return@withContext null
+                    }
+                    if (bytes.isEmpty()) {
+                        logLoadFail(url, "空响应")
+                        return@withContext null
+                    }
                     // 按字节缓存：同一张图换了 URL（token/尺寸参数不同）时命中内容哈希，不重复解码
                     val hashKey = "sha256:${sha256Hex(bytes)}"
                     getCached(hashKey)?.let {
@@ -75,13 +98,16 @@ object EmbyImageLoader {
                     if (bmp != null) {
                         putCached(url, bmp)
                         putCached(hashKey, bmp)
+                    } else {
+                        logLoadFail(url, "解码失败 ${bytes.size}B")
                     }
                     bmp
                 } finally {
                     c.disconnect()
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            logLoadFail(url, "异常 ${e.javaClass.simpleName}: ${e.message}")
             null
         }
     }

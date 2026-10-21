@@ -776,7 +776,11 @@ private fun BannerCarousel(
                     url = item.backdropUrl ?: item.imageUrl,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    // 与详情页头图一致的兜底：backdropUrl 是恒拼出来的非空 URL（条目在服务器上
+                    // 没有 Backdrop 时请求直接失败），不传 fallbackUrl 时一失败轮播就整片空白；
+                    // 此服务器多数条目只有 Primary 海报，故 Backdrop 失败改用海报（裁切填充）。
+                    fallbackUrl = item.imageUrl.takeIf { it != item.backdropUrl }
                 )
                 // 底部淡出到白色（对齐安卓：海报底部淡出衔接继续观看顶部）
                 Box(
