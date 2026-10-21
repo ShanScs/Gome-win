@@ -807,10 +807,6 @@ class AwtToolbarPanel(
         info.append("速度: ${player.getPropertyDouble("speed") ?: 1.0}x\n")
         info.append("音量: ${(player.getPropertyDouble("volume") ?: 100.0).toInt()}%\n")
         player.getPropertyString("video-codec")?.let { info.append("视频编码: $it\n") }
-        val hwdecCur = player.getPropertyString("hwdec-current")
-        info.append("解码方式: " + (if (hwdecCur.isNullOrBlank()) "软件解码" else "硬件解码 ($hwdecCur)") + "\n")
-        val sigPeak = player.getPropertyDouble("video-params/sig-peak")
-        info.append("动态范围: " + (if (sigPeak != null && sigPeak > 1.0) "HDR" else "SDR") + "\n")
         player.getPropertyString("audio-codec")?.let { info.append("音频编码: $it\n") }
         player.getPropertyDouble("width")?.let { w ->
             player.getPropertyDouble("height")?.let { h ->

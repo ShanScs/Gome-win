@@ -251,16 +251,7 @@ class MpvPlayer : Closeable {
         // HDR / Dolby Vision 默认：色调映射 + 色彩空间提示 + 峰值计算
         optChecked("tone-mapping", "hable")
         optChecked("target-colorspace-hint", "yes")
-        // hdr-compute-peak 关：开启时 libplacebo 逐帧跑计算着色器统计峰值亮度，
-        // HDR 内容在核显上是持续重负载（实测风扇狂转）；关掉改用内容元数据峰值，观感差异极小。
-        optChecked("hdr-compute-peak", "no")
-        // 缩放全走双线性：内容多为 4K HDR、窗口远小于源分辨率，gpu-next 默认高质量缩放
-        // （spline36/mitchell 多抽头）在核显上逐帧全幅跑是持续重负载（实测全硬解风扇仍狂转）；
-        // 双线性对视频观感影响很小，负载骤降。
-        optChecked("scale", "bilinear")
-        optChecked("cscale", "bilinear")
-        optChecked("dscale", "bilinear")
-        optChecked("sigmoid-upscaling", "no")
+        optChecked("hdr-compute-peak", "yes")
         optChecked("gamut-mapping-mode", "perceptual")
 
         // 缓存设置（对齐安卓：cache=yes + demuxer-max-bytes=1G/2G/3G），容量钳制到 1..8 GiB
@@ -473,45 +464,6 @@ class MpvPlayer : Closeable {
      *
      * @return true=本文件已选好；false=尚未选好（已在后台尝试 / 无中文轨 / 未初始化）
      */
-    /**
-     * 记一行“实际解码路径”：配置指定硬解不等于生效——mpv 对显卡不支持的编码/规格
-     * 会静默回退软件解码，只有 hwdec-current 能证明（为空 = 软解）。
-     * FILE_LOADED 时解码器可能还没起来，后台等一小会（最多约 3 秒）再读。
-     */
-    private fun logActualDecodePath() {
-        val t = Thread {
-            try {
-                var hw: String? = null
-                var tries = 0
-                var aborted = false
-                while (tries < 10) {
-                    if (handle == null) { aborted = true; break }
-                    hw = getPropertyString("hwdec-current")
-                    if (!hw.isNullOrBlank()) break
-                    Thread.sleep(300)
-                    tries++
-                }
-                if (!aborted) {
-                    val codec = getPropertyString("video-codec") ?: "?"
-                    val w = getPropertyDouble("width")?.toInt() ?: 0
-                    val h = getPropertyDouble("height")?.toInt() ?: 0
-                    // sig-peak>1 说明是 HDR 内容（色调映射链全程参与，GPU 负载的大头）
-                    val sigPeak = getPropertyDouble("video-params/sig-peak")
-                    val rangeLabel = if (sigPeak != null && sigPeak > 1.0) "HDR" else "SDR"
-                    if (hw.isNullOrBlank()) {
-                        DebugLog.d("MPV", "实际解码: 软件解码（hwdec-current 为空） 编码=$codec 分辨率=${w}x${h} 动态范围=$rangeLabel")
-                    } else {
-                        DebugLog.d("MPV", "实际解码: 硬件解码 hwdec-current=$hw 编码=$codec 分辨率=${w}x${h} 动态范围=$rangeLabel")
-                    }
-                }
-            } catch (_: Throwable) {
-            }
-        }
-        t.isDaemon = true
-        t.name = "MpvDecodeProbe"
-        t.start()
-    }
-
     fun selectDefaultChineseSubtitle(): Boolean {
         if (autoSubSelectedForFile) return true
         if (!subSelectInFlight.compareAndSet(false, true)) return false
@@ -679,7 +631,6 @@ class MpvPlayer : Closeable {
                     }
                     MpvEventId.FILE_LOADED -> {
                         selectDefaultChineseSubtitle()
-                        logActualDecodePath()
                         val l = listener
                         dispatchOnEdt {
                             try { l?.onFileLoaded() } catch (_: Throwable) { }
