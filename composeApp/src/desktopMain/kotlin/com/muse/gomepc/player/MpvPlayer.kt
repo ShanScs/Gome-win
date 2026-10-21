@@ -251,7 +251,9 @@ class MpvPlayer : Closeable {
         // HDR / Dolby Vision 默认：色调映射 + 色彩空间提示 + 峰值计算
         optChecked("tone-mapping", "hable")
         optChecked("target-colorspace-hint", "yes")
-        optChecked("hdr-compute-peak", "yes")
+        // hdr-compute-peak 关：开启时 libplacebo 逐帧跑计算着色器统计峰值亮度，
+        // HDR 内容在核显上是持续重负载（实测风扇狂转）；关掉改用内容元数据峰值，观感差异极小。
+        optChecked("hdr-compute-peak", "no")
         optChecked("gamut-mapping-mode", "perceptual")
 
         // 缓存设置（对齐安卓：cache=yes + demuxer-max-bytes=1G/2G/3G），容量钳制到 1..8 GiB
@@ -486,10 +488,13 @@ class MpvPlayer : Closeable {
                     val codec = getPropertyString("video-codec") ?: "?"
                     val w = getPropertyDouble("width")?.toInt() ?: 0
                     val h = getPropertyDouble("height")?.toInt() ?: 0
+                    // sig-peak>1 说明是 HDR 内容（色调映射链全程参与，GPU 负载的大头）
+                    val sigPeak = getPropertyDouble("video-params/sig-peak")
+                    val rangeLabel = if (sigPeak != null && sigPeak > 1.0) "HDR" else "SDR"
                     if (hw.isNullOrBlank()) {
-                        DebugLog.d("MPV", "实际解码: 软件解码（hwdec-current 为空） 编码=$codec 分辨率=${w}x${h}")
+                        DebugLog.d("MPV", "实际解码: 软件解码（hwdec-current 为空） 编码=$codec 分辨率=${w}x${h} 动态范围=$rangeLabel")
                     } else {
-                        DebugLog.d("MPV", "实际解码: 硬件解码 hwdec-current=$hw 编码=$codec 分辨率=${w}x${h}")
+                        DebugLog.d("MPV", "实际解码: 硬件解码 hwdec-current=$hw 编码=$codec 分辨率=${w}x${h} 动态范围=$rangeLabel")
                     }
                 }
             } catch (_: Throwable) {
