@@ -2319,8 +2319,6 @@ private fun VerifyPinDialog(
     )
 }
 
-/** PIN 输入框 */
-@Composable
 /** 主题化输入框颜色：原版 = Material 默认（与不传 colors 等价，原值不变），现代 = 深色字/朱砂红描边（同登录页 371 写法） */
 @Composable
 private fun themedFieldColors() = if (GomeTheme.modern) androidx.compose.material3.OutlinedTextFieldDefaults.colors(
@@ -2333,6 +2331,8 @@ private fun themedFieldColors() = if (GomeTheme.modern) androidx.compose.materia
     cursorColor = GomeTheme.Accent
 ) else androidx.compose.material3.OutlinedTextFieldDefaults.colors()
 
+/** PIN 输入框 */
+@Composable
 private fun PinField(label: String, value: String, onChange: (String) -> Unit) {
     androidx.compose.material3.OutlinedTextField(
         value = value,
