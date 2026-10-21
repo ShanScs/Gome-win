@@ -254,6 +254,13 @@ class MpvPlayer : Closeable {
         // hdr-compute-peak 关：开启时 libplacebo 逐帧跑计算着色器统计峰值亮度，
         // HDR 内容在核显上是持续重负载（实测风扇狂转）；关掉改用内容元数据峰值，观感差异极小。
         optChecked("hdr-compute-peak", "no")
+        // 缩放全走双线性：内容多为 4K HDR、窗口远小于源分辨率，gpu-next 默认高质量缩放
+        // （spline36/mitchell 多抽头）在核显上逐帧全幅跑是持续重负载（实测全硬解风扇仍狂转）；
+        // 双线性对视频观感影响很小，负载骤降。
+        optChecked("scale", "bilinear")
+        optChecked("cscale", "bilinear")
+        optChecked("dscale", "bilinear")
+        optChecked("sigmoid-upscaling", "no")
         optChecked("gamut-mapping-mode", "perceptual")
 
         // 缓存设置（对齐安卓：cache=yes + demuxer-max-bytes=1G/2G/3G），容量钳制到 1..8 GiB
