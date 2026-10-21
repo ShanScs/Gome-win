@@ -30,6 +30,18 @@ private var cachedFontSize = -1
 private var cachedAlpha = -1
 private var cachedStrokePx = -1f
 private var cachedScale = -1f
+// 后台光栅化：paint 只做缓存位图 blit，新文本的光栅化（描边多遍 drawString）移到专用线程，
+// 避免在 EDT 上光栅化造成帧间隔尖峰（日志实测：在屏弹幕越多帧耗时越高，20+ 条时平均 45-84ms）。
+private val rasterExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+Thread(r, "DanmakuRasterizer").apply { isDaemon = true }
+}
+private val rasterPending = java.util.Collections.synchronizedSet(HashSet<String>())
+@Volatile private var rasterGeneration = 0
+private val rasterTextWidths = java.util.concurrent.ConcurrentHashMap<String, Float>()
+// 后台光栅线程自己的字体/度量（与 paint 侧同字体同字号，stringWidth 一致），只在光栅线程内访问。
+private var rasterFontSize = -1
+private var rasterFont: Font? = null
+private var rasterFontMetrics: FontMetrics? = null
 // 上一帧是否有弹幕：用于弹幕清空时隐藏窗口
 private var hadItems = false
 // 连续无弹幕帧数：弹幕间隙短暂为空时不立即隐藏窗口（防时隐时现闪烁），
@@ -293,6 +305,88 @@ for (r in cur) repaint(r)
 prevDirtyRects = cur
 }
 
+/** 当前描边半径（与 paint 侧同一公式）。 */
+private fun currentStrokeRadius(): Int = if (engine.strokePx <= 0f) 0
+else kotlin.math.ceil(engine.strokePx.toDouble()).toInt().coerceIn(1, 4)
+
+/**
+* 请求后台光栅化一条文本（去重）。参数为请求时刻的渲染参数；
+* 参数代次变化（字号/透明度/描边/缩放变了）后完成的结果会被丢弃。
+*/
+private fun enqueueRaster(text: String, fontSize: Int, alphaInt: Int, strokeRadius: Int, devScale: Float) {
+if (synchronized(textCache) { textCache.containsKey(text) }) return
+if (!rasterPending.add(text)) return
+if (rasterPending.size > 300) { rasterPending.remove(text); return }
+val gen = rasterGeneration
+rasterExecutor.execute {
+try {
+val img = rasterizeText(text, fontSize, alphaInt, strokeRadius, devScale)
+if (img != null && gen == rasterGeneration) {
+synchronized(textCache) { textCache.put(text, img) }
+}
+} catch (_: Throwable) {
+} finally {
+rasterPending.remove(text)
+}
+}
+}
+
+/**
+* 光栅化一条弹幕文本到位图（与旧 paint 内联光栅化同一套绘制：描边多遍 + 白字）。
+* 只在后台光栅线程调用。测宽用本线程的 FontMetrics（同字体同字号，与面板度量一致），
+* 宽度经 rasterTextWidths 回传，paint 侧据此回填 item.textWidth。
+*/
+private fun rasterizeText(text: String, fontSize: Int, alphaInt: Int, strokeRadius: Int, devScale: Float): java.awt.image.BufferedImage? {
+if (rasterFontSize != fontSize || rasterFont == null) {
+rasterFont = try {
+Font("Noto Sans CJK SC", Font.BOLD, fontSize)
+} catch (_: Throwable) {
+Font("SansSerif", Font.BOLD, fontSize)
+}
+val scratch = java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+val sg = scratch.createGraphics()
+sg.font = rasterFont
+rasterFontMetrics = sg.fontMetrics
+sg.dispose()
+rasterFontSize = fontSize
+}
+val baseFont = rasterFont ?: return null
+val fm0 = rasterFontMetrics ?: return null
+val tw = fm0.stringWidth(text).coerceAtLeast(1)
+val th = fm0.height.coerceAtLeast(1)
+val bi = java.awt.image.BufferedImage(
+kotlin.math.ceil((tw + 8) * devScale).toInt().coerceAtLeast(1),
+kotlin.math.ceil((th + 8) * devScale).toInt().coerceAtLeast(1),
+java.awt.image.BufferedImage.TYPE_INT_ARGB)
+val ig = bi.createGraphics()
+ig.scale(devScale.toDouble(), devScale.toDouble())
+ig.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+ig.setRenderingHint(RenderingHints.KEY_RENDERING,
+RenderingHints.VALUE_RENDER_QUALITY)
+ig.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
+RenderingHints.VALUE_FRACTIONALMETRICS_ON)
+ig.font = baseFont
+val ifm = ig.fontMetrics
+val bx = 4
+val by = ifm.ascent + 4
+if (strokeRadius > 0) {
+ig.color = Color(0, 0, 0, 230)
+for (ox in -strokeRadius..strokeRadius) {
+for (oy in -strokeRadius..strokeRadius) {
+if (ox == 0 && oy == 0) continue
+if (ox * ox + oy * oy > strokeRadius * strokeRadius + strokeRadius) continue
+ig.drawString(text, bx + ox, by + oy)
+}
+}
+}
+ig.color = Color(255, 255, 255, alphaInt)
+ig.drawString(text, bx, by)
+ig.dispose()
+rasterTextWidths[text] = tw.toFloat()
+return bi
+}
+
 /** 启动驱动 Timer（timer == null 时才建，避免重复）。removeNotify 停掉后若面板被重新挂上，addNotify 会调它重建，避免 Timer 停了就再也不动、弹幕永远不显示。 */
 private fun startTimer() {
 if (timer != null) return
@@ -393,6 +487,16 @@ if (hasItems) {
 wantVisible = true
 emptyFrames = 0
 if (win!= null &&!win.isVisible) win.isVisible = true
+// 预取光栅化：本 tick 刚变可见的弹幕先入队后台渲染，paint 时多已就绪。
+val pfAlpha = (255 * engine.alpha).toInt().coerceIn(26, 255)
+val pfScale = try { (graphicsConfiguration?.defaultTransform?.scaleX ?: 1.0).toFloat() } catch (_: Throwable) { 1f }
+.let { if (it.isFinite() && it >= 1f) it.coerceAtMost(4f) else 1f }
+val pfStroke = currentStrokeRadius()
+for (pd in engine.items) {
+if (now < pd.visibleAt) continue
+if (pd.row < 0) continue
+enqueueRaster(pd.text, fontSize, pfAlpha, pfStroke, pfScale)
+}
 repaintDirty(now, fontSize, fm)
 hadItems = true
 } else if (hadItems) {
@@ -425,12 +529,13 @@ startTimer()
 override fun paintComponent(g: Graphics) {
 super.paintComponent(g)
 val g2 = g as Graphics2D
-// 文本渲染提示：灰度抗锯齿 + 高质量 + 分数度量 + 双三次插值。
+// 文本渲染提示：灰度抗锯齿 + 高质量 + 分数度量 + 双线性插值（位图缩放）。
 // LCD 子像素抗锯齿在透明/视频背景上会镶边，不用。
 g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
 g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
-g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+// 弹幕位图缩放走双线性：双三次在缩放显示下每帧对约 20 张位图做缩放绘制，开销过大且移动文字看不出差别。
+g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
 // HiDPI 设备像素比：字形缓存按设备像素渲染，否则 1x 位图被放大到 125%/150% 缩放屏上会模糊。
 val devScale = try { (graphicsConfiguration?.defaultTransform?.scaleX ?: 1.0).toFloat() } catch (_: Throwable) { 1f }
 .let { if (it.isFinite() && it >= 1f) it.coerceAtMost(4f) else 1f }
@@ -463,7 +568,10 @@ val dy = vr?.y?: 0
 // 字号/透明度/描边/设备像素比变了清缓存
 val alphaInt = (255 * engine.alpha).toInt().coerceIn(26, 255)
 if (fontSize!= cachedFontSize || alphaInt!= cachedAlpha || engine.strokePx!= cachedStrokePx || devScale != cachedScale) {
-textCache.clear()
+synchronized(textCache) { textCache.clear() }
+rasterPending.clear()
+rasterTextWidths.clear()
+rasterGeneration++
 cachedFontSize = fontSize
 cachedAlpha = alphaInt
 cachedStrokePx = engine.strokePx
@@ -477,9 +585,6 @@ val snapshot = engine.items.toList()
 // P1-D3：strokePx 实际生效，0 则不描边；>0 按半径画描边（上限 4px 防性能爆炸）。
 val strokeRadius = if (engine.strokePx <= 0f) 0
 else kotlin.math.ceil(engine.strokePx.toDouble()).toInt().coerceIn(1, 4)
-// 本帧光栅化预算：新文本扎堆时一帧内多次位图分配 + 描边绘制是尖峰主因；
-// 预算用完的跳过本帧，下一帧再画（只延迟一帧，不丢弹幕）。
-var rasterBudget = 6
 // 行距每帧只算一次，不在循环里重复 rowBaseline→rowPitchPx（纯算术，但逐项重算无意义）。
 val rowPitch = engine.rowPitchPx(fontSize.toFloat())
 for (d in snapshot) {
@@ -488,50 +593,13 @@ val baselineY = (d.row + 0.8f) * rowPitch
 val x = (d.x + dx).toInt()
 val y = (baselineY + dy).toInt()
 try {
-if (!textCache.containsKey(d.text)) {
-if (rasterBudget <= 0) continue
-rasterBudget--
+// paint 只 blit 已光栅化的位图；未就绪的入队后台光栅化，本帧跳过（下一帧补上，不丢弹幕）。
+val img = synchronized(textCache) { textCache[d.text] }
+if (img == null) {
+enqueueRaster(d.text, fontSize, alphaInt, strokeRadius, devScale)
+continue
 }
-// 缓存命中直接画，未命中才渲染（描边只做一次）
-val img = textCache.getOrPut(d.text) {
-val fm0 = paintFontMetrics!!
-val tw = fm0.stringWidth(d.text).coerceAtLeast(1)
-val th = fm0.height.coerceAtLeast(1)
-// 按设备像素建图 + ig.scale(devScale)：同一份绘制代码以设备分辨率光栅化。
-val bi = java.awt.image.BufferedImage(
-kotlin.math.ceil((tw + 8) * devScale).toInt().coerceAtLeast(1),
-kotlin.math.ceil((th + 8) * devScale).toInt().coerceAtLeast(1),
-java.awt.image.BufferedImage.TYPE_INT_ARGB)
-val ig = bi.createGraphics()
-ig.scale(devScale.toDouble(), devScale.toDouble())
-ig.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-ig.setRenderingHint(RenderingHints.KEY_RENDERING,
-RenderingHints.VALUE_RENDER_QUALITY)
-ig.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
-RenderingHints.VALUE_FRACTIONALMETRICS_ON)
-ig.font = baseFont
-val ifm = ig.fontMetrics
-val bx = 4
-val by = ifm.ascent + 4
-if (strokeRadius > 0) {
-// 描边：以半径内圆形偏移多遍绘制（半径 1 时即旧 8 方向 1px）
-ig.color = Color(0, 0, 0, 230)
-for (ox in -strokeRadius..strokeRadius) {
-for (oy in -strokeRadius..strokeRadius) {
-if (ox == 0 && oy == 0) continue
-if (ox * ox + oy * oy > strokeRadius * strokeRadius + strokeRadius) continue
-ig.drawString(d.text, bx + ox, by + oy)
-}
-}
-}
-// 白字
-ig.color = Color(255, 255, 255, alphaInt)
-ig.drawString(d.text, bx, by)
-ig.dispose()
-if (d.textWidth < 0) d.textWidth = tw.toFloat()
-bi
-}
+if (d.textWidth < 0) rasterTextWidths[d.text]?.let { d.textWidth = it }
 // devScale=1 时目标尺寸就是原尺寸，走无缩放 blit 快路径，避免每项每帧进缩放绘制管线。
 if (devScale == 1f) {
 g2.drawImage(img, x, y - ascent - 4, null)
