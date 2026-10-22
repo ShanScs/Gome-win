@@ -289,7 +289,7 @@ val cur = ArrayList<java.awt.Rectangle>(engine.items.size)
 for (d in engine.items) {
 if (now < d.visibleAt) continue
 if (d.row < 0) continue
-val tw = if (d.textWidth >= 0) d.textWidth else fm.stringWidth(d.text).toFloat()
+val tw = if (d.textWidth >= 0) d.textWidth else DanmakuEmotes.width(d.text, fm)
 val top = engine.rowBaseline(d.row, fontSize.toFloat()) - fm.ascent - 4f
 cur.add(
 java.awt.Rectangle(
@@ -313,20 +313,23 @@ else kotlin.math.ceil(engine.strokePx.toDouble()).toInt().coerceIn(1, 4)
 * 请求后台光栅化一条文本（去重）。参数为请求时刻的渲染参数；
 * 参数代次变化（字号/透明度/描边/缩放变了）后完成的结果会被丢弃。
 */
-private fun enqueueRaster(text: String, fontSize: Int, alphaInt: Int, strokeRadius: Int, devScale: Float) {
-if (synchronized(textCache) { textCache.containsKey(text) }) return
-if (!rasterPending.add(text)) return
-if (rasterPending.size > 300) { rasterPending.remove(text); return }
+/** 弹幕位图缓存键：同一文本不同颜色是不同的图，必须分开缓存。 */
+private fun cacheKey(text: String, color: Int): String = color.toString() + "\u0001" + text
+
+private fun enqueueRaster(key: String, text: String, color: Int, fontSize: Int, alphaInt: Int, strokeRadius: Int, devScale: Float) {
+if (synchronized(textCache) { textCache.containsKey(key) }) return
+if (!rasterPending.add(key)) return
+if (rasterPending.size > 300) { rasterPending.remove(key); return }
 val gen = rasterGeneration
 rasterExecutor.execute {
 try {
-val img = rasterizeText(text, fontSize, alphaInt, strokeRadius, devScale)
+val img = rasterizeText(text, color, fontSize, alphaInt, strokeRadius, devScale)
 if (img != null && gen == rasterGeneration) {
-synchronized(textCache) { textCache.put(text, img) }
+synchronized(textCache) { textCache.put(key, img) }
 }
 } catch (_: Throwable) {
 } finally {
-rasterPending.remove(text)
+rasterPending.remove(key)
 }
 }
 }
@@ -336,7 +339,7 @@ rasterPending.remove(text)
 * 只在后台光栅线程调用。测宽用本线程的 FontMetrics（同字体同字号，与面板度量一致），
 * 宽度经 rasterTextWidths 回传，paint 侧据此回填 item.textWidth。
 */
-private fun rasterizeText(text: String, fontSize: Int, alphaInt: Int, strokeRadius: Int, devScale: Float): java.awt.image.BufferedImage? {
+private fun rasterizeText(text: String, color: Int, fontSize: Int, alphaInt: Int, strokeRadius: Int, devScale: Float): java.awt.image.BufferedImage? {
 if (rasterFontSize != fontSize || rasterFont == null) {
 rasterFont = try {
 Font("Noto Sans CJK SC", Font.BOLD, fontSize)
@@ -352,7 +355,19 @@ rasterFontSize = fontSize
 }
 val baseFont = rasterFont ?: return null
 val fm0 = rasterFontMetrics ?: return null
-val tw = fm0.stringWidth(text).coerceAtLeast(1)
+// 分段：命中的 B 站表情标记画成图片，其余按文字、取弹幕自带颜色。
+val segs = DanmakuEmotes.split(text)
+val segWidths = FloatArray(segs.size)
+var totalW = 0f
+for (i2 in segs.indices) {
+val wpx = when (val s = segs[i2]) {
+is DanmakuEmotes.Seg.Txt -> fm0.stringWidth(s.s).toFloat()
+is DanmakuEmotes.Seg.Emo -> DanmakuEmotes.boxPx(fm0)
+}
+segWidths[i2] = wpx
+totalW += wpx
+}
+val tw = totalW.toInt().coerceAtLeast(1)
 val th = fm0.height.coerceAtLeast(1)
 val bi = java.awt.image.BufferedImage(
 kotlin.math.ceil((tw + 8) * devScale).toInt().coerceAtLeast(1),
@@ -366,24 +381,50 @@ ig.setRenderingHint(RenderingHints.KEY_RENDERING,
 RenderingHints.VALUE_RENDER_QUALITY)
 ig.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
 RenderingHints.VALUE_FRACTIONALMETRICS_ON)
+ig.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+RenderingHints.VALUE_INTERPOLATION_BILINEAR)
 ig.font = baseFont
 val ifm = ig.fontMetrics
 val bx = 4
 val by = ifm.ascent + 4
 if (strokeRadius > 0) {
+// 描边只描文字段（表情图自带轮廓，不描边）
 ig.color = Color(0, 0, 0, 230)
+var sx = bx.toFloat()
+for (i2 in segs.indices) {
+val s = segs[i2]
+if (s is DanmakuEmotes.Seg.Txt) {
 for (ox in -strokeRadius..strokeRadius) {
 for (oy in -strokeRadius..strokeRadius) {
 if (ox == 0 && oy == 0) continue
 if (ox * ox + oy * oy > strokeRadius * strokeRadius + strokeRadius) continue
-ig.drawString(text, bx + ox, by + oy)
+ig.drawString(s.s, sx + ox, (by + oy).toFloat())
 }
 }
 }
-ig.color = Color(255, 255, 255, alphaInt)
-ig.drawString(text, bx, by)
+sx += segWidths[i2]
+}
+}
+// 正文：文字段用弹幕自带颜色（白色即与旧版完全一致），表情段贴图；取不到图时回退画原标记文字，不丢内容。
+ig.color = Color((color shr 16) and 0xFF, (color shr 8) and 0xFF, color and 0xFF, alphaInt)
+var cx = bx.toFloat()
+for (i2 in segs.indices) {
+when (val s = segs[i2]) {
+is DanmakuEmotes.Seg.Txt -> ig.drawString(s.s, cx, by.toFloat())
+is DanmakuEmotes.Seg.Emo -> {
+val img = DanmakuEmotes.imageFor(s.token)
+if (img != null) {
+val box = DanmakuEmotes.boxPx(fm0).toInt().coerceAtLeast(1)
+ig.drawImage(img, cx.toInt(), by - ifm.ascent, box, box, null)
+} else {
+ig.drawString(s.token, cx, by.toFloat())
+}
+}
+}
+cx += segWidths[i2]
+}
 ig.dispose()
-rasterTextWidths[text] = tw.toFloat()
+rasterTextWidths[cacheKey(text, color)] = tw.toFloat()
 return bi
 }
 
@@ -469,7 +510,7 @@ tickFontSize = fontSize
 }
 val fm = tickFontMetrics!!
 try {
-engine.step(tickDt) { text -> fm.stringWidth(text).toFloat()}
+engine.step(tickDt) { text -> DanmakuEmotes.width(text, fm) }
 } catch (err: Throwable) {
 // step 抛异常时本 tick 剩余工作全跳过（诊断在外层已记），节流记一笔，
 // 否则异常静默、发射永远不跑，日志里看不到任何原因。
@@ -495,7 +536,7 @@ val pfStroke = currentStrokeRadius()
 for (pd in engine.items) {
 if (now < pd.visibleAt) continue
 if (pd.row < 0) continue
-enqueueRaster(pd.text, fontSize, pfAlpha, pfStroke, pfScale)
+enqueueRaster(cacheKey(pd.text, pd.color), pd.text, pd.color, fontSize, pfAlpha, pfStroke, pfScale)
 }
 repaintDirty(now, fontSize, fm)
 hadItems = true
@@ -594,12 +635,13 @@ val x = (d.x + dx).toInt()
 val y = (baselineY + dy).toInt()
 try {
 // paint 只 blit 已光栅化的位图；未就绪的入队后台光栅化，本帧跳过（下一帧补上，不丢弹幕）。
-val img = synchronized(textCache) { textCache[d.text] }
+val key = cacheKey(d.text, d.color)
+val img = synchronized(textCache) { textCache[key] }
 if (img == null) {
-enqueueRaster(d.text, fontSize, alphaInt, strokeRadius, devScale)
+enqueueRaster(key, d.text, d.color, fontSize, alphaInt, strokeRadius, devScale)
 continue
 }
-if (d.textWidth < 0) rasterTextWidths[d.text]?.let { d.textWidth = it }
+if (d.textWidth < 0) rasterTextWidths[key]?.let { d.textWidth = it }
 // devScale=1 时目标尺寸就是原尺寸，走无缩放 blit 快路径，避免每项每帧进缩放绘制管线。
 if (devScale == 1f) {
 g2.drawImage(img, x, y - ascent - 4, null)

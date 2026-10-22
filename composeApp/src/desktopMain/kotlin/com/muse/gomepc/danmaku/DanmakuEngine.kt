@@ -37,7 +37,9 @@ val bornAt: Long,
 /** 文本宽度缓存（px），-1 表示未测量 */
 var textWidth: Float = -1f,
 /** 可见时间戳（ms，delaySec 延迟后才可见）；0 表示立即见 */
-var visibleAt: Long = 0L
+var visibleAt: Long = 0L,
+/** 弹幕自带颜色（0xRRGGBB），发射时从池条目带入；白色与旧行为一致 */
+val color: Int = 0xFFFFFF
 )
 
 private data class AnimeCandidate(val animeId: String, val title: String)
@@ -341,7 +343,7 @@ scanIdx++
 val idx = candidateIdx ?: break
 val item = poolSnapshot[idx]
 emittedIndices.add(idx)
-if (!emit(item.text, w, measureText, now, rowOrder)) break
+if (!emit(item.text, w, measureText, now, rowOrder, item.color)) break
 emittedThisFrame++
 }
 if (emittedThisFrame > 0) lastTimedEmitAtMs = now
@@ -357,13 +359,15 @@ if (!fallbackLogged) {
 fallbackLogged = true
 com.muse.gomepc.player.DebugLog.d("Danmaku", "定时发射 10 秒无产出，回落随机发射：池 ${pool.size} 条，当前进度 $currentTimeSec 秒，池填充时进度 $poolFilledAtSec 秒")
 }
-emit(poolSnapshot.random().text, w, measureText, now, rowOrder)
+val fbItem = poolSnapshot.random()
+emit(fbItem.text, w, measureText, now, rowOrder, fbItem.color)
 }
 } else {
 // 无时间信息池子：保留旧随机发射行为。
 val emitProb = 0.4f
 if (Random.nextFloat() < emitProb) {
-emit(poolSnapshot.random().text, w, measureText, now, rowOrder)
+val rndItem = poolSnapshot.random()
+emit(rndItem.text, w, measureText, now, rowOrder, rndItem.color)
 }
 }
 }
@@ -371,7 +375,7 @@ emit(poolSnapshot.random().text, w, measureText, now, rowOrder)
 /** 发射一条弹幕：做行重叠检查，delaySec 用 visibleAt 时间戳（出生点不再右移）。
 * 返回是否成功发射。旧版随机抽一行、该行拥挤就直接丢弃（已标记已发射，永久丢失），
 * 密集时大量弹幕因此丢失；现按随机顺序试全部行，只在所有行都拥挤时才丢弃。 */
-private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long, rowOrder: List<Int>): Boolean {
+private fun emit(text: String, w: Float, measureText: (String) -> Float, now: Long, rowOrder: List<Int>, color: Int = 0xFFFFFF): Boolean {
 // 单次遍历算各行最右位置与最慢速度，避免每行 filter 一次（O(rows×items) 分配）。
 val rowCount = max(1, rows)
 val rowRightmost = FloatArray(rowCount) { -1f }
@@ -401,7 +405,7 @@ val slowest = rowSlowest[row]
 if (slowest != Float.MAX_VALUE && speed > slowest) speed = slowest
 // P1-D10：delaySec 只推迟可见时间，不右移出生点、不占 maxItems 名额。
 val visibleAt = now + (delaySec * 1000f).toLong()
-items.add(Danmaku(text, w, row, speed, now, tw, visibleAt))
+items.add(Danmaku(text, w, row, speed, now, tw, visibleAt, color))
 return true
 }
 }
