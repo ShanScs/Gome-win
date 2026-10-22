@@ -22,7 +22,7 @@ object DanmakuEmotes {
     }
 
     // ---- Unicode emoji 判定：SMP 表情符号（>=0x1F000）+ 少数 BMP 常用表情 ----
-    private val extraEmojiCp = setOf(0x2764, 0x2B50, 0x203C, 0x2049, 0x3297, 0x3299)
+    private val extraEmojiCp = setOf(0x2764, 0x2B50, 0x203C, 0x2049, 0x3297, 0x3299, 0x2660, 0x2661, 0x2663, 0x2665, 0x2666, 0x2763, 0x2728)
 
     private fun isEmojiBase(cp: Int): Boolean = cp >= 0x1F000 || cp in extraEmojiCp
 
@@ -38,8 +38,11 @@ object DanmakuEmotes {
     }
 
     private fun twemojiUrl(cps: List<Int>): String {
-        // Twemoji 资源命名：码点小写十六进制以 - 连接，省略 FE0F
-        val name = cps.filter { it != 0xFE0F }.joinToString("-") { it.toString(16) }
+        // Twemoji 资源命名：码点小写十六进制以 - 连接，省略 FE0F。
+        // ♡(2661) 没有任何官方彩图（Twemoji 里查无此图），单独出现时借 ❤(2764) 的红心图，
+        // 否则只能由系统字体画成线条爱心。
+        val core = cps.filter { it != 0xFE0F }
+        val name = if (core == listOf(0x2661)) "2764" else core.joinToString("-") { it.toString(16) }
         return "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/$name.png"
     }
 

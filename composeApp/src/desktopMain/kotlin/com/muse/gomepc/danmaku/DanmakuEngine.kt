@@ -589,6 +589,7 @@ return null
 
 // ---- Bug 1：逐个试候选 animeId，404/空继续下一个，全部失败才算源失败 ----
 var lastDetail = ""
+for (pass in 0..1) {
 for (cand in candidates) {
 if (isStale()) return null
 // ---- Bug 3：bangumi 失败延迟重试一次 ----
@@ -614,9 +615,16 @@ if (episodes.isEmpty()) {
 lastDetail = "未取到分集(HTTP $bangumiCode)"
 continue
 }
+// 集数都不足以包含当前集的候选多半是同名电影/短片：第一轮先跳过，
+// 让集数够的正主先赢；全部候选试完仍无结果时第二轮再回来用它兜底。
+if (pass == 0 && episodeIndex > 0 && episodes.size <= episodeIndex) {
+lastDetail = "候选《${cand.title}》只有 ${episodes.size} 集，不含第 ${episodeIndex + 1} 集"
+continue
+}
 val episodeId = episodes.firstOrNull { it.number == episodeIndex + 1}?.episodeId
 ?: episodes.getOrNull(episodeIndex)?.episodeId
 ?: episodes.first().episodeId
+com.muse.gomepc.player.DebugLog.d("Danmaku", "候选命中: animeId=${cand.animeId} 《${cand.title}》 共 ${episodes.size} 集，选 episodeId=$episodeId")
 
 // 弹幕请求是重活：danmu_api 要实时去上游（优酷等）抓弹幕，1.6 万条弹幕的集
 // 首次抓取可能很慢；429（限流）/5xx 时退避重试。format=json 按 danmu_api
@@ -649,6 +657,7 @@ continue
 // ---- Bug 5：代次隔离，列表由调用方统一填入（多源合并时不再首个成功者独占） ----
 if (isStale()) return null
 return list.sortedBy { if (it.timeSec >= 0f) it.timeSec else Float.MAX_VALUE}
+}
 }
 onErr("弹幕源无结果: $title ($lastDetail)")
 return null
@@ -775,6 +784,9 @@ return (1f - dist.toFloat() / maxLen).coerceIn(0f, 1f)
 
 private fun normalizeTitle(t: String): String {
 return t.lowercase()
+.replace(Regex("【[^】]*】"), "")
+.replace(Regex("[(（][^)）]*[)）]"), "")
+.replace(Regex("\\bfrom\\b.*$"), "")
 .replace(Regex("[\\s\\-_.:：·!！?？,，、。]"), "")
 }
 
