@@ -38,6 +38,8 @@ Thread(r, "DanmakuRasterizer").apply { isDaemon = true }
 private val rasterPending = java.util.Collections.synchronizedSet(HashSet<String>())
 @Volatile private var rasterGeneration = 0
 private val rasterTextWidths = java.util.concurrent.ConcurrentHashMap<String, Float>()
+// 诊断：本会话第一条带颜色弹幕实际完成光栅化时记一行，证明颜色走到了绘制（排查颜色不显示用）。
+@Volatile private var loggedColorRaster = false
 // 后台光栅线程自己的字体/度量（与 paint 侧同字体同字号，stringWidth 一致），只在光栅线程内访问。
 private var rasterFontSize = -1
 private var rasterFont: Font? = null
@@ -412,18 +414,22 @@ for (i2 in segs.indices) {
 when (val s = segs[i2]) {
 is DanmakuEmotes.Seg.Txt -> ig.drawString(s.s, cx, by.toFloat())
 is DanmakuEmotes.Seg.Emo -> {
-val img = DanmakuEmotes.imageFor(s.token)
+val img = DanmakuEmotes.imageFor(s.url)
 if (img != null) {
 val box = DanmakuEmotes.boxPx(fm0).toInt().coerceAtLeast(1)
 ig.drawImage(img, cx.toInt(), by - ifm.ascent, box, box, null)
 } else {
-ig.drawString(s.token, cx, by.toFloat())
+ig.drawString(s.shown, cx, by.toFloat())
 }
 }
 }
 cx += segWidths[i2]
 }
 ig.dispose()
+if (color != 0xFFFFFF && !loggedColorRaster) {
+loggedColorRaster = true
+com.muse.gomepc.player.DebugLog.d("Danmaku", "已绘制带颜色弹幕：颜色=#${Integer.toHexString(color)} 文本=${text.take(24)}")
+}
 rasterTextWidths[cacheKey(text, color)] = tw.toFloat()
 return bi
 }

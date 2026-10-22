@@ -121,7 +121,7 @@ return
 val times = pool.mapNotNull { if (it.timeSec >= 0f) it.timeSec else null }
 val min = times.minOrNull()
 val max = times.maxOrNull()
-com.muse.gomepc.player.DebugLog.d("Danmaku", "池已填充: ${pool.size} 条，带时间 ${times.size} 条，时间范围: ${min}~${max} 秒，当前进度: $currentTimeSec 秒，前5条时间: ${times.take(5)}")
+com.muse.gomepc.player.DebugLog.d("Danmaku", "池已填充: ${pool.size} 条，带时间 ${times.size} 条，时间范围: ${min}~${max} 秒，当前进度: $currentTimeSec 秒，前5条时间: ${times.take(5)}，带颜色 ${pool.count { it.color != 0xFFFFFF }} 条，含表情 ${pool.count { DanmakuEmotes.hasEmote(it.text) }} 条")
 }
 
 /** P0-D?/Bug 5：加载代次，只接受最新一次加载的结果，旧集慢请求直接丢弃。 */
