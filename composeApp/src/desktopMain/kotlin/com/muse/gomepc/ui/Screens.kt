@@ -771,16 +771,17 @@ private fun BannerCarousel(
                     .fillMaxSize()
                     .clickable { onItemClick(item) }
             ) {
-                // 背景大图（优先 backdrop，无则用海报）
+                // 背景大图：横板海报(Thumb) → 剧照(Backdrop) → 竖版海报(Primary)
+                // 三个 URL 都是恒拼出来的非空 URL（服务器上没有对应图时请求直接失败），
+                // 用去重后的候选链依次尝试，全部失败才留白。
+                val bannerUrls = listOfNotNull(item.thumbUrl, item.backdropUrl, item.imageUrl).distinct()
                 EmbyImage(
-                    url = item.backdropUrl ?: item.imageUrl,
+                    url = bannerUrls.getOrNull(0),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
-                    // 与详情页头图一致的兜底：backdropUrl 是恒拼出来的非空 URL（条目在服务器上
-                    // 没有 Backdrop 时请求直接失败），不传 fallbackUrl 时一失败轮播就整片空白；
-                    // 此服务器多数条目只有 Primary 海报，故 Backdrop 失败改用海报（裁切填充）。
-                    fallbackUrl = item.imageUrl.takeIf { it != item.backdropUrl }
+                    fallbackUrl = bannerUrls.getOrNull(1),
+                    fallbackUrls = bannerUrls.drop(2)
                 )
                 // 底部淡出到白色（对齐安卓：海报底部淡出衔接继续观看顶部）
                 Box(
@@ -4022,12 +4023,18 @@ fun DetailScreen(
                     item {
                         Box(Modifier.fillMaxWidth().height(640.dp)) {
                             if (it.imageUrl != null) {
+                                // 头图：横板海报(Thumb) → 剧照(Backdrop) → 竖版海报(Primary)
+                                val headerUrls = listOf(
+                                    YambyClient.imageUrl(it.id, "Thumb", 1280),
+                                    YambyClient.imageUrl(it.id, "Backdrop", 1280),
+                                    YambyClient.imageUrl(it.id, "Primary", 1280)
+                                ).distinct()
                                 EmbyImage(
-                                    url = YambyClient.imageUrl(it.id, "Backdrop", 1280),
+                                    url = headerUrls.getOrNull(0),
                                     contentDescription = it.name,
                                     modifier = Modifier.fillMaxSize(),
-                                    // 1:1 安卓：Backdrop 没有时用 Primary 海报兜底，不直接掉渐变
-                                    fallbackUrl = YambyClient.imageUrl(it.id, "Primary", 1280),
+                                    fallbackUrl = headerUrls.getOrNull(1),
+                                    fallbackUrls = headerUrls.drop(2),
                                     fallback = {
                                         val (c1, c2) = posterColors(it.hue)
                                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(c1, c2))))

@@ -136,6 +136,8 @@ object EmbyImageLoader {
  * 带缓存的图片组件。url 为空或加载失败时显示 [fallback]。
  * [fallbackUrl]：主 url 加载失败（404 等）时尝试的兜底图 URL（1:1 安卓 Glide .thumbnail 语义，
  * 例如详情页头图先试 Backdrop、没有则用 Primary 海报），都失败才显示 [fallback]。
+ * [fallbackUrls]：fallbackUrl 之后继续尝试的兜底链（按顺序），例如横板海报(Thumb) →
+ * 剧照(Backdrop) → 竖版海报(Primary) 的三级兜底。
  */
 @Composable
 fun EmbyImage(
@@ -144,14 +146,15 @@ fun EmbyImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     fallbackUrl: String? = null,
+    fallbackUrls: List<String> = emptyList(),
     fallback: @Composable () -> Unit = {}
 ) {
-    var bitmap by remember(url, fallbackUrl) { mutableStateOf(EmbyImageLoader.getCached(url ?: "")) }
-    var failed by remember(url, fallbackUrl) { mutableStateOf(false) }
+    var bitmap by remember(url, fallbackUrl, fallbackUrls) { mutableStateOf(EmbyImageLoader.getCached(url ?: "")) }
+    var failed by remember(url, fallbackUrl, fallbackUrls) { mutableStateOf(false) }
     // 请求序号：url 变化时旧加载可能仍在 IO 阻塞读，返回后用序号校验丢弃过期结果
     val loadSeq = remember { java.util.concurrent.atomic.AtomicInteger(0) }
 
-    LaunchedEffect(url, fallbackUrl) {
+    LaunchedEffect(url, fallbackUrl, fallbackUrls) {
         val mySeq = loadSeq.incrementAndGet()
         fun isCurrent() = loadSeq.get() == mySeq
         if (url.isNullOrBlank()) {
@@ -164,6 +167,14 @@ fun EmbyImage(
         if (bmp == null && !fallbackUrl.isNullOrBlank()) {
             bmp = EmbyImageLoader.load(fallbackUrl)
             if (!isCurrent()) return@LaunchedEffect
+        }
+        if (bmp == null) {
+            for (u in fallbackUrls) {
+                if (u.isBlank()) continue
+                bmp = EmbyImageLoader.load(u)
+                if (!isCurrent()) return@LaunchedEffect
+                if (bmp != null) break
+            }
         }
         if (bmp != null) bitmap = bmp else failed = true
     }

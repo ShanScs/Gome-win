@@ -72,6 +72,7 @@ object HomeDiskCache {
             .put("libName", it.libName)
             .put("imageUrl", it.imageUrl ?: "")
             .put("backdropUrl", it.backdropUrl ?: "")
+            .put("thumbUrl", it.thumbUrl ?: "")
             .put("hue", it.hue.toDouble())
             .put("progress", it.progress?.toDouble() ?: -1.0)
             .put("badge", it.badge ?: "")
@@ -92,6 +93,7 @@ object HomeDiskCache {
             libName = o.optString("libName"),
             imageUrl = o.optString("imageUrl").ifEmpty { null },
             backdropUrl = o.optString("backdropUrl").ifEmpty { null },
+            thumbUrl = o.optString("thumbUrl").ifEmpty { null },
             hue = o.optDouble("hue", 210.0).toFloat(),
             progress = o.optDouble("progress", -1.0).let { if (it < 0) null else it.toFloat() },
             badge = o.optString("badge").ifEmpty { null },

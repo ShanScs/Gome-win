@@ -34,6 +34,8 @@ data class UiMediaItem(
     val imageUrl: String?,
     /** 背景大图 URL（轮播横幅用，无则 null 回退到 imageUrl） */
     val backdropUrl: String? = null,
+    /** 横板海报 URL（Emby Thumb，轮播/详情头图优先用，无则回退 Backdrop→Primary） */
+    val thumbUrl: String? = null,
     val hue: Float = 210f,
     /** 继续观看进度 0..1（无则 null） */
     val progress: Float? = null,
@@ -93,6 +95,8 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
         imageUrl = YambyClient.imageUrl(posterId, "Primary", 400),
         // 背景大图用剧的 Backdrop（单集自己通常没有 Backdrop）
         backdropUrl = YambyClient.imageUrl(posterId, "Backdrop", 800),
+        // 横板海报用剧的 Thumb（单集自己通常没有 Thumb）
+        thumbUrl = YambyClient.imageUrl(posterId, "Thumb", 800),
         progress = progress,
         badge = badge,
         subtitle = if (isEp) epLabel() else "",

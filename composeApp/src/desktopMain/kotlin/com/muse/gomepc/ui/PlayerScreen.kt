@@ -261,7 +261,7 @@ fun PlayerScreen(
     // 放到 LaunchedEffect(episodeId)，首播和每次切集都清池重拉；引擎实例不变，JWindow 面板继续引用同一引擎。
     androidx.compose.runtime.LaunchedEffect(episodeId) {
         val allSources = prefs.danmakuSources
-        com.muse.gomepc.player.DebugLog.d("Danmaku", "所有弹幕源: $allSources")
+        com.muse.gomepc.player.DebugLog.d("Danmaku", "所有弹幕源（engine#${System.identityHashCode(engine)}）: $allSources")
         val urls = prefs.enabledDanmakuUrls()
         com.muse.gomepc.player.DebugLog.d("Danmaku", "启用的URL: $urls")
         // 无条件先清空：无源时旧集弹幕也不能残留
@@ -1171,7 +1171,7 @@ fun PlayerScreen(
                     // 弹幕用独立透明 JWindow（GlassPane 在某些窗口结构下不绘制）
                     val danmakuWindow = javax.swing.JWindow(root)
                     danmakuWindow.background = java.awt.Color(0, 0, 0, 0)
-                    val danmakuPanel = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, null) {
+                    val danmakuPanel = com.muse.gomepc.danmaku.AwtDanmakuPanel(engine, null, { player.timePos }) {
                         lastInteraction.set(System.currentTimeMillis())
                         javax.swing.SwingUtilities.invokeLater {
                             if (!controlsVisibleState.value) {

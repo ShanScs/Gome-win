@@ -16,6 +16,7 @@ import javax.swing.Timer
 class AwtDanmakuPanel(
 private val engine: DanmakuEngine,
 private val videoRectInParent: (() -> java.awt.Rectangle?)? = null,
+private val timePosProvider: (() -> Double)? = null,
 private val onMouseActivity: () -> Unit
 ): JPanel() {
 
@@ -51,6 +52,14 @@ private var hadItems = false
 private var emptyFrames = 0
 // 诊断节流时间戳（面板 Timer 里 5 秒一记状态）。
 private var lastDiagMs = 0L
+// tick 心跳与看门狗：每 tick 更新 lastTickMs；看门狗发现 >12 秒无 tick 就记日志并重启 Timer，
+// 避免 Timer 静默停摆时日志全盲（2026-10-22 实测：池已填充却零诊断、零弹幕）。
+@Volatile private var lastTickMs = 0L
+@Volatile private var stallReported = false
+private var watchdogFuture: java.util.concurrent.ScheduledFuture<*>? = null
+private val watchdogExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+Thread(r, "DanmakuWatchdog").apply { isDaemon = true }
+}
 // Timer 体异常日志节流。
 private var lastTimerErrMs = 0L
 // 帧时间统计（Timer 每 tick 记一次帧间隔，5 秒随“面板状态”诊断一起记一行，记完清零）：
@@ -83,6 +92,8 @@ private var timer: Timer? = null
 
 /** P2-D4：停止驱动 Timer（面板移除 / 窗口销毁时调用）。 */
 fun stop() {
+try { watchdogFuture?.cancel(false) } catch (_: Throwable) {}
+watchdogFuture = null
 if (timer != null) com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 Timer 已停止")
 try { timer?.stop()} catch (_: Throwable) {}
 timer = null
@@ -437,7 +448,7 @@ return bi
 /** 启动驱动 Timer（timer == null 时才建，避免重复）。removeNotify 停掉后若面板被重新挂上，addNotify 会调它重建，避免 Timer 停了就再也不动、弹幕永远不显示。 */
 private fun startTimer() {
 if (timer != null) return
-com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 Timer 已启动")
+com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 Timer 已启动（panel#${System.identityHashCode(this@AwtDanmakuPanel)} engine#${System.identityHashCode(engine)}）")
 // 帧统计清零：重建 Timer 后第一帧间隔无意义（可能跨越长时间停顿），不计入统计。
 lastFrameNs = 0L
 frameStatCount = 0L
@@ -452,6 +463,8 @@ val t = Timer(33) {
 // 本 tick 的真实间隔（秒）：tick 抖动时步进按真实间隔走，否则位移按固定 0.033 前进、
 // tick 实际 40ms 一次时运动忽快忽慢 = 视觉抖动。首次 tick 用 0.033 默认值。
 var tickDt = 0.033f
+lastTickMs = System.currentTimeMillis()
+stallReported = false
 val frameNowNs = System.nanoTime()
 if (lastFrameNs != 0L) {
 val intervalMs = (frameNowNs - lastFrameNs) / 1_000_000.0
@@ -471,7 +484,7 @@ val win = hostWindow()
 val rect = videoRectInParent?.invoke()
 // 诊断（5 秒一记，无条件）：之前诊断藏在 vw>0 分支里，尺寸为 0 / 未启用时
 // 静默跳过，日志里什么都看不到，无法定位“发射没被尝试”。
-if (engine.pool.isNotEmpty()) {
+if (true) { // 诊断无条件：原先按池非空门控，池空或 tick 异常时日志全盲
 val diagNow = System.currentTimeMillis()
 if (diagNow - lastDiagMs >= 5000) {
 lastDiagMs = diagNow
@@ -489,6 +502,12 @@ frameStatMaxMs = 0.0
 frameStatDrop33 = 0L
 frameStatSevere50 = 0L
 }
+}
+// 时间喂入直连：每 tick 直接从播放器拉当前进度（player.timePos 由 mpv 事件线程维护），
+// 不再只依赖 onTimePos→invokeLater 链——EDT 拥塞时那条链会饿死、进度停在 0、弹幕永不发射。
+val tpNow = try { timePosProvider?.invoke() } catch (_: Throwable) { null }
+if (tpNow != null && tpNow.isFinite() && tpNow >= 0.0) {
+try { engine.setCurrentTime(tpNow.toFloat()) } catch (_: Throwable) {}
 }
 if (!engine.enabled) {
 wantVisible = false
@@ -567,6 +586,23 @@ wantVisible = false
 }
 timer = t
 t.start()
+startWatchdog()
+}
+
+private fun startWatchdog() {
+if (watchdogFuture != null) return
+watchdogFuture = watchdogExecutor.scheduleWithFixedDelay({
+try {
+val lt = lastTickMs
+if (timer != null && lt > 0L && System.currentTimeMillis() - lt > 12_000 && !stallReported) {
+stallReported = true
+com.muse.gomepc.player.DebugLog.d("Danmaku", "面板 tick 停摆：已 ${System.currentTimeMillis() - lt}ms 无 tick（engine#${System.identityHashCode(engine)}），尝试重启 Timer")
+javax.swing.SwingUtilities.invokeLater {
+try { stop(); startTimer() } catch (_: Throwable) {}
+}
+}
+} catch (_: Throwable) {}
+}, 5, 5, java.util.concurrent.TimeUnit.SECONDS)
 }
 
 init {
