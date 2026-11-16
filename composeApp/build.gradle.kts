@@ -6,6 +6,16 @@ plugins {
     id("org.jetbrains.compose") version "1.6.11"
 }
 
+// icon.ico 以 base64 存仓库（push 传不了二进制文件），构建配置时还原；
+// 打包用它给 Gome.exe 嵌图标，MSI 桌面快捷方式显示的就是 exe 的图标，所以不用改 workflow 的 jpackage 命令。
+run {
+    val icoFile = project.file("src/desktopMain/resources/icon.ico")
+    if (!icoFile.exists()) {
+        val b64 = project.file("src/desktopMain/resources/icon.ico.b64").readText().trim()
+        icoFile.writeBytes(java.util.Base64.getDecoder().decode(b64))
+    }
+}
+
 // 锁定 androidx.collection 1.4.0（Compose 1.6.11 编译期版本，避免
 // LongSparseArrayKt.access$getDELETED NoSuchMethodError）
 configurations.all {
@@ -172,14 +182,14 @@ compose.desktop {
                 else -> targetFormats(TargetFormat.AppImage)
             }
             packageName = "Gome"
-            packageVersion = "1.0.385"
+            packageVersion = "1.0.386"
             description = "Gome PC — Emby client (Dolby Vision compatible)"
             copyright = "© 2026 Muse"
             linux {
                 // iconFile.set(project.file("src/desktopMain/resources/icon.png"))
             }
             windows {
-                // iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
+                iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
             }
             macOS {
                 // iconFile.set(project.file("src/desktopMain/resources/icon.icns"))
