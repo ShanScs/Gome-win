@@ -160,8 +160,14 @@ fun main() = application {
                         (window as? java.awt.Frame)?.extendedState = java.awt.Frame.ICONIFIED
                     },
                     onToggleMaximize = {
-                        state.placement = if (state.placement == WindowPlacement.Maximized)
-                            WindowPlacement.Floating else WindowPlacement.Maximized
+                        val maximized = state.placement != WindowPlacement.Maximized
+                        state.placement = if (maximized) WindowPlacement.Maximized else WindowPlacement.Floating
+                        // 最大化同样关系统圆角和边框：否则最大化主界面四边有约 1px 白线、四个角露桌面；恢复悬浮时恢复
+                        val hwnd = getHwnd(window)
+                        if (hwnd != 0L) {
+                            if (maximized) com.muse.gomepc.ui.WinRoundedCorners.setFullscreen(hwnd)
+                            else com.muse.gomepc.ui.WinRoundedCorners.restoreFullscreen(hwnd)
+                        }
                     },
                     isMaximized = state.placement == WindowPlacement.Maximized,
                     onClose = ::exitApplication,
@@ -192,8 +198,11 @@ fun main() = application {
                     } else {
                         // 恢复标题栏
                         if (hwnd != 0L) setWindowBorderless(hwnd, false)
-                        // 恢复系统圆角和默认边框，普通窗口外观不变
-                        if (hwnd != 0L) com.muse.gomepc.ui.WinRoundedCorners.restoreFullscreen(hwnd)
+                        // 退出全屏回最大化时保持关圆角/边框（最大化主界面同样不要白线和圆角）；回悬浮才恢复系统圆角和默认边框
+                        if (hwnd != 0L) {
+                            if (savedPlacement == WindowPlacement.Maximized) com.muse.gomepc.ui.WinRoundedCorners.setFullscreen(hwnd)
+                            else com.muse.gomepc.ui.WinRoundedCorners.restoreFullscreen(hwnd)
+                        }
                         // 恢复窗口位置与进入全屏前的 placement（最大化进全屏，退出后仍是最大化）
                         try {
                             savedWindowBounds?.let {
