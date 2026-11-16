@@ -1186,7 +1186,8 @@ fun PlayerScreen(
                             if (canvas.width > 0 && canvas.height > 0) {
                                 if (canvas.isShowing) {
                                     val p = canvas.locationOnScreen
-                                    danmakuWindow.setBounds(p.x, p.y, canvas.width, canvas.height)
+                                    val nb = java.awt.Rectangle(p.x, p.y, canvas.width, canvas.height)
+                                    if (danmakuWindow.bounds != nb) danmakuWindow.setBounds(nb)
                                 } else {
                                     // 还没 showing 时先给尺寸（位置暂 0,0），面板能拿到非 0 尺寸、
                                     // step 才能跑；showing 后下一轮 posTimer 会修正位置。

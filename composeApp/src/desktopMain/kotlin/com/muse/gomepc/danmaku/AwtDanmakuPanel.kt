@@ -72,6 +72,15 @@ private var frameStatTotalMs = 0.0
 private var frameStatMaxMs = 0.0
 private var frameStatDrop33 = 0L
 private var frameStatSevere50 = 0L
+// 分段计时：tick 体耗时与 paint 耗时分开累计，5 秒随帧统计一起记一行，
+// 才能分清卡顿是 tick（step/预取）慢、paint（重画）慢，还是界面线程被别的事占了。
+// tick 间隔 ≈ tick 体 + paint + 其他界面线程工作。
+private var tickStatCount = 0L
+private var tickStatTotalMs = 0.0
+private var paintStatCount = 0L
+private var paintStatTotalMs = 0.0
+private var paintStatMaxMs = 0.0
+private var lastPaintDevScale = 1f
 // 字号缓存：Timer 每 tick / 每 paint 都 deriveFont + getFontMetrics 太浪费，字号不变时复用。
 private var tickFontSize = -1
 private var tickFont: Font? = null
@@ -456,6 +465,11 @@ frameStatTotalMs = 0.0
 frameStatMaxMs = 0.0
 frameStatDrop33 = 0L
 frameStatSevere50 = 0L
+tickStatCount = 0L
+tickStatTotalMs = 0.0
+paintStatCount = 0L
+paintStatTotalMs = 0.0
+paintStatMaxMs = 0.0
 // 30fps 驱动；无弹幕/未启用时不重绘，避免透明 JWindow 空转拖慢 DWM 合成
 val t = Timer(33) {
 // 帧时间统计：每 tick 记一次帧间隔（当前时间 - 上一帧时间，nanoTime 计时）。
@@ -495,12 +509,22 @@ com.muse.gomepc.player.DebugLog.d("Danmaku", "面板状态: 启用=${engine.enab
 val avgFrameMs = if (frameStatCount > 0) frameStatTotalMs / frameStatCount else 0.0
 val avg1 = kotlin.math.round(avgFrameMs * 10) / 10.0
 val max1 = kotlin.math.round(frameStatMaxMs * 10) / 10.0
-com.muse.gomepc.player.DebugLog.d("Danmaku", "帧统计：平均 ${avg1}ms 最大 ${max1}ms 掉帧 ${frameStatDrop33} 次 严重 ${frameStatSevere50} 次")
+val avgTickMs = if (tickStatCount > 0) tickStatTotalMs / tickStatCount else 0.0
+val avgPaintMs = if (paintStatCount > 0) paintStatTotalMs / paintStatCount else 0.0
+val tick1 = kotlin.math.round(avgTickMs * 10) / 10.0
+val paint1 = kotlin.math.round(avgPaintMs * 10) / 10.0
+val paintMax1 = kotlin.math.round(paintStatMaxMs * 10) / 10.0
+com.muse.gomepc.player.DebugLog.d("Danmaku", "帧统计：平均 ${avg1}ms 最大 ${max1}ms 掉帧 ${frameStatDrop33} 次 严重 ${frameStatSevere50} 次 tick平均 ${tick1}ms paint平均 ${paint1}ms paint最大 ${paintMax1}ms paint次数 ${paintStatCount} 缩放=${lastPaintDevScale}")
 frameStatCount = 0L
 frameStatTotalMs = 0.0
 frameStatMaxMs = 0.0
 frameStatDrop33 = 0L
 frameStatSevere50 = 0L
+tickStatCount = 0L
+tickStatTotalMs = 0.0
+paintStatCount = 0L
+paintStatTotalMs = 0.0
+paintStatMaxMs = 0.0
 }
 }
 // 时间喂入直连：每 tick 直接从播放器拉当前进度（player.timePos 由 mpv 事件线程维护），
@@ -583,6 +607,10 @@ wantVisible = false
 
 }
 }
+// tick 体耗时：本 tick 在界面线程上实际执行的耗时（step/预取/脏区重绘请求），不含 paint。
+// frameNowNs 在 tick 开头已取，直接复用为 tick 起点。
+tickStatCount++
+tickStatTotalMs += (System.nanoTime() - frameNowNs) / 1_000_000.0
 }
 timer = t
 t.start()
@@ -609,8 +637,17 @@ init {
 startTimer()
 }
 
+/** 记一次 paint 耗时（界面线程内调用）。 */
+private fun recordPaintMs(startNs: Long) {
+val ms = (System.nanoTime() - startNs) / 1_000_000.0
+paintStatCount++
+paintStatTotalMs += ms
+if (ms > paintStatMaxMs) paintStatMaxMs = ms
+}
+
 override fun paintComponent(g: Graphics) {
 super.paintComponent(g)
+val paintStartNs = System.nanoTime()
 val g2 = g as Graphics2D
 // 文本渲染提示：灰度抗锯齿 + 高质量 + 分数度量 + 双线性插值（位图缩放）。
 // LCD 子像素抗锯齿在透明/视频背景上会镶边，不用。
@@ -622,6 +659,7 @@ g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTER
 // HiDPI 设备像素比：字形缓存按设备像素渲染，否则 1x 位图被放大到 125%/150% 缩放屏上会模糊。
 val devScale = try { (graphicsConfiguration?.defaultTransform?.scaleX ?: 1.0).toFloat() } catch (_: Throwable) { 1f }
 .let { if (it.isFinite() && it >= 1f) it.coerceAtMost(4f) else 1f }
+lastPaintDevScale = devScale
 // P2-D8：先裁剪再垫底。原代码先全屏 fillRect 再 clip，垫底超出视频区。
 val vr = videoRectInParent?.invoke()
 if (vr!= null) {
@@ -631,7 +669,7 @@ g.clipRect(vr.x, vr.y, vr.width, vr.height)
 g2.color = java.awt.Color(0, 0, 0, 1)
 g2.fillRect(0, 0, width, height)
 
-if (!engine.enabled) return
+if (!engine.enabled) { recordPaintMs(paintStartNs); return }
 // 字号：与 Compose 版一致（fontSp sp → px，桌面 density≈1）
 val fontSize = (engine.fontSp * 1.5f).toInt().coerceAtLeast(12)
 // 字号不变时复用 Font/FontMetrics/ascent，不再每 paint 构造 Font + 查表。
@@ -692,5 +730,6 @@ g2.drawImage(img, x, y - ascent - 4, (img.width / devScale).toInt(), (img.height
 }
 } catch (_: Throwable) {}
 }
+recordPaintMs(paintStartNs)
 }
 }
