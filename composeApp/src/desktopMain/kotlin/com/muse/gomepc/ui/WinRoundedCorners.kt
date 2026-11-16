@@ -57,6 +57,25 @@ object WinRoundedCorners {
         }
     }
 
+    /** 系统定时器精度提到 1ms：Windows 默认定时粒度约 15.6ms，33ms 的 Swing Timer
+     * 实际约 47ms 一跳，弹幕最多 21 帧；提到 1ms 后 33ms 定时器能按 33ms 跑。
+     * winmm timeBeginPeriod，返回 0 为成功；进程退出时系统自动恢复，不用调 timeEndPeriod。
+     * 播放器类应用常用做法，只在 Windows 上调一次。 */
+    fun requestHighResolutionTimer() {
+        try {
+            val os = System.getProperty("os.name").lowercase()
+            if (!os.contains("win")) return
+            val mm = Native.load("winmm", WinMmApi::class.java)
+            val res = mm.timeBeginPeriod(1)
+            com.muse.gomepc.player.DebugLog.d("UI", "系统定时精度: timeBeginPeriod(1) 返回 $res")
+        } catch (_: Exception) {
+        }
+    }
+
+    private interface WinMmApi : StdCallLibrary {
+        fun timeBeginPeriod(uPeriod: Int): Int
+    }
+
     /** 进全屏：关圆角 + 去系统边框（白线和圆角漏光都由这两项引起） */
     fun setFullscreen(hwndLong: Long) {
         val hrCorner = setAttribute(hwndLong, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND)

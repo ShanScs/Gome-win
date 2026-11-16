@@ -147,6 +147,7 @@ fun main() = application {
                 val awtWindow = window
                 val hwnd = com.sun.jna.Native.getWindowPointer(awtWindow)
                 com.muse.gomepc.ui.WinRoundedCorners.apply(com.sun.jna.Pointer.nativeValue(hwnd))
+                com.muse.gomepc.ui.WinRoundedCorners.requestHighResolutionTimer()
             } catch (_: Exception) {}
         }
         // 不透明无边框：防白屏

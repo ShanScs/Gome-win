@@ -92,6 +92,8 @@ private var paintAscent = 0
 // 脏区重绘：上一 tick 的弹幕矩形 + 算它们时用的字号（字号变了高度变化超出余量，强制全量重绘一次）。
 private var prevDirtyRects: List<java.awt.Rectangle> = emptyList()
 private var dirtyFontSize = -1
+// 自适应跳画：连续跳过重画的次数（见 tick 里 repaintDirty 的门控）。
+private var skippedRepaints = 0
 // 供外部查询：面板是否希望窗口可见（有弹幕且启用）
 var wantVisible = false
 private set
@@ -480,8 +482,9 @@ var tickDt = 0.033f
 lastTickMs = System.currentTimeMillis()
 stallReported = false
 val frameNowNs = System.nanoTime()
+var intervalMs = 0.0
 if (lastFrameNs != 0L) {
-val intervalMs = (frameNowNs - lastFrameNs) / 1_000_000.0
+intervalMs = (frameNowNs - lastFrameNs) / 1_000_000.0
 tickDt = (intervalMs / 1000.0).toFloat().coerceIn(0f, 0.1f)
 frameStatCount++
 frameStatTotalMs += intervalMs
@@ -587,7 +590,15 @@ if (now < pd.visibleAt) continue
 if (pd.row < 0) continue
 enqueueRaster(cacheKey(pd.text, pd.color), pd.text, pd.color, fontSize, pfAlpha, pfStroke, pfScale)
 }
+// 自适应跳画：上一帧间隔已超 50ms 说明界面线程跟不上（透明窗口推表面太贵），
+// 跳过本次重画让它喘口气（位置仍按真实时间推进，下次重画补上）；
+// 最多连跳 2 次，避免一直不画导致弹幕消失。
+if (intervalMs <= 50.0 || skippedRepaints >= 2) {
+skippedRepaints = 0
 repaintDirty(now, fontSize, fm)
+} else {
+skippedRepaints++
+}
 hadItems = true
 } else if (hadItems) {
 // 弹幕刚清空：宽限期内保持可见（弹幕间隙短暂为空是常态，立即隐藏会时隐时现），
