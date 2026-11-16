@@ -177,6 +177,8 @@ fun main() = application {
                         com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "保存窗口bounds: $savedWindowBounds placement=$savedPlacement")
                         // 去标题栏（不重建HWND）
                         if (hwnd != 0L) setWindowBorderless(hwnd, true)
+                        // 关系统圆角和边框：否则全屏四边有约 1px 白线、四个角露桌面
+                        if (hwnd != 0L) com.muse.gomepc.ui.WinRoundedCorners.setFullscreen(hwnd)
                         // 用显示器完整bounds覆盖全屏（不是最大化到工作区，避免任务栏出现）
                         try {
                             val gd = awtWindow.graphicsConfiguration.device
@@ -190,6 +192,8 @@ fun main() = application {
                     } else {
                         // 恢复标题栏
                         if (hwnd != 0L) setWindowBorderless(hwnd, false)
+                        // 恢复系统圆角和默认边框，普通窗口外观不变
+                        if (hwnd != 0L) com.muse.gomepc.ui.WinRoundedCorners.restoreFullscreen(hwnd)
                         // 恢复窗口位置与进入全屏前的 placement（最大化进全屏，退出后仍是最大化）
                         try {
                             savedWindowBounds?.let {

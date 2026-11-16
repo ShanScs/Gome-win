@@ -8,6 +8,10 @@ import com.sun.jna.win32.StdCallLibrary
 /**
  * Windows 11 原生圆角（DWMWA_WINDOW_CORNER_PREFERENCE）
  * 不用透明窗口，避免视频白屏
+ *
+ * 全屏时还要关掉圆角和系统边框：Win11 会给圆角窗口裁圆角（四个角露桌面），
+ * 并沿边画一圈系统边框（四边约 1px 白线）。退出全屏时恢复圆角和默认边框颜色，
+ * 普通窗口外观不变。
  */
 object WinRoundedCorners {
     private interface DwmApi : StdCallLibrary {
@@ -21,25 +25,49 @@ object WinRoundedCorners {
 
     private const val DWMWA_WINDOW_CORNER_PREFERENCE = 33
     private const val DWMWCP_ROUND = 2
+    private const val DWMWCP_DONOTROUND = 1
+    private const val DWMWA_BORDER_COLOR = 34
+    // DWMWA_COLOR_NONE / DWMWA_COLOR_DEFAULT（COLORREF，Int 形式为 -2 / -1）
+    private const val DWMWA_COLOR_NONE = -2
+    private const val DWMWA_COLOR_DEFAULT = -1
 
-    fun apply(hwndLong: Long) {
-        try {
+    /** 通用设置：返回 HRESULT，0 为成功；非 Windows 或调用失败返回非 0（不抛异常） */
+    private fun setAttribute(hwndLong: Long, attribute: Int, value: Int): Int {
+        return try {
             val os = System.getProperty("os.name").lowercase()
-            if (!os.contains("win")) return
+            if (!os.contains("win")) return -1
             // 只在 Win11+ 生效，Win10 回退方角
             // Win11 的 os.version 是 10.0，但 build 号 >= 22000
             // 简化：直接尝试调用，失败则忽略
             val dwm = Native.load("dwmapi", DwmApi::class.java)
             val hwnd = WinDef.HWND(Pointer(hwndLong))
             val attr = com.sun.jna.Memory(4)
-            attr.setInt(0, DWMWCP_ROUND)
-            val hr = dwm.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, attr, 4)
-            if (hr != 0) {
-                // HRESULT 非 0 表示调用失败（如旧版 Windows 不支持该属性），保持方角
-                com.muse.gomepc.player.DebugLog.d("UI", "WinRoundedCorners: DwmSetWindowAttribute 失败 hr=$hr")
-            }
+            attr.setInt(0, value)
+            dwm.DwmSetWindowAttribute(hwnd, attribute, attr, 4)
         } catch (_: Exception) {
-            // 忽略：Win10 或调用失败时保持方角
+            -1
         }
+    }
+
+    fun apply(hwndLong: Long) {
+        val hr = setAttribute(hwndLong, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)
+        if (hr != 0) {
+            // HRESULT 非 0 表示调用失败（如旧版 Windows 不支持该属性），保持方角
+            com.muse.gomepc.player.DebugLog.d("UI", "WinRoundedCorners: DwmSetWindowAttribute 失败 hr=$hr")
+        }
+    }
+
+    /** 进全屏：关圆角 + 去系统边框（白线和圆角漏光都由这两项引起） */
+    fun setFullscreen(hwndLong: Long) {
+        val hrCorner = setAttribute(hwndLong, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND)
+        val hrBorder = setAttribute(hwndLong, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE)
+        com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "全屏圆角/边框: corner hr=$hrCorner border hr=$hrBorder")
+    }
+
+    /** 退全屏：恢复圆角 + 默认边框颜色，普通窗口外观不变 */
+    fun restoreFullscreen(hwndLong: Long) {
+        val hrCorner = setAttribute(hwndLong, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)
+        val hrBorder = setAttribute(hwndLong, DWMWA_BORDER_COLOR, DWMWA_COLOR_DEFAULT)
+        com.muse.gomepc.player.DebugLog.d("FULLSCREEN", "恢复圆角/边框: corner hr=$hrCorner border hr=$hrBorder")
     }
 }
