@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.util.Base64
 
 plugins {
     kotlin("multiplatform") version "2.0.21"
@@ -12,7 +13,7 @@ run {
     val icoFile = project.file("src/desktopMain/resources/icon.ico")
     if (!icoFile.exists()) {
         val b64 = project.file("src/desktopMain/resources/icon.ico.b64").readText().trim()
-        icoFile.writeBytes(java.util.Base64.getDecoder().decode(b64))
+        icoFile.writeBytes(Base64.getDecoder().decode(b64))
     }
 }
 
