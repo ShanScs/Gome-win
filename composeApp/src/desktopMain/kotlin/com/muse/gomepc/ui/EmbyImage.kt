@@ -147,35 +147,41 @@ fun EmbyImage(
     contentScale: ContentScale = ContentScale.Crop,
     fallbackUrl: String? = null,
     fallbackUrls: List<String> = emptyList(),
+    // 横图模式（详情头图/首页轮播）：只接受横图（宽>=高）；服务器上 Thumb 存成竖版海报时
+    // （如某剧 Thumb 与 Primary 是同一个竖版文件），竖图视为未命中，继续试下一个，
+    // 全是竖图时退回第一张成功的图（总比空白好）。
+    landscapeOnly: Boolean = false,
     fallback: @Composable () -> Unit = {}
 ) {
-    var bitmap by remember(url, fallbackUrl, fallbackUrls) { mutableStateOf(EmbyImageLoader.getCached(url ?: "")) }
-    var failed by remember(url, fallbackUrl, fallbackUrls) { mutableStateOf(false) }
+    var bitmap by remember(url, fallbackUrl, fallbackUrls, landscapeOnly) { mutableStateOf(EmbyImageLoader.getCached(url ?: "")) }
+    var failed by remember(url, fallbackUrl, fallbackUrls, landscapeOnly) { mutableStateOf(false) }
     // 请求序号：url 变化时旧加载可能仍在 IO 阻塞读，返回后用序号校验丢弃过期结果
     val loadSeq = remember { java.util.concurrent.atomic.AtomicInteger(0) }
 
-    LaunchedEffect(url, fallbackUrl, fallbackUrls) {
+    LaunchedEffect(url, fallbackUrl, fallbackUrls, landscapeOnly) {
         val mySeq = loadSeq.incrementAndGet()
         fun isCurrent() = loadSeq.get() == mySeq
         if (url.isNullOrBlank()) {
             failed = true
             return@LaunchedEffect
         }
-        if (bitmap != null) return@LaunchedEffect
-        var bmp = EmbyImageLoader.load(url)
-        if (!isCurrent()) return@LaunchedEffect
-        if (bmp == null && !fallbackUrl.isNullOrBlank()) {
-            bmp = EmbyImageLoader.load(fallbackUrl)
+        // 已缓存的主图：横图模式下竖图不算命中，继续走兜底链（否则直接显示缓存）
+        val cached = bitmap
+        if (cached != null && (!landscapeOnly || cached.width >= cached.height)) return@LaunchedEffect
+        if (cached != null) bitmap = null
+        // 依次尝试候选链；横图模式下优先横图，竖图跳过；全是竖图时退回第一张成功的图
+        var firstOk: ImageBitmap? = null
+        var bmp: ImageBitmap? = null
+        val candidates = listOfNotNull(url, fallbackUrl) + fallbackUrls
+        for (u in candidates) {
+            if (u.isBlank()) continue
+            val b = EmbyImageLoader.load(u)
             if (!isCurrent()) return@LaunchedEffect
+            if (b == null) continue
+            if (firstOk == null) firstOk = b
+            if (!landscapeOnly || b.width >= b.height) { bmp = b; break }
         }
-        if (bmp == null) {
-            for (u in fallbackUrls) {
-                if (u.isBlank()) continue
-                bmp = EmbyImageLoader.load(u)
-                if (!isCurrent()) return@LaunchedEffect
-                if (bmp != null) break
-            }
-        }
+        if (bmp == null) bmp = firstOk
         if (bmp != null) bitmap = bmp else failed = true
     }
 

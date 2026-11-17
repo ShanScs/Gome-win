@@ -781,7 +781,8 @@ private fun BannerCarousel(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                     fallbackUrl = bannerUrls.getOrNull(1),
-                    fallbackUrls = bannerUrls.drop(2)
+                    fallbackUrls = bannerUrls.drop(2),
+                    landscapeOnly = true
                 )
                 // 底部淡出到白色（对齐安卓：海报底部淡出衔接继续观看顶部）
                 Box(
@@ -4035,6 +4036,7 @@ fun DetailScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     fallbackUrl = headerUrls.getOrNull(1),
                                     fallbackUrls = headerUrls.drop(2),
+                                    landscapeOnly = true,
                                     fallback = {
                                         val (c1, c2) = posterColors(it.hue)
                                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(c1, c2))))

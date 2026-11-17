@@ -72,6 +72,12 @@ private var frameStatTotalMs = 0.0
 private var frameStatMaxMs = 0.0
 private var frameStatDrop33 = 0L
 private var frameStatSevere50 = 0L
+// 1.0.389：帧间隔分布（确认 timeBeginPeriod 是否生效：若定时器仍被 15.625ms 量化，
+// 间隔会扎堆在 47ms 附近；若生效则扎堆在 33ms 附近）。
+private var frameStatLe40 = 0L
+private var frameStat40to50 = 0L
+private var frameStat50to100 = 0L
+private var frameStatGt100 = 0L
 // 分段计时：tick 体耗时与 paint 耗时分开累计，5 秒随帧统计一起记一行，
 // 才能分清卡顿是 tick（step/预取）慢、paint（重画）慢，还是界面线程被别的事占了。
 // tick 间隔 ≈ tick 体 + paint + 其他界面线程工作。
@@ -467,6 +473,10 @@ frameStatTotalMs = 0.0
 frameStatMaxMs = 0.0
 frameStatDrop33 = 0L
 frameStatSevere50 = 0L
+frameStatLe40 = 0L
+frameStat40to50 = 0L
+frameStat50to100 = 0L
+frameStatGt100 = 0L
 tickStatCount = 0L
 tickStatTotalMs = 0.0
 paintStatCount = 0L
@@ -491,6 +501,12 @@ frameStatTotalMs += intervalMs
 if (intervalMs > frameStatMaxMs) frameStatMaxMs = intervalMs
 if (intervalMs > 50.0) frameStatDrop33++
 if (intervalMs > 100.0) frameStatSevere50++
+when {
+intervalMs <= 40.0 -> frameStatLe40++
+intervalMs <= 50.0 -> frameStat40to50++
+intervalMs <= 100.0 -> frameStat50to100++
+else -> frameStatGt100++
+}
 }
 lastFrameNs = frameNowNs
 // P0-D4：enabled=false 时显式 wantVisible=false 并隐藏窗口。
@@ -517,12 +533,16 @@ val avgPaintMs = if (paintStatCount > 0) paintStatTotalMs / paintStatCount else 
 val tick1 = kotlin.math.round(avgTickMs * 10) / 10.0
 val paint1 = kotlin.math.round(avgPaintMs * 10) / 10.0
 val paintMax1 = kotlin.math.round(paintStatMaxMs * 10) / 10.0
-com.muse.gomepc.player.DebugLog.d("Danmaku", "帧统计：平均 ${avg1}ms 最大 ${max1}ms 掉帧 ${frameStatDrop33} 次 严重 ${frameStatSevere50} 次 tick平均 ${tick1}ms paint平均 ${paint1}ms paint最大 ${paintMax1}ms paint次数 ${paintStatCount} 缩放=${lastPaintDevScale}")
+com.muse.gomepc.player.DebugLog.d("Danmaku", "帧统计：平均 ${avg1}ms 最大 ${max1}ms 掉帧 ${frameStatDrop33} 次 严重 ${frameStatSevere50} 次 tick平均 ${tick1}ms paint平均 ${paint1}ms paint最大 ${paintMax1}ms paint次数 ${paintStatCount} 缩放=${lastPaintDevScale} 间隔分布 ≤40ms=${frameStatLe40} 40~50ms=${frameStat40to50} 50~100ms=${frameStat50to100} >100ms=${frameStatGt100}")
 frameStatCount = 0L
 frameStatTotalMs = 0.0
 frameStatMaxMs = 0.0
 frameStatDrop33 = 0L
 frameStatSevere50 = 0L
+frameStatLe40 = 0L
+frameStat40to50 = 0L
+frameStat50to100 = 0L
+frameStatGt100 = 0L
 tickStatCount = 0L
 tickStatTotalMs = 0.0
 paintStatCount = 0L
@@ -737,7 +757,12 @@ if (d.textWidth < 0) rasterTextWidths[key]?.let { d.textWidth = it }
 if (devScale == 1f) {
 g2.drawImage(img, x, y - ascent - 4, null)
 } else {
-g2.drawImage(img, x, y - ascent - 4, (img.width / devScale).toInt(), (img.height / devScale).toInt(), null)
+// 1.0.389：设备像素位图 1:1 拷贝。位图本身已按 devScale 渲染（宽高均为逻辑尺寸 × devScale），
+// 用 translate + 1/devScale 的 AffineTransform 贴图：位图像素与设备像素一一对应，
+// 不再每帧把位图缩回逻辑尺寸重采样（弹幕密时 paint 11–15ms 的大头之一）。
+val at = java.awt.geom.AffineTransform.getTranslateInstance(x.toDouble(), (y - ascent - 4).toDouble())
+at.scale((1.0 / devScale).toDouble(), (1.0 / devScale).toDouble())
+g2.drawImage(img, at, null)
 }
 } catch (_: Throwable) {}
 }
