@@ -40,6 +40,7 @@ kotlin {
                 implementation("org.jetbrains.compose.ui:ui-desktop:1.6.11")
                 implementation("org.jetbrains.compose.foundation:foundation-desktop:1.6.11")
                 implementation("org.jetbrains.compose.material3:material3-desktop:1.6.11")
+                implementation("org.jetbrains.compose.animation:animation-desktop:1.6.11")
                 implementation("org.jetbrains.compose.components:components-resources:1.6.11")
                 implementation("net.java.dev.jna:jna:5.14.0")
                 implementation("net.java.dev.jna:jna-platform:5.14.0")
@@ -183,7 +184,7 @@ compose.desktop {
                 else -> targetFormats(TargetFormat.AppImage)
             }
             packageName = "Gome"
-            packageVersion = "1.0.389"
+            packageVersion = "1.0.390"
             description = "Gome PC — Emby client (Dolby Vision compatible)"
             copyright = "© 2026 Muse"
             linux {

@@ -55,6 +55,92 @@ object EmbyImageLoader {
 
     private fun putCached(key: String, bmp: ImageBitmap) = synchronized(lock) { cache[key] = bmp }
 
+    // 海报主色相缓存（渐变主题用）：URL → 主色相（度，0..360）
+    private val hueCache = mutableMapOf<String, Float>()
+
+    fun getHue(url: String): Float? = synchronized(lock) { hueCache[url] }
+
+    /** 海报主色相（渐变主题用）：加载图后从位图稀疏采样取主色相并缓存；拿不到返回 null。 */
+    suspend fun loadHue(url: String): Float? {
+        if (url.isBlank()) return null
+        synchronized(lock) { hueCache[url] }?.let { return it }
+        val bmp = load(url) ?: return null
+        val h = dominantHue(bmp)
+        synchronized(lock) { hueCache[url] = h }
+        return h
+    }
+
+    /** 候选链里第一张能拿到主色的（详情头图/轮播横幅用）。 */
+    suspend fun firstHue(urls: List<String>): Float? {
+        for (u in urls) {
+            val h = loadHue(u)
+            if (h != null) return h
+        }
+        return null
+    }
+
+    /**
+     * 海报主色相：4x4 网格各取一个 4x4 小块采样（共 256 像素），跳过近灰/过暗/过亮像素，
+     * 按饱和度加权环形平均色相（防 0/360 跳变）；无彩色像素时回默认 210（蓝）。
+     */
+    private fun dominantHue(bmp: ImageBitmap): Float {
+        val w = bmp.width
+        val h = bmp.height
+        if (w < 8 || h < 8) return 210f
+        val patch = 4
+        val buf = IntArray(patch * patch)
+        var sx = 0.0
+        var sy = 0.0
+        var wsum = 0.0
+        for (gy in 0 until 4) {
+            for (gx in 0 until 4) {
+                val cx = ((gx + 0.5f) * w / 4).toInt().coerceIn(patch / 2, w - patch / 2 - 1)
+                val cy = ((gy + 0.5f) * h / 4).toInt().coerceIn(patch / 2, h - patch / 2 - 1)
+                try {
+                    bmp.readPixels(buf, cx - patch / 2, cy - patch / 2, patch, patch, 0, patch)
+                } catch (_: Exception) { continue }
+                for (px in buf) {
+                    val r = (px shr 16) and 0xFF
+                    val g = (px shr 8) and 0xFF
+                    val b = px and 0xFF
+                    val mx = maxOf(r, g, b)
+                    val mn = minOf(r, g, b)
+                    if (mx < 24 || mn > 235) continue
+                    val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
+                    if (sat < 0.15f) continue
+                    val hue = rgbHue(r, g, b)
+                    val rad = Math.toRadians(hue.toDouble())
+                    val wt = sat.toDouble()
+                    sx += Math.cos(rad) * wt
+                    sy += Math.sin(rad) * wt
+                    wsum += wt
+                }
+            }
+        }
+        if (wsum <= 0.0) return 210f
+        var hue = Math.toDegrees(Math.atan2(sy, sx)).toFloat()
+        if (hue < 0f) hue += 360f
+        return hue
+    }
+
+    /** RGB → 色相（度，0..360），标准公式。 */
+    private fun rgbHue(r: Int, g: Int, b: Int): Float {
+        val mx = maxOf(r, g, b)
+        val mn = minOf(r, g, b)
+        val d = mx - mn
+        if (d == 0) return 0f
+        val h = if (mx == r) {
+            var t = (g - b).toFloat() / d
+            if (t < 0) t += 6f
+            t
+        } else if (mx == g) {
+            (b - r).toFloat() / d + 2f
+        } else {
+            (r - g).toFloat() / d + 4f
+        }
+        return h * 60f
+    }
+
     private fun sha256Hex(bytes: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
         return digest.joinToString("") { "%02x".format(it) }

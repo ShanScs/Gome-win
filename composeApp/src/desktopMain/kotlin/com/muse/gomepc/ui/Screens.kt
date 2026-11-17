@@ -129,38 +129,43 @@ object GomeTheme {
     var modern by mutableStateOf(Prefs.theme == "modern")
         private set
 
-    /** 应用主题并持久化："modern"=现代，其余=原版 */
+    /** 当前是否为渐变主题（海报主色背景；与 modern 并列，切换后立即生效） */
+    var gradient by mutableStateOf(Prefs.theme == "gradient")
+        private set
+
+    /** 应用主题并持久化："modern"=现代，"gradient"=渐变，其余=原版 */
     fun applyTheme(value: String) {
-        val v = if (value == "modern") "modern" else "original"
+        val v = when (value) { "modern" -> "modern"; "gradient" -> "gradient"; else -> "original" }
         Prefs.theme = v
         modern = v == "modern"
+        gradient = v == "gradient"
     }
 
     val Bg: Color
-        get() = if (modern) Color(0xFF0A0C10) else Color(0xFFF5F6F8)
+        get() = if (modern || gradient) Color(0xFF0A0C10) else Color(0xFFF5F6F8)
     val CardBg: Color
-        get() = if (modern) Color(0xFF1C2027) else Color.White
+        get() = if (modern || gradient) Color(0xFF1C2027) else Color.White
     val TextPrimary: Color
-        get() = if (modern) Color(0xFFF5F7FA) else Color(0xFF1A1A1A)
+        get() = if (modern || gradient) Color(0xFFF5F7FA) else Color(0xFF1A1A1A)
     val TextSecondary: Color
-        get() = if (modern) Color(0x99FFFFFF) else Color(0xFF8A8A8A)
+        get() = if (modern || gradient) Color(0x99FFFFFF) else Color(0xFF8A8A8A)
     val Accent: Color
-        get() = if (modern) Color(0xFFE5484D) else Color(0xFF2F6FED)
+        get() = if (modern || gradient) Color(0xFFE5484D) else Color(0xFF2F6FED)
     val SidebarBg: Color
-        get() = if (modern) Color(0xFF101318) else Color(0xFFECEDEF)
+        get() = if (modern || gradient) Color(0xFF101318) else Color(0xFFECEDEF)
 
     /** 弹窗面板底（毛迪弹窗/详情单选弹窗）：原版 #F2FFFFFF 不变，现代深灰面 */
     val DialogBg: Color
-        get() = if (modern) Color(0xFF1C2027) else Color(0xF2FFFFFF)
+        get() = if (modern || gradient) Color(0xFF1C2027) else Color(0xF2FFFFFF)
     /** 弹窗正文字（原版弹窗内字面量为纯黑 Color.Black）：现代近白 */
     val DialogText: Color
-        get() = if (modern) Color(0xFFF5F7FA) else Color.Black
+        get() = if (modern || gradient) Color(0xFFF5F7FA) else Color.Black
     /** 弹窗次级字（原版字面量 0xFF8E8E93）：现代 60% 白 */
     val DialogSubText: Color
-        get() = if (modern) Color(0x99FFFFFF) else Color(0xFF8E8E93)
+        get() = if (modern || gradient) Color(0x99FFFFFF) else Color(0xFF8E8E93)
     /** 分隔线（原版字面量 0xFFEFEFF4）：现代深灰（与设置行分隔线现代值一致） */
     val Divider: Color
-        get() = if (modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)
+        get() = if (modern || gradient) Color(0xFF2A2E36) else Color(0xFFEFEFF4)
 }
 
 /** 红心 vector 图标（对齐 Android ic_heart_red，#F44336） */
@@ -450,6 +455,8 @@ fun HomeScreen(
 ) {
     // 主页数据只在第一次启动时后台加载一次，之后切回直接用缓存
     LaunchedEffect(Unit) { HomeDataCache.ensureLoaded() }
+    // 渐变主题：主页背景跟当前轮播海报主色走（BannerCarousel 上报）
+    var bannerHue by remember { mutableStateOf<Float?>(null) }
     val libs = HomeDataCache.libs
     val libItems = HomeDataCache.libItems
     val resume = HomeDataCache.resume
@@ -472,8 +479,17 @@ fun HomeScreen(
                     sorted + remaining
                 }
             }
+            // 渐变主题：主页背景 = 当前轮播海报主色的深色渐变（换图时颜色平滑过渡）
+            val homeGrad = if (GomeTheme.gradient) bannerHue?.let { gradientBgColors(it) } else null
+            val animHomeC1 by androidx.compose.animation.animateColorAsState(homeGrad?.first ?: GomeTheme.Bg)
+            val animHomeC2 by androidx.compose.animation.animateColorAsState(homeGrad?.second ?: GomeTheme.Bg)
+            val homeBgModifier = if (GomeTheme.gradient) {
+                Modifier.background(Brush.verticalGradient(listOf(animHomeC1, animHomeC2)))
+            } else {
+                Modifier.background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)
+            }
             LazyColumn(
-            modifier = Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White),
+            modifier = Modifier.fillMaxSize().then(homeBgModifier),
             contentPadding = PaddingValues(bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             state = listState ?: androidx.compose.foundation.lazy.rememberLazyListState()
@@ -488,7 +504,7 @@ fun HomeScreen(
             if (bannerItems.isNotEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth()) {
-                        BannerCarousel(items = bannerItems, onItemClick = onItemClick)
+                        BannerCarousel(items = bannerItems, onItemClick = onItemClick, onBannerHueChange = { bannerHue = it }, gradientTopColor = animHomeC1)
                     }
                 }
             }
@@ -731,10 +747,19 @@ fun ResumeListScreen(
 @Composable
 private fun BannerCarousel(
     items: List<UiMediaItem>,
-    onItemClick: (UiMediaItem) -> Unit
+    onItemClick: (UiMediaItem) -> Unit,
+    // 渐变主题：当前页海报主色上报给主页背景；渐变时轮播底边淡出到的目标色
+    onBannerHueChange: (Float?) -> Unit = {},
+    gradientTopColor: Color = Color.Transparent
 ) {
     if (items.isEmpty()) return
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { items.size })
+    // 渐变主题：当前页变化时取该页海报主色，上报给主页背景
+    androidx.compose.runtime.LaunchedEffect(pagerState.currentPage, items) {
+        val item = items.getOrNull(pagerState.currentPage)
+        val urls = if (item == null) emptyList() else listOfNotNull(item.thumbUrl, item.backdropUrl, item.imageUrl).distinct()
+        onBannerHueChange(EmbyImageLoader.firstHue(urls))
+    }
     // 用户拖动时暂停自动轮播（否则自动滚动与手动滑动打架）
     var autoPaused by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState) {
@@ -791,7 +816,7 @@ private fun BannerCarousel(
                         .background(
                             androidx.compose.ui.graphics.Brush.verticalGradient(
                                 0.55f to Color.Transparent,
-                                1f to if (GomeTheme.modern) Color(0xFF0A0C10) else Color.White
+                                1f to if (GomeTheme.gradient) gradientTopColor else if (GomeTheme.modern) Color(0xFF0A0C10) else Color.White
                             )
                         )
                 )
@@ -2891,7 +2916,7 @@ fun SettingsScreen(
         }
     }
     fun dockLabel(): String = if (prefs.dockStyle == 0) "M玻璃" else "原玻璃"
-    fun themeLabel(): String = if (prefs.theme == "modern") "现代" else "原版"
+    fun themeLabel(): String = when (prefs.theme) { "modern" -> "现代"; "gradient" -> "渐变"; else -> "原版" }
     fun animLabel(): String = when (prefs.flybackMode) {
         0 -> "严格"
         2 -> "宽松"
@@ -2944,10 +2969,10 @@ fun SettingsScreen(
     if (showThemeDialog) {
         SettingSingleChoiceDialog(
             title = "主题",
-            options = listOf("原版", "现代"),
-            selected = if (prefs.theme == "modern") 1 else 0,
+            options = listOf("原版", "现代", "渐变"),
+            selected = when (prefs.theme) { "modern" -> 1; "gradient" -> 2; else -> 0 },
             onSelect = {
-                GomeTheme.applyTheme(if (it == 1) "modern" else "original")
+                GomeTheme.applyTheme(when (it) { 1 -> "modern"; 2 -> "gradient"; else -> "original" })
                 refreshTick++
                 showThemeDialog = false
             },
@@ -3951,6 +3976,19 @@ fun DetailScreen(
     var subtitleDialog by remember { mutableStateOf<Pair<List<String>, List<Int>>?>(null) }
     var toastMsg by remember { mutableStateOf<String?>(null) }
     val detailScope = rememberCoroutineScope()
+    // 渐变主题：详情页背景跟海报主色走
+    var headerHue by remember(itemId) { mutableStateOf<Float?>(null) }
+    LaunchedEffect(item) {
+        val it = item
+        headerHue = if (it == null) null else EmbyImageLoader.firstHue(listOf(
+            YambyClient.imageUrl(it.id, "Thumb", 1280),
+            YambyClient.imageUrl(it.id, "Backdrop", 1280),
+            YambyClient.imageUrl(it.id, "Primary", 1280)
+        ).distinct())
+    }
+    val detailGrad = if (GomeTheme.gradient) headerHue?.let { gradientBgColors(it) } else null
+    val animDetailC1 by androidx.compose.animation.animateColorAsState(detailGrad?.first ?: GomeTheme.Bg)
+    val animDetailC2 by androidx.compose.animation.animateColorAsState(detailGrad?.second ?: GomeTheme.Bg)
     // 选中的剧集索引（点击选集只选中加框，不进播放器；点播放按钮才进）
     var selectedEpIndex by remember(itemId) { mutableStateOf(0) }
     // 自动选中只做一次：首次进详情页时选中带进度的那集；切季/刷新时不再自动重选，避免覆盖用户选择
@@ -4015,7 +4053,12 @@ fun DetailScreen(
                 seasonLoading = false
             }
 
-            Box(Modifier.fillMaxSize().background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)) {
+            Box(
+                Modifier.fillMaxSize().then(
+                    if (GomeTheme.gradient) Modifier.background(Brush.verticalGradient(listOf(animDetailC1, animDetailC2)))
+                    else Modifier.background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)
+                )
+            ) {
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 110.dp)
@@ -4061,7 +4104,7 @@ fun DetailScreen(
                                 Modifier.fillMaxSize().background(
                                     Brush.verticalGradient(
                                         0.85f to Color.Transparent,
-                                        1f to GomeTheme.Bg
+                                        1f to if (GomeTheme.gradient) animDetailC1 else GomeTheme.Bg
                                     )
                                 )
                             )

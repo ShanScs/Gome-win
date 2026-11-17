@@ -87,3 +87,10 @@ fun posterColors(hue: Float): Pair<Color, Color> {
     val c2 = Color.hsl((hue + 40) % 360, 0.5f, 0.35f)
     return c1 to c2
 }
+
+/** 渐变主题页底：海报主色相 → 深色渐变两档（白字可读；色相取自海报，明度固定压暗）。 */
+fun gradientBgColors(hue: Float): Pair<Color, Color> {
+    val c1 = Color.hsl(hue, 0.5f, 0.30f)
+    val c2 = Color.hsl((hue + 40) % 360, 0.55f, 0.16f)
+    return c1 to c2
+}
