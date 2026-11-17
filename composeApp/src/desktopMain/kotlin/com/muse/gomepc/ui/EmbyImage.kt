@@ -60,17 +60,17 @@ object EmbyImageLoader {
 
     fun getHue(url: String): Float? = synchronized(lock) { hueCache[url] }
 
-    /** 海报主色相（渐变主题用）：加载图后从位图稀疏采样取主色相并缓存；拿不到返回 null。 */
+    /** 海报底部主色相（渐变主题用）：加载图后从海报底部取色相并缓存；拿不到返回 null。 */
     suspend fun loadHue(url: String): Float? {
         if (url.isBlank()) return null
         synchronized(lock) { hueCache[url] }?.let { return it }
         val bmp = load(url) ?: return null
-        val h = dominantHue(bmp)
+        val h = posterBottomHue(bmp)
         synchronized(lock) { hueCache[url] = h }
         return h
     }
 
-    /** 候选链里第一张能拿到主色的（详情头图/轮播横幅用）。 */
+    /** 候选链里第一张能拿到底部主色的（详情头图/轮播横幅用）。 */
     suspend fun firstHue(urls: List<String>): Float? {
         for (u in urls) {
             val h = loadHue(u)
@@ -80,22 +80,26 @@ object EmbyImageLoader {
     }
 
     /**
-     * 海报主色相：4x4 网格各取一个 4x4 小块采样（共 256 像素），跳过近灰/过暗/过亮像素，
-     * 按饱和度加权环形平均色相（防 0/360 跳变）；无彩色像素时回默认 210（蓝）。
+     * 海报底部主色相：只取海报底部 20% 的色（8 列 x 2 行小块采样，共 64 像素），
+     * 跳过近灰/过暗/过亮像素，按饱和度加权环形平均色相（防 0/360 跳变）；
+     * 无彩色像素时回默认 210（蓝）。背景就接在海报下面，底色跟底边走才没有缝，
+     * 取整张图的平均色会把海报上半部分的色带进来，背景就跟底边对不上。
      */
-    private fun dominantHue(bmp: ImageBitmap): Float {
+    private fun posterBottomHue(bmp: ImageBitmap): Float {
         val w = bmp.width
         val h = bmp.height
-        if (w < 8 || h < 8) return 210f
+        if (w < 8 || h < 32) return 210f
         val patch = 4
         val buf = IntArray(patch * patch)
         var sx = 0.0
         var sy = 0.0
         var wsum = 0.0
-        for (gy in 0 until 4) {
-            for (gx in 0 until 4) {
-                val cx = ((gx + 0.5f) * w / 4).toInt().coerceIn(patch / 2, w - patch / 2 - 1)
-                val cy = ((gy + 0.5f) * h / 4).toInt().coerceIn(patch / 2, h - patch / 2 - 1)
+        val stripTop = (h * 0.8f).toInt()
+        val stripH = h - stripTop
+        for (gy in 0 until 2) {
+            for (gx in 0 until 8) {
+                val cx = ((gx + 0.5f) * w / 8).toInt().coerceIn(patch / 2, w - patch / 2 - 1)
+                val cy = (stripTop + ((gy + 0.5f) * stripH / 2).toInt()).coerceIn(stripTop + patch / 2, h - patch / 2 - 1)
                 try {
                     bmp.readPixels(buf, cx - patch / 2, cy - patch / 2, patch, patch, 0, patch)
                 } catch (_: Exception) { continue }
