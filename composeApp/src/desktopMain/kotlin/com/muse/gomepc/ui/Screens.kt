@@ -484,7 +484,9 @@ fun HomeScreen(
             val animHomeC1 by androidx.compose.animation.animateColorAsState(homeGrad?.first ?: GomeTheme.Bg)
             val animHomeC2 by androidx.compose.animation.animateColorAsState(homeGrad?.second ?: GomeTheme.Bg)
             val homeBgModifier = if (GomeTheme.gradient) {
-                Modifier.background(Brush.verticalGradient(listOf(animHomeC1, animHomeC2)))
+                // 顶部色保持到 70% 再压暗：背景渐变是按整列高度画的，横幅底边（640dp）处背景已暗过淡出目标色，
+                // 会留一条横线；保持顶部色过横幅底边，淡出目标色与背景在接缝处才一致
+                Modifier.background(Brush.verticalGradient(0.0f to animHomeC1, 0.7f to animHomeC1, 1.0f to animHomeC2))
             } else {
                 Modifier.background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)
             }
@@ -4055,7 +4057,8 @@ fun DetailScreen(
 
             Box(
                 Modifier.fillMaxSize().then(
-                    if (GomeTheme.gradient) Modifier.background(Brush.verticalGradient(listOf(animDetailC1, animDetailC2)))
+                    // 顶部色保持到 70% 再压暗：与主页同理，头图底边（640dp）处背景已暗过淡出目标色会留横线
+                    if (GomeTheme.gradient) Modifier.background(Brush.verticalGradient(0.0f to animDetailC1, 0.7f to animDetailC1, 1.0f to animDetailC2))
                     else Modifier.background(if (GomeTheme.modern) GomeTheme.Bg else Color.White)
                 )
             ) {
