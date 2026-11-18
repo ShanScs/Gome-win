@@ -91,52 +91,55 @@ object EmbyImageLoader {
      * 黑白灰不算颜色：过暗（黑与暗阴影，亮度低于 100 的色偏只是阴影的色调）/过亮像素跳过，
      * 饱和度低于 0.25 的带色偏灰像素也跳过；底部那条有效色点太少（少于 24 个）也算没颜色，
      * 免得几个阴影杂点就定了整页的色；整张有效色点少于 8 个才算没颜色。
+     * 网格要密：人脸只占海报很小一块，8x8 的稀疏网格可能一个点都落不到脸上，取色就取空了。
      */
     private fun posterHue(bmp: ImageBitmap): Float? {
-        return sampleHue(bmp, 0.8f, 1.0f, 8, 2, 24) ?: sampleHue(bmp, 0.0f, 1.0f, 8, 8, 8)
+        return sampleHue(bmp, 0.8f, 1.0f, 24) ?: sampleHue(bmp, 0.0f, 1.0f, 8)
     }
 
-    /** 在 yFrom 到 yTo 的竖条里采样色相（cols 列 x rows 行小块，每块 4x4 像素）；没颜色返回 null。
+    /** 在 yFrom 到 yTo 的竖条里采样色相：把竖条一次读进内存，在 64x64 网格上取点；没颜色返回 null。
      * 只取颜色最多的那一家：把通过的像素按色相分 12 档（每档 30 度），取像素最多的那一档，
      * 再把这一档里的所有像素按饱和度加权平均出一个色相——不同颜色的平均会造出海报里没有的颜色，
      * 比如暖肤色和冷阴影平均出紫色，所以只取最多的一家。 */
-    private fun sampleHue(bmp: ImageBitmap, yFrom: Float, yTo: Float, cols: Int, rows: Int, minCount: Int): Float? {
+    private fun sampleHue(bmp: ImageBitmap, yFrom: Float, yTo: Float, minCount: Int): Float? {
         val w = bmp.width
         val h = bmp.height
         if (w < 8 || h < 32) return null
-        val patch = 4
-        val buf = IntArray(patch * patch)
+        val stripTop = (h * yFrom).toInt()
+        val stripH = (h * (yTo - yFrom)).toInt().coerceAtLeast(1)
+        val buf = IntArray(w * stripH)
+        try {
+            bmp.readPixels(buf, 0, stripTop, w, stripH, 0, w)
+        } catch (_: Exception) {
+            return null
+        }
         val bucketCount = IntArray(12)
         val bucketSx = DoubleArray(12)
         val bucketSy = DoubleArray(12)
         val bucketWsum = DoubleArray(12)
-        val stripTop = (h * yFrom).toInt()
-        val stripH = (h * (yTo - yFrom)).toInt().coerceAtLeast(1)
+        val cols = 64
+        val rows = 64
         for (gy in 0 until rows) {
+            val y = ((gy + 0.5f) * stripH / rows).toInt().coerceIn(0, stripH - 1)
             for (gx in 0 until cols) {
-                val cx = ((gx + 0.5f) * w / cols).toInt().coerceIn(patch / 2, w - patch / 2 - 1)
-                val cy = (stripTop + ((gy + 0.5f) * stripH / rows).toInt()).coerceIn(stripTop + patch / 2, h - patch / 2 - 1)
-                try {
-                    bmp.readPixels(buf, cx - patch / 2, cy - patch / 2, patch, patch, 0, patch)
-                } catch (_: Exception) { continue }
-                for (px in buf) {
-                    val r = (px shr 16) and 0xFF
-                    val g = (px shr 8) and 0xFF
-                    val b = px and 0xFF
-                    val mx = maxOf(r, g, b)
-                    val mn = minOf(r, g, b)
-                    if (mx < 100 || mn > 235) continue
-                    val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
-                    if (sat < 0.25f) continue
-                    val hue = rgbHue(r, g, b)
-                    val bucket = ((hue / 30f).toInt()).coerceIn(0, 11)
-                    val rad = Math.toRadians(hue.toDouble())
-                    val wt = sat.toDouble()
-                    bucketCount[bucket]++
-                    bucketSx[bucket] += Math.cos(rad) * wt
-                    bucketSy[bucket] += Math.sin(rad) * wt
-                    bucketWsum[bucket] += wt
-                }
+                val x = ((gx + 0.5f) * w / cols).toInt().coerceIn(0, w - 1)
+                val px = buf[y * w + x]
+                val r = (px shr 16) and 0xFF
+                val g = (px shr 8) and 0xFF
+                val b = px and 0xFF
+                val mx = maxOf(r, g, b)
+                val mn = minOf(r, g, b)
+                if (mx < 100 || mn > 235) continue
+                val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
+                if (sat < 0.25f) continue
+                val hue = rgbHue(r, g, b)
+                val bucket = ((hue / 30f).toInt()).coerceIn(0, 11)
+                val rad = Math.toRadians(hue.toDouble())
+                val wt = sat.toDouble()
+                bucketCount[bucket]++
+                bucketSx[bucket] += Math.cos(rad) * wt
+                bucketSy[bucket] += Math.sin(rad) * wt
+                bucketWsum[bucket] += wt
             }
         }
         var best = -1
