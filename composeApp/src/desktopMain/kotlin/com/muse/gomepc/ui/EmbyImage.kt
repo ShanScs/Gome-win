@@ -81,14 +81,18 @@ object EmbyImageLoader {
      * 候选链里第一张展示图的主色（跟展示用的图一致：竖图在 landscapeOnly 时跳过；
      * 灰图返回 null，不再往后找——展示的就是这张灰图，背景也该跟它走）。
      * 图加载失败才往下一张找。
+     * 全是竖图（或横图都加载失败）时跟展示一致：取第一张成功的图——展示在这种情况下
+     * 也是退回第一张图裁剪显示，而不是留白；取色要是直接判没颜色，背景就白了。
      */
     suspend fun firstHue(urls: List<String>, landscapeOnly: Boolean = false): Float? {
+        var firstOk: String? = null
         for (u in urls) {
             val bmp = load(u) ?: continue
+            if (firstOk == null) firstOk = u
             if (landscapeOnly && bmp.height > bmp.width) continue
             return loadHue(u)
         }
-        return null
+        return firstOk?.let { loadHue(it) }
     }
 
     /**
