@@ -4568,6 +4568,50 @@ fun DetailScreen(
                             }
                         }
                     }
+                    // 海报与剧照：把这部剧的三张图都亮出来（横版海报 Thumb / 剧照 Backdrop / 竖版海报 Primary），
+                    // 没有的显示“没有这张图”，直接看得见服务器上有没有
+                    item {
+                        val picUrls = listOf(
+                            "横版海报" to YambyClient.imageUrl(it.id, "Thumb", 1280),
+                            "剧照" to YambyClient.imageUrl(it.id, "Backdrop", 1280),
+                            "竖版海报" to YambyClient.imageUrl(it.id, "Primary", 1280)
+                        )
+                        Text(
+                            "图片",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GomeTheme.TextPrimary,
+                            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp)
+                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            picUrls.forEach { (label, url) ->
+                                Column {
+                                    Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
+                                    Spacer(Modifier.height(4.dp))
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().height(180.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFFE0E0E0)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        EmbyImage(
+                                            url = url,
+                                            contentDescription = label,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Fit,
+                                            fallback = {
+                                                Text("没有这张图", fontSize = 13.sp, color = GomeTheme.TextSecondary)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(24.dp))
+                    }
                 }
                 // 顶部按钮已统一为透明悬浮标题栏（Main.GomeApp 叠加）：返回走标题栏返回箭头
                 // 简介全文弹窗
