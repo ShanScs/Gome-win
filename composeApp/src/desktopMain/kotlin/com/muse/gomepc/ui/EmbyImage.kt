@@ -96,17 +96,20 @@ object EmbyImageLoader {
         return sampleHue(bmp, 0.8f, 1.0f, 8, 2, 24) ?: sampleHue(bmp, 0.0f, 1.0f, 8, 8, 8)
     }
 
-    /** 在 yFrom 到 yTo 的竖条里采样色相（cols 列 x rows 行小块，每块 4x4 像素），按饱和度加权环形平均；没颜色返回 null。 */
+    /** 在 yFrom 到 yTo 的竖条里采样色相（cols 列 x rows 行小块，每块 4x4 像素）；没颜色返回 null。
+     * 只取颜色最多的那一家：把通过的像素按色相分 12 档（每档 30 度），取像素最多的那一档，
+     * 再把这一档里的所有像素按饱和度加权平均出一个色相——不同颜色的平均会造出海报里没有的颜色，
+     * 比如暖肤色和冷阴影平均出紫色，所以只取最多的一家。 */
     private fun sampleHue(bmp: ImageBitmap, yFrom: Float, yTo: Float, cols: Int, rows: Int, minCount: Int): Float? {
         val w = bmp.width
         val h = bmp.height
         if (w < 8 || h < 32) return null
         val patch = 4
         val buf = IntArray(patch * patch)
-        var sx = 0.0
-        var sy = 0.0
-        var wsum = 0.0
-        var count = 0
+        val bucketCount = IntArray(12)
+        val bucketSx = DoubleArray(12)
+        val bucketSy = DoubleArray(12)
+        val bucketWsum = DoubleArray(12)
         val stripTop = (h * yFrom).toInt()
         val stripH = (h * (yTo - yFrom)).toInt().coerceAtLeast(1)
         for (gy in 0 until rows) {
@@ -126,17 +129,26 @@ object EmbyImageLoader {
                     val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
                     if (sat < 0.25f) continue
                     val hue = rgbHue(r, g, b)
+                    val bucket = ((hue / 30f).toInt()).coerceIn(0, 11)
                     val rad = Math.toRadians(hue.toDouble())
                     val wt = sat.toDouble()
-                    sx += Math.cos(rad) * wt
-                    sy += Math.sin(rad) * wt
-                    wsum += wt
-                    count++
+                    bucketCount[bucket]++
+                    bucketSx[bucket] += Math.cos(rad) * wt
+                    bucketSy[bucket] += Math.sin(rad) * wt
+                    bucketWsum[bucket] += wt
                 }
             }
         }
-        if (count < minCount || wsum < 2.0) return null
-        var hue = Math.toDegrees(Math.atan2(sy, sx)).toFloat()
+        var best = -1
+        var bestCount = 0
+        for (i in 0 until 12) {
+            if (bucketCount[i] > bestCount) {
+                bestCount = bucketCount[i]
+                best = i
+            }
+        }
+        if (best < 0 || bestCount < minCount || bucketWsum[best] < 2.0) return null
+        var hue = Math.toDegrees(Math.atan2(bucketSy[best], bucketSx[best])).toFloat()
         if (hue < 0f) hue += 360f
         return hue
     }
