@@ -160,7 +160,7 @@ object GomeTheme {
     val TextSecondary: Color
         get() = if (modern || gradientDark) Color(0x99FFFFFF) else Color(0xFF8A8A8A)
     val Accent: Color
-        get() = if (modern || gradientDark) Color(0xFFE5484D) else Color(0xFF2F6FED)
+        get() = if (modern) Color(0xFFE5484D) else if (gradientDark) Color.White else Color(0xFF2F6FED)
     val SidebarBg: Color
         get() = if (modern || gradientDark) Color(0xFF101318) else Color(0xFFECEDEF)
 
@@ -4394,7 +4394,8 @@ fun DetailScreen(
                                                 if (p != null && p > 0f) "继续播放" else "▶ 播放",
                                                 fontSize = 16.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = GomeTheme.TextPrimary
+                                                // 原版一直是白底黑字：按钮字不跟主题文字走，只在现代（红底）用白字
+                                                color = if (GomeTheme.modern) GomeTheme.TextPrimary else Color(0xFF1A1A1A)
                                             )
                                         }
                                         // 播放按钮下方显示将要播放的是第几集
