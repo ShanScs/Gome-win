@@ -65,7 +65,14 @@ object EmbyImageLoader {
         if (url.isBlank()) return null
         synchronized(lock) { hueCache[url] }?.let { return if (it.isNaN()) null else it }
         val bmp = load(url) ?: return null
-        val h = posterHue(bmp)
+        val h = withContext(Dispatchers.IO) { posterHue(bmp) }
+        val kind = when {
+            url.contains("Thumb") -> "Thumb"
+            url.contains("Backdrop") -> "Backdrop"
+            url.contains("Primary") -> "Primary"
+            else -> "?"
+        }
+        com.muse.gomepc.player.DebugLog.d("Hue", "取色 $kind ${bmp.width}x${bmp.height} -> ${h?.let { "%.1f".format(it) } ?: "无色"}")
         synchronized(lock) { hueCache[url] = h ?: Float.NaN }
         return h
     }
@@ -100,46 +107,66 @@ object EmbyImageLoader {
     /** 在 yFrom 到 yTo 的竖条里采样色相：把竖条一次读进内存，在 64x64 网格上取点；没颜色返回 null。
      * 只取颜色最多的那一家：把通过的像素按色相分 12 档（每档 30 度），取像素最多的那一档，
      * 再把这一档里的所有像素按饱和度加权平均出一个色相——不同颜色的平均会造出海报里没有的颜色，
-     * 比如暖肤色和冷阴影平均出紫色，所以只取最多的一家。 */
+     * 比如暖肤色和冷阴影平均出紫色，所以只取最多的一家。
+     * 整块读不到就退回小块采样（398 的读法，已验证可用），免得一次读失败就整张取空。 */
     private fun sampleHue(bmp: ImageBitmap, yFrom: Float, yTo: Float, minCount: Int): Float? {
         val w = bmp.width
         val h = bmp.height
         if (w < 8 || h < 32) return null
         val stripTop = (h * yFrom).toInt()
         val stripH = (h * (yTo - yFrom)).toInt().coerceAtLeast(1)
-        val buf = IntArray(w * stripH)
-        try {
-            bmp.readPixels(buf, 0, stripTop, w, stripH, 0, w)
-        } catch (_: Exception) {
-            return null
-        }
         val bucketCount = IntArray(12)
         val bucketSx = DoubleArray(12)
         val bucketSy = DoubleArray(12)
         val bucketWsum = DoubleArray(12)
+        fun accept(r: Int, g: Int, b: Int) {
+            val mx = maxOf(r, g, b)
+            val mn = minOf(r, g, b)
+            if (mx < 100 || mn > 235) return
+            val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
+            if (sat < 0.25f) return
+            val hue = rgbHue(r, g, b)
+            val bucket = ((hue / 30f).toInt()).coerceIn(0, 11)
+            val rad = Math.toRadians(hue.toDouble())
+            val wt = sat.toDouble()
+            bucketCount[bucket]++
+            bucketSx[bucket] += Math.cos(rad) * wt
+            bucketSy[bucket] += Math.sin(rad) * wt
+            bucketWsum[bucket] += wt
+        }
         val cols = 64
         val rows = 64
-        for (gy in 0 until rows) {
-            val y = ((gy + 0.5f) * stripH / rows).toInt().coerceIn(0, stripH - 1)
-            for (gx in 0 until cols) {
-                val x = ((gx + 0.5f) * w / cols).toInt().coerceIn(0, w - 1)
-                val px = buf[y * w + x]
-                val r = (px shr 16) and 0xFF
-                val g = (px shr 8) and 0xFF
-                val b = px and 0xFF
-                val mx = maxOf(r, g, b)
-                val mn = minOf(r, g, b)
-                if (mx < 100 || mn > 235) continue
-                val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
-                if (sat < 0.25f) continue
-                val hue = rgbHue(r, g, b)
-                val bucket = ((hue / 30f).toInt()).coerceIn(0, 11)
-                val rad = Math.toRadians(hue.toDouble())
-                val wt = sat.toDouble()
-                bucketCount[bucket]++
-                bucketSx[bucket] += Math.cos(rad) * wt
-                bucketSy[bucket] += Math.sin(rad) * wt
-                bucketWsum[bucket] += wt
+        val buf = IntArray(w * stripH)
+        val bulkOk = try {
+            bmp.readPixels(buf, 0, stripTop, w, stripH, 0, w)
+            true
+        } catch (_: Exception) {
+            false
+        }
+        if (bulkOk) {
+            for (gy in 0 until rows) {
+                val y = ((gy + 0.5f) * stripH / rows).toInt().coerceIn(0, stripH - 1)
+                for (gx in 0 until cols) {
+                    val x = ((gx + 0.5f) * w / cols).toInt().coerceIn(0, w - 1)
+                    val px = buf[y * w + x]
+                    accept((px shr 16) and 0xFF, (px shr 8) and 0xFF, px and 0xFF)
+                }
+            }
+        } else {
+            com.muse.gomepc.player.DebugLog.d("Hue", "整块读失败，退回小块采样 yFrom=$yFrom")
+            val patch = 4
+            val pbuf = IntArray(patch * patch)
+            for (gy in 0 until rows) {
+                for (gx in 0 until cols) {
+                    val cx = ((gx + 0.5f) * w / cols).toInt().coerceIn(patch / 2, w - patch / 2 - 1)
+                    val cy = (stripTop + ((gy + 0.5f) * stripH / rows).toInt()).coerceIn(stripTop + patch / 2, stripTop + stripH - patch / 2 - 1)
+                    try {
+                        bmp.readPixels(pbuf, cx - patch / 2, cy - patch / 2, patch, patch, 0, patch)
+                    } catch (_: Exception) { continue }
+                    for (px in pbuf) {
+                        accept((px shr 16) and 0xFF, (px shr 8) and 0xFF, px and 0xFF)
+                    }
+                }
             }
         }
         var best = -1
@@ -150,7 +177,11 @@ object EmbyImageLoader {
                 best = i
             }
         }
-        if (best < 0 || bestCount < minCount || bucketWsum[best] < 2.0) return null
+        if (best < 0 || bestCount < minCount || bucketWsum[best] < 2.0) {
+            val ws = if (best >= 0) bucketWsum[best] else 0.0
+            com.muse.gomepc.player.DebugLog.d("Hue", "取色空 yFrom=$yFrom 最多档=$best 点数=$bestCount 权重=${"%.1f".format(ws)}")
+            return null
+        }
         var hue = Math.toDegrees(Math.atan2(bucketSy[best], bucketSx[best])).toFloat()
         if (hue < 0f) hue += 360f
         return hue
