@@ -94,3 +94,8 @@ fun gradientBgColors(hue: Float): Pair<Color, Color> {
     val c2 = Color.hsl(hue, 0.55f, 0.16f)
     return c1 to c2
 }
+
+/** 渐变主题：黑白海报的浅灰底（两档，跟原版浅底同系；浅底配深字）。 */
+fun gradientGrayColors(): Pair<Color, Color> {
+    return Color(0xFFF5F6F8) to Color(0xFFE8EAED)
+}

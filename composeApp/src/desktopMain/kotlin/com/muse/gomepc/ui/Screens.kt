@@ -493,6 +493,7 @@ fun HomeScreen(
     LaunchedEffect(Unit) { HomeDataCache.ensureLoaded() }
     // 渐变主题：主页背景跟当前轮播海报主色走（BannerCarousel 上报）
     var bannerHue by remember { mutableStateOf<Float?>(null) }
+    var bannerHueDone by remember { mutableStateOf(false) }
     val libs = HomeDataCache.libs
     val libItems = HomeDataCache.libItems
     val resume = HomeDataCache.resume
@@ -515,14 +516,14 @@ fun HomeScreen(
                     sorted + remaining
                 }
             }
-            // 渐变主题：主页背景 = 当前轮播海报主色的深色渐变（换图时颜色平滑过渡）
-            val homeGrad = if (GomeTheme.gradient) bannerHue?.let { gradientBgColors(it) } else null
+            // 渐变主题：主页背景 = 当前轮播海报主色的深色渐变（换图时颜色平滑过渡）；黑白海报用浅灰底
+            val homeGrad = if (GomeTheme.gradient && bannerHueDone) bannerHue?.let { gradientBgColors(it) } ?: gradientGrayColors() else null
             val animHomeC1 by androidx.compose.animation.animateColorAsState(homeGrad?.first ?: GomeTheme.Bg)
             val animHomeC2 by androidx.compose.animation.animateColorAsState(homeGrad?.second ?: GomeTheme.Bg)
             // 滚出第一屏后背景从海报色淡到原版浅底（第一屏内不变）；文字随背景深浅自动切换
             val homeListState = listState ?: rememberLazyListState()
             val homeFade = rememberScrollFadeProgress(homeListState)
-            androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.updateGradientLight(homeFade > 0.5f) }
+            androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.updateGradientLight(homeFade > 0.5f || (bannerHueDone && bannerHue == null)) }
             val lightBg = Color(0xFFF5F6F8) // 原版浅底
             val bgHomeC1 = androidx.compose.ui.graphics.lerp(animHomeC1, lightBg, homeFade)
             val bgHomeC2 = androidx.compose.ui.graphics.lerp(animHomeC2, lightBg, homeFade)
@@ -549,7 +550,7 @@ fun HomeScreen(
             if (bannerItems.isNotEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth()) {
-                        BannerCarousel(items = bannerItems, onItemClick = onItemClick, onBannerHueChange = { bannerHue = it }, gradientTopColor = animHomeC1)
+                        BannerCarousel(items = bannerItems, onItemClick = onItemClick, onBannerHueChange = { bannerHue = it; bannerHueDone = true }, gradientTopColor = animHomeC1)
                     }
                 }
             }
@@ -803,7 +804,7 @@ private fun BannerCarousel(
     androidx.compose.runtime.LaunchedEffect(pagerState.currentPage, items) {
         val item = items.getOrNull(pagerState.currentPage)
         val urls = if (item == null) emptyList() else listOfNotNull(item.thumbUrl, item.backdropUrl, item.imageUrl).distinct()
-        onBannerHueChange(EmbyImageLoader.firstHue(urls))
+        onBannerHueChange(EmbyImageLoader.firstHue(urls, landscapeOnly = true))
     }
     // 用户拖动时暂停自动轮播（否则自动滚动与手动滑动打架）
     var autoPaused by remember { mutableStateOf(false) }
@@ -4023,21 +4024,29 @@ fun DetailScreen(
     val detailScope = rememberCoroutineScope()
     // 渐变主题：详情页背景跟海报主色走
     var headerHue by remember(itemId) { mutableStateOf<Float?>(null) }
+    var headerHueDone by remember(itemId) { mutableStateOf(false) }
     LaunchedEffect(item) {
         val it = item
-        headerHue = if (it == null) null else EmbyImageLoader.firstHue(listOf(
-            YambyClient.imageUrl(it.id, "Thumb", 1280),
-            YambyClient.imageUrl(it.id, "Backdrop", 1280),
-            YambyClient.imageUrl(it.id, "Primary", 1280)
-        ).distinct())
+        if (it == null) {
+            headerHue = null
+            headerHueDone = false
+        } else {
+            headerHue = EmbyImageLoader.firstHue(listOf(
+                YambyClient.imageUrl(it.id, "Thumb", 1280),
+                YambyClient.imageUrl(it.id, "Backdrop", 1280),
+                YambyClient.imageUrl(it.id, "Primary", 1280)
+            ).distinct(), landscapeOnly = true)
+            headerHueDone = true
+        }
     }
-    val detailGrad = if (GomeTheme.gradient) headerHue?.let { gradientBgColors(it) } else null
+    // 海报没取到色（黑白海报）时用浅灰底，不再瞎给一个颜色
+    val detailGrad = if (GomeTheme.gradient && headerHueDone) headerHue?.let { gradientBgColors(it) } ?: gradientGrayColors() else null
     val animDetailC1 by androidx.compose.animation.animateColorAsState(detailGrad?.first ?: GomeTheme.Bg)
     val animDetailC2 by androidx.compose.animation.animateColorAsState(detailGrad?.second ?: GomeTheme.Bg)
     // 滚出第一屏后背景从海报色淡到原版浅底（第一屏内不变）；文字随背景深浅自动切换
     val detailListState = rememberLazyListState()
     val detailFade = rememberScrollFadeProgress(detailListState)
-    androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.updateGradientLight(detailFade > 0.5f) }
+    androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.updateGradientLight(detailFade > 0.5f || (headerHueDone && headerHue == null)) }
     val bgDetailC1 = androidx.compose.ui.graphics.lerp(animDetailC1, Color(0xFFF5F6F8), detailFade)
     val bgDetailC2 = androidx.compose.ui.graphics.lerp(animDetailC2, Color(0xFFF5F6F8), detailFade)
     // 选中的剧集索引（点击选集只选中加框，不进播放器；点播放按钮才进）

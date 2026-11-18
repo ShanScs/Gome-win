@@ -55,51 +55,63 @@ object EmbyImageLoader {
 
     private fun putCached(key: String, bmp: ImageBitmap) = synchronized(lock) { cache[key] = bmp }
 
-    // 海报主色相缓存（渐变主题用）：URL → 主色相（度，0..360）
+    // 海报主色相缓存（渐变主题用）：URL → 主色相（度，0..360）；NaN 表示该图是黑白灰、没有主色
     private val hueCache = mutableMapOf<String, Float>()
 
-    fun getHue(url: String): Float? = synchronized(lock) { hueCache[url] }
+    fun getHue(url: String): Float? = synchronized(lock) { hueCache[url]?.takeUnless { it.isNaN() } }
 
-    /** 海报底部主色相（渐变主题用）：加载图后从海报底部取色相并缓存；拿不到返回 null。 */
+    /** 海报主色相（渐变主题用）：加载图后取色并缓存；拿不到或图是黑白灰返回 null。 */
     suspend fun loadHue(url: String): Float? {
         if (url.isBlank()) return null
-        synchronized(lock) { hueCache[url] }?.let { return it }
+        synchronized(lock) { hueCache[url] }?.let { return if (it.isNaN()) null else it }
         val bmp = load(url) ?: return null
-        val h = posterBottomHue(bmp)
-        synchronized(lock) { hueCache[url] = h }
+        val h = posterHue(bmp)
+        synchronized(lock) { hueCache[url] = h ?: Float.NaN }
         return h
     }
 
-    /** 候选链里第一张能拿到底部主色的（详情头图/轮播横幅用）。 */
-    suspend fun firstHue(urls: List<String>): Float? {
+    /**
+     * 候选链里第一张展示图的主色（跟展示用的图一致：竖图在 landscapeOnly 时跳过；
+     * 灰图返回 null，不再往后找——展示的就是这张灰图，背景也该跟它走）。
+     * 图加载失败才往下一张找。
+     */
+    suspend fun firstHue(urls: List<String>, landscapeOnly: Boolean = false): Float? {
         for (u in urls) {
-            val h = loadHue(u)
-            if (h != null) return h
+            val bmp = load(u) ?: continue
+            if (landscapeOnly && bmp.height > bmp.width) continue
+            return loadHue(u)
         }
         return null
     }
 
     /**
-     * 海报底部主色相：只取海报底部 20% 的色（8 列 x 2 行小块采样，共 64 像素），
-     * 跳过近灰/过暗/过亮像素，按饱和度加权环形平均色相（防 0/360 跳变）；
-     * 无彩色像素时回默认 210（蓝）。背景就接在海报下面，底色跟底边走才没有缝，
-     * 取整张图的平均色会把海报上半部分的色带进来，背景就跟底边对不上。
+     * 海报主色相：先取底部 20%（背景接在海报底边，底色跟底边走才没有缝）；
+     * 底部没颜色再取整张（人脸头发的暖色多在海报中间，底部取不到时靠整张兜底）；
+     * 整张也没颜色就是黑白海报，返回 null。
+     * 黑白灰不算颜色：过暗/过亮像素跳过，饱和度低于 0.25 的带色偏灰像素也跳过；
+     * 有效色点太少（少于 8 个或饱和度权重和小于 2）也算没颜色。
      */
-    private fun posterBottomHue(bmp: ImageBitmap): Float {
+    private fun posterHue(bmp: ImageBitmap): Float? {
+        return sampleHue(bmp, 0.8f, 1.0f, 8, 2) ?: sampleHue(bmp, 0.0f, 1.0f, 8, 8)
+    }
+
+    /** 在 yFrom 到 yTo 的竖条里采样色相（cols 列 x rows 行小块，每块 4x4 像素），按饱和度加权环形平均；没颜色返回 null。 */
+    private fun sampleHue(bmp: ImageBitmap, yFrom: Float, yTo: Float, cols: Int, rows: Int): Float? {
         val w = bmp.width
         val h = bmp.height
-        if (w < 8 || h < 32) return 210f
+        if (w < 8 || h < 32) return null
         val patch = 4
         val buf = IntArray(patch * patch)
         var sx = 0.0
         var sy = 0.0
         var wsum = 0.0
-        val stripTop = (h * 0.8f).toInt()
-        val stripH = h - stripTop
-        for (gy in 0 until 2) {
-            for (gx in 0 until 8) {
-                val cx = ((gx + 0.5f) * w / 8).toInt().coerceIn(patch / 2, w - patch / 2 - 1)
-                val cy = (stripTop + ((gy + 0.5f) * stripH / 2).toInt()).coerceIn(stripTop + patch / 2, h - patch / 2 - 1)
+        var count = 0
+        val stripTop = (h * yFrom).toInt()
+        val stripH = (h * (yTo - yFrom)).toInt().coerceAtLeast(1)
+        for (gy in 0 until rows) {
+            for (gx in 0 until cols) {
+                val cx = ((gx + 0.5f) * w / cols).toInt().coerceIn(patch / 2, w - patch / 2 - 1)
+                val cy = (stripTop + ((gy + 0.5f) * stripH / rows).toInt()).coerceIn(stripTop + patch / 2, h - patch / 2 - 1)
                 try {
                     bmp.readPixels(buf, cx - patch / 2, cy - patch / 2, patch, patch, 0, patch)
                 } catch (_: Exception) { continue }
@@ -111,17 +123,18 @@ object EmbyImageLoader {
                     val mn = minOf(r, g, b)
                     if (mx < 24 || mn > 235) continue
                     val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
-                    if (sat < 0.15f) continue
+                    if (sat < 0.25f) continue
                     val hue = rgbHue(r, g, b)
                     val rad = Math.toRadians(hue.toDouble())
                     val wt = sat.toDouble()
                     sx += Math.cos(rad) * wt
                     sy += Math.sin(rad) * wt
                     wsum += wt
+                    count++
                 }
             }
         }
-        if (wsum <= 0.0) return 210f
+        if (count < 8 || wsum < 2.0) return null
         var hue = Math.toDegrees(Math.atan2(sy, sx)).toFloat()
         if (hue < 0f) hue += 360f
         return hue
