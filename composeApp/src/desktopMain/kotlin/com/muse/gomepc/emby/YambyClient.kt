@@ -721,7 +721,7 @@ object YambyClient {
      * 图片地址（P2-E8）：路径段走 HttpUrl.Builder 编码，w 钳制到 1..4096；itemId 为空返回 ""。
      * 认证参数同样由 Builder 编码，不再手写字符串拼接。
      */
-    fun imageUrl(itemId: String, type: String = "Primary", w: Int = 400): String {
+    fun imageUrl(itemId: String, type: String = "Primary", w: Int = 400, index: Int? = null): String {
         if (itemId.isBlank()) return ""
         val width = w.coerceIn(1, 4096)
         val imgType = type.ifBlank { "Primary" }
@@ -730,6 +730,7 @@ object YambyClient {
             .addPathSegment(itemId)
             .addPathSegment("Images")
             .addPathSegment(imgType)
+        if (index != null) b.addPathSegment(index.toString())
         addAuthParams(b, withToken = true)
         b.addQueryParameter("maxWidth", width.toString())
         return b.build().toString()

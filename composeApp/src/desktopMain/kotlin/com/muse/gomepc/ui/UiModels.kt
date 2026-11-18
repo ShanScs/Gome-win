@@ -56,7 +56,9 @@ data class UiMediaItem(
     /** 演职人员 */
     val people: List<UiPerson> = emptyList(),
     /** 所属剧集 ID（Episode 类型时为剧的 ID，用于详情页导航） */
-    val seriesId: String = ""
+    val seriesId: String = "",
+    /** 剧照张数（Emby BackdropImageTags 数量，相册用） */
+    val backdropCount: Int = 0
 )
 
 /** 选集 */
@@ -106,7 +108,8 @@ fun YambyClient.Item.toUi(libName: String = ""): UiMediaItem {
         played = played,
         genres = genres,
         people = people.map { UiPerson(it.id, it.name, it.role) },
-        seriesId = seriesId
+        seriesId = seriesId,
+        backdropCount = backdropCount
     )
 }
 

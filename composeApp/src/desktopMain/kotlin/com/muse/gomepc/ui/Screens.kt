@@ -1,6 +1,7 @@
 package com.muse.gomepc.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -53,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -4041,6 +4043,23 @@ fun DetailScreen(
     }
     // 海报没取到色（黑白海报）时用浅灰底，不再瞎给一个颜色
     val detailGrad = if (GomeTheme.gradient && headerHueDone) headerHue?.let { gradientBgColors(it) } ?: gradientGrayColors() else null
+    // 相册：剧照（Backdrop 各张）+ 竖版海报，按原宽高横排（像手机端“相册”）；只显示加载成功的，没有的直接不出现
+    var albumBitmaps by remember(itemId) { mutableStateOf<List<Pair<String, ImageBitmap>>>(emptyList()) }
+    LaunchedEffect(item) {
+        val it = item
+        if (it == null) {
+            albumBitmaps = emptyList()
+        } else {
+            val urls = mutableListOf<String>()
+            for (i in 0 until it.backdropCount.coerceAtMost(10)) urls += YambyClient.imageUrl(it.id, "Backdrop", 800, index = i)
+            urls += YambyClient.imageUrl(it.id, "Primary", 800)
+            val bmps = mutableListOf<Pair<String, ImageBitmap>>()
+            for (u in urls.distinct()) {
+                EmbyImageLoader.load(u)?.let { bmps += u to it }
+            }
+            albumBitmaps = bmps
+        }
+    }
     val animDetailC1 by androidx.compose.animation.animateColorAsState(detailGrad?.first ?: GomeTheme.Bg)
     val animDetailC2 by androidx.compose.animation.animateColorAsState(detailGrad?.second ?: GomeTheme.Bg)
     // 滚出第一屏后背景从海报色淡到原版浅底（第一屏内不变）；文字随背景深浅自动切换
@@ -4568,49 +4587,34 @@ fun DetailScreen(
                             }
                         }
                     }
-                    // 海报与剧照：把这部剧的三张图都亮出来（横版海报 Thumb / 剧照 Backdrop / 竖版海报 Primary），
-                    // 没有的显示“没有这张图”，直接看得见服务器上有没有
+                    // 相册：剧照 + 竖版海报，按原宽高横排（像手机端“相册”）
                     item {
-                        val picUrls = listOf(
-                            "横版海报" to YambyClient.imageUrl(it.id, "Thumb", 1280),
-                            "剧照" to YambyClient.imageUrl(it.id, "Backdrop", 1280),
-                            "竖版海报" to YambyClient.imageUrl(it.id, "Primary", 1280)
-                        )
-                        Text(
-                            "图片",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GomeTheme.TextPrimary,
-                            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp)
-                        )
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            picUrls.forEach { (label, url) ->
-                                Column {
-                                    Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary)
-                                    Spacer(Modifier.height(4.dp))
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().height(180.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFFE0E0E0)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        EmbyImage(
-                                            url = url,
-                                            contentDescription = label,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit,
-                                            fallback = {
-                                                Text("没有这张图", fontSize = 13.sp, color = GomeTheme.TextSecondary)
-                                            }
-                                        )
-                                    }
+                        if (albumBitmaps.isNotEmpty()) {
+                            Text(
+                                "相册",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GomeTheme.TextPrimary,
+                                modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp)
+                            )
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(albumBitmaps, key = { (url, _) -> url }) { (_, bmp) ->
+                                    Image(
+                                        bitmap = bmp,
+                                        contentDescription = null,
+                                        modifier = Modifier.height(180.dp)
+                                            .aspectRatio(bmp.width.toFloat() / bmp.height.coerceAtLeast(1).toFloat())
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
                                 }
                             }
+                            Spacer(Modifier.height(24.dp))
                         }
-                        Spacer(Modifier.height(24.dp))
                     }
                 }
                 // 顶部按钮已统一为透明悬浮标题栏（Main.GomeApp 叠加）：返回走标题栏返回箭头
