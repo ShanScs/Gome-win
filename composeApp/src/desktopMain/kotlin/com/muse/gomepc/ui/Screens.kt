@@ -137,7 +137,7 @@ object GomeTheme {
     var gradientLight by mutableStateOf(false)
         private set
 
-    /** 渐变主题下当前是否沿用深色底子（未滚出第一屏时，与 1.0.392 第一屏一致） */
+    /** 渐变主题下当前是否深色底子（未滚出第一屏时；深色态按原版为底子，不再借现代值） */
     private val gradientDark: Boolean
         get() = gradient && !gradientLight
 
@@ -151,31 +151,32 @@ object GomeTheme {
         gradient = v == "gradient"
     }
 
+    // 渐变深色态（第一屏）不再借现代的值：按原版为底子，深底用白字/白提醒色，弹窗沿用原版白底黑字
     val Bg: Color
-        get() = if (modern || gradientDark) Color(0xFF0A0C10) else Color(0xFFF5F6F8)
+        get() = if (modern) Color(0xFF0A0C10) else if (gradientDark) Color(0xFF12161B) else Color(0xFFF5F6F8)
     val CardBg: Color
-        get() = if (modern || gradientDark) Color(0xFF1C2027) else Color.White
+        get() = if (modern) Color(0xFF1C2027) else if (gradientDark) Color(0xFF1E242C) else Color.White
     val TextPrimary: Color
-        get() = if (modern || gradientDark) Color(0xFFF5F7FA) else Color(0xFF1A1A1A)
+        get() = if (modern) Color(0xFFF5F7FA) else if (gradientDark) Color.White else Color(0xFF1A1A1A)
     val TextSecondary: Color
         get() = if (modern || gradientDark) Color(0x99FFFFFF) else Color(0xFF8A8A8A)
     val Accent: Color
         get() = if (modern) Color(0xFFE5484D) else if (gradientDark) Color.White else Color(0xFF2F6FED)
     val SidebarBg: Color
-        get() = if (modern || gradientDark) Color(0xFF101318) else Color(0xFFECEDEF)
+        get() = if (modern) Color(0xFF101318) else if (gradientDark) Color(0xFF12161B) else Color(0xFFECEDEF)
 
-    /** 弹窗面板底（毛迪弹窗/详情单选弹窗）：原版 #F2FFFFFF 不变，现代深灰面 */
+    /** 弹窗面板底（毛迪弹窗/详情单选弹窗）：原版 #F2FFFFFF 不变，现代深灰面；渐变沿用原版白底 */
     val DialogBg: Color
-        get() = if (modern || gradientDark) Color(0xFF1C2027) else Color(0xF2FFFFFF)
-    /** 弹窗正文字（原版弹窗内字面量为纯黑 Color.Black）：现代近白 */
+        get() = if (modern) Color(0xFF1C2027) else Color(0xF2FFFFFF)
+    /** 弹窗正文字（原版弹窗内字面量为纯黑 Color.Black）：现代近白；渐变沿用原版黑色 */
     val DialogText: Color
-        get() = if (modern || gradientDark) Color(0xFFF5F7FA) else Color.Black
-    /** 弹窗次级字（原版字面量 0xFF8E8E93）：现代 60% 白 */
+        get() = if (modern) Color(0xFFF5F7FA) else Color.Black
+    /** 弹窗次级字（原版字面量 0xFF8E8E93）：现代 60% 白；渐变沿用原版灰 */
     val DialogSubText: Color
-        get() = if (modern || gradientDark) Color(0x99FFFFFF) else Color(0xFF8E8E93)
-    /** 分隔线（原版字面量 0xFFEFEFF4）：现代深灰（与设置行分隔线现代值一致） */
+        get() = if (modern) Color(0x99FFFFFF) else Color(0xFF8E8E93)
+    /** 分隔线（原版字面量 0xFFEFEFF4）：现代深灰（与设置行分隔线现代值一致）；渐变沿用原版 */
     val Divider: Color
-        get() = if (modern || gradientDark) Color(0xFF2A2E36) else Color(0xFFEFEFF4)
+        get() = if (modern) Color(0xFF2A2E36) else Color(0xFFEFEFF4)
 }
 
 /** 红心 vector 图标（对齐 Android ic_heart_red，#F44336） */
@@ -3867,7 +3868,7 @@ private fun DetailSingleChoiceDialog(
             Column {
                 Text(
                     title,
-                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = GomeTheme.TextPrimary,
+                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = GomeTheme.DialogText,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(GomeTheme.Divider))
@@ -3878,11 +3879,11 @@ private fun DetailSingleChoiceDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            name, fontSize = 15.sp, color = GomeTheme.TextPrimary,
+                            name, fontSize = 15.sp, color = GomeTheme.DialogText,
                             modifier = Modifier.weight(1f)
                         )
                         if (idx == selected) {
-                            Text("✓", fontSize = 18.sp, color = GomeTheme.Accent, fontWeight = FontWeight.Bold)
+                            Text("✓", fontSize = 18.sp, color = if (GomeTheme.modern) GomeTheme.Accent else Color(0xFF2F6FED), fontWeight = FontWeight.Bold)
                         }
                     }
                     if (idx < names.size - 1) {
@@ -4571,7 +4572,7 @@ fun DetailScreen(
                             Text(
                                 it.overview,
                                 fontSize = 14.sp,
-                                color = GomeTheme.TextPrimary,
+                                color = GomeTheme.DialogText,
                                 lineHeight = 20.sp
                             )
                         }
