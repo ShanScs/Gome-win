@@ -88,15 +88,16 @@ object EmbyImageLoader {
      * 海报主色相：先取底部 20%（背景接在海报底边，底色跟底边走才没有缝）；
      * 底部没颜色再取整张（人脸头发的暖色多在海报中间，底部取不到时靠整张兜底）；
      * 整张也没颜色就是黑白海报，返回 null。
-     * 黑白灰不算颜色：过暗/过亮像素跳过，饱和度低于 0.25 的带色偏灰像素也跳过；
-     * 有效色点太少（少于 8 个或饱和度权重和小于 2）也算没颜色。
+     * 黑白灰不算颜色：过暗（黑与暗阴影，亮度低于 100 的色偏只是阴影的色调）/过亮像素跳过，
+     * 饱和度低于 0.25 的带色偏灰像素也跳过；底部那条有效色点太少（少于 24 个）也算没颜色，
+     * 免得几个阴影杂点就定了整页的色；整张有效色点少于 8 个才算没颜色。
      */
     private fun posterHue(bmp: ImageBitmap): Float? {
-        return sampleHue(bmp, 0.8f, 1.0f, 8, 2) ?: sampleHue(bmp, 0.0f, 1.0f, 8, 8)
+        return sampleHue(bmp, 0.8f, 1.0f, 8, 2, 24) ?: sampleHue(bmp, 0.0f, 1.0f, 8, 8, 8)
     }
 
     /** 在 yFrom 到 yTo 的竖条里采样色相（cols 列 x rows 行小块，每块 4x4 像素），按饱和度加权环形平均；没颜色返回 null。 */
-    private fun sampleHue(bmp: ImageBitmap, yFrom: Float, yTo: Float, cols: Int, rows: Int): Float? {
+    private fun sampleHue(bmp: ImageBitmap, yFrom: Float, yTo: Float, cols: Int, rows: Int, minCount: Int): Float? {
         val w = bmp.width
         val h = bmp.height
         if (w < 8 || h < 32) return null
@@ -121,7 +122,7 @@ object EmbyImageLoader {
                     val b = px and 0xFF
                     val mx = maxOf(r, g, b)
                     val mn = minOf(r, g, b)
-                    if (mx < 24 || mn > 235) continue
+                    if (mx < 100 || mn > 235) continue
                     val sat = if (mx == 0) 0f else (mx - mn).toFloat() / mx
                     if (sat < 0.25f) continue
                     val hue = rgbHue(r, g, b)
@@ -134,7 +135,7 @@ object EmbyImageLoader {
                 }
             }
         }
-        if (count < 8 || wsum < 2.0) return null
+        if (count < minCount || wsum < 2.0) return null
         var hue = Math.toDegrees(Math.atan2(sy, sx)).toFloat()
         if (hue < 0f) hue += 360f
         return hue
