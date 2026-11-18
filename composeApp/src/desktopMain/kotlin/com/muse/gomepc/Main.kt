@@ -465,6 +465,11 @@ fun GomeApp(
             )
         )
     }
+    // 渐变主题：非海报屏（设置/媒体库/搜索/收藏/继续观看）一律按浅底算，文字卡片等用原版值；
+    // 主页/详情页由各自的滚动进度设置（见 HomeScreen/DetailScreen）
+    if (GomeTheme.gradient && screen !is Screen.Home && screen !is Screen.Detail) {
+        androidx.compose.runtime.SideEffect { GomeTheme.setGradientLight(true) }
+    }
     BoxWithConstraints(Modifier.fillMaxSize().background(GomeTheme.Bg)) {
         Box(Modifier.fillMaxSize()) {
             backgroundContent()
