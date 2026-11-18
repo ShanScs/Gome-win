@@ -141,7 +141,7 @@ object GomeTheme {
     private val gradientDark: Boolean
         get() = gradient && !gradientLight
 
-    fun setGradientLight(light: Boolean) { gradientLight = light }
+    fun updateGradientLight(light: Boolean) { gradientLight = light }
 
     /** 应用主题并持久化："modern"=现代，"gradient"=渐变，其余=原版 */
     fun applyTheme(value: String) {
@@ -521,7 +521,7 @@ fun HomeScreen(
             // 滚出第一屏后背景从海报色淡到原版浅底（第一屏内不变）；文字随背景深浅自动切换
             val homeListState = listState ?: rememberLazyListState()
             val homeFade = rememberScrollFadeProgress(homeListState)
-            androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.setGradientLight(homeFade > 0.5f) }
+            androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.updateGradientLight(homeFade > 0.5f) }
             val lightBg = Color(0xFFF5F6F8) // 原版浅底
             val bgHomeC1 = androidx.compose.ui.graphics.lerp(animHomeC1, lightBg, homeFade)
             val bgHomeC2 = androidx.compose.ui.graphics.lerp(animHomeC2, lightBg, homeFade)
@@ -4036,7 +4036,7 @@ fun DetailScreen(
     // 滚出第一屏后背景从海报色淡到原版浅底（第一屏内不变）；文字随背景深浅自动切换
     val detailListState = rememberLazyListState()
     val detailFade = rememberScrollFadeProgress(detailListState)
-    androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.setGradientLight(detailFade > 0.5f) }
+    androidx.compose.runtime.SideEffect { if (GomeTheme.gradient) GomeTheme.updateGradientLight(detailFade > 0.5f) }
     val bgDetailC1 = androidx.compose.ui.graphics.lerp(animDetailC1, Color(0xFFF5F6F8), detailFade)
     val bgDetailC2 = androidx.compose.ui.graphics.lerp(animDetailC2, Color(0xFFF5F6F8), detailFade)
     // 选中的剧集索引（点击选集只选中加框，不进播放器；点播放按钮才进）
