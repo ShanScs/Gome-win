@@ -581,7 +581,7 @@ object YambyClient {
     }
 
     suspend fun getItem(id: String, mediaSourceId: String = ""): Item {
-        val u = url("/Users/${Prefs.userId}/Items/$id", "Fields=Overview,ProductionYear,RunTimeTicks,People,Genres,ChildCount,CommunityRating,SeriesName,Status,UserData")
+        val u = url("/Users/${Prefs.userId}/Items/$id", "Fields=Overview,ProductionYear,RunTimeTicks,People,Genres,ChildCount,CommunityRating,SeriesName,Status,UserData,BackdropImageTags")
         val o = getJson(u, "获取详情")
         return parseItem(o, mediaSourceId)
     }

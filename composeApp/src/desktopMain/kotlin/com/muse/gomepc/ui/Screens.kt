@@ -4043,23 +4043,9 @@ fun DetailScreen(
     }
     // 海报没取到色（黑白海报）时用浅灰底，不再瞎给一个颜色
     val detailGrad = if (GomeTheme.gradient && headerHueDone) headerHue?.let { gradientBgColors(it) } ?: gradientGrayColors() else null
-    // 相册：剧照（Backdrop 各张）+ 竖版海报，按原宽高横排（像手机端“相册”）；只显示加载成功的，没有的直接不出现
+    // 相册：剧照（Backdrop 各张）+ 竖版海报，按原宽高横排；
+    // 只显示加载成功的，没有的直接不出现；同一张图（内容相同）只显示一次
     var albumBitmaps by remember(itemId) { mutableStateOf<List<Pair<String, ImageBitmap>>>(emptyList()) }
-    LaunchedEffect(item) {
-        val it = item
-        if (it == null) {
-            albumBitmaps = emptyList()
-        } else {
-            val urls = mutableListOf<String>()
-            for (i in 0 until it.backdropCount.coerceAtMost(10)) urls += YambyClient.imageUrl(it.id, "Backdrop", 800, index = i)
-            urls += YambyClient.imageUrl(it.id, "Primary", 800)
-            val bmps = mutableListOf<Pair<String, ImageBitmap>>()
-            for (u in urls.distinct()) {
-                EmbyImageLoader.load(u)?.let { bmps += u to it }
-            }
-            albumBitmaps = bmps
-        }
-    }
     val animDetailC1 by androidx.compose.animation.animateColorAsState(detailGrad?.first ?: GomeTheme.Bg)
     val animDetailC2 by androidx.compose.animation.animateColorAsState(detailGrad?.second ?: GomeTheme.Bg)
     // 滚出第一屏后背景从海报色淡到原版浅底（第一屏内不变）；文字随背景深浅自动切换
@@ -4106,6 +4092,24 @@ fun DetailScreen(
             val it = item!!
             val eps = seasonEps ?: epData!!.episodes
             val seasons = epData!!.seasons
+            // 相册：剧照 + 竖版海报，按原宽高横排（像手机端“相册”）
+            LaunchedEffect(item, eps) {
+                val series = item
+                if (series == null) {
+                    albumBitmaps = emptyList()
+                } else {
+                    val urls = mutableListOf<String>()
+                    for (i in 0 until series.backdropCount.coerceAtMost(10)) urls += YambyClient.imageUrl(series.id, "Backdrop", 800, index = i)
+                    urls += YambyClient.imageUrl(series.id, "Primary", 800)
+                    val bmps = mutableListOf<Pair<String, ImageBitmap>>()
+                    for (u in urls.distinct()) {
+                        val bmp = EmbyImageLoader.load(u) ?: continue
+                        if (bmps.any { it.second === bmp }) continue
+                        bmps += u to bmp
+                    }
+                    albumBitmaps = bmps
+                }
+            }
             // 进入详情页时，自动选中当前有进度的那集（没有则第一集）；只做一次
             LaunchedEffect(eps) {
                 if (!autoSelected && eps.isNotEmpty()) {
