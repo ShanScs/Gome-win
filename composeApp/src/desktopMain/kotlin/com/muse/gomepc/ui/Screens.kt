@@ -4092,15 +4092,18 @@ fun DetailScreen(
             val it = item!!
             val eps = seasonEps ?: epData!!.episodes
             val seasons = epData!!.seasons
-            // 相册：剧照 + 竖版海报，按原宽高横排（像手机端“相册”）
+            // 相册：剧照 + 竖版海报 + 第一集的 Primary，按原宽高横排（像手机端“相册”）
             LaunchedEffect(item, eps) {
                 val series = item
                 if (series == null) {
                     albumBitmaps = emptyList()
                 } else {
                     val urls = mutableListOf<String>()
-                    for (i in 0 until series.backdropCount.coerceAtMost(10)) urls += YambyClient.imageUrl(series.id, "Backdrop", 800, index = i)
+                    // 剧照直接按序号取 0..9，不依赖数量（数量可能读不到）
+                    for (i in 0 until 10) urls += YambyClient.imageUrl(series.id, "Backdrop", 800, index = i)
                     urls += YambyClient.imageUrl(series.id, "Primary", 800)
+                    // 第一集的 Primary 也放进相册
+                    eps.firstOrNull()?.let { urls += YambyClient.imageUrl(it.id, "Primary", 800) }
                     val bmps = mutableListOf<Pair<String, ImageBitmap>>()
                     for (u in urls.distinct()) {
                         val bmp = EmbyImageLoader.load(u) ?: continue

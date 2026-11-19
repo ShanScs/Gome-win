@@ -238,6 +238,7 @@ class MpvPlayer : Closeable {
         optChecked("msg-level", "all=warn")                   // 默认 warn，避免日志洪泛
         optChecked("terminal", "no")
         optChecked("tls-verify", "yes")                       // 默认校验 TLS，不全局关闭
+        optChecked("user-agent", "Yamby/1.0")                 // 与 API 客户端同名：服务器放行 Yamby/1.0，mpv 默认 UA 会被拦截导致流加载失败
         optChecked("input-cursor", "no")
         optChecked("input-vo-keyboard", "no")
         optChecked("input-default-bindings", "no")
